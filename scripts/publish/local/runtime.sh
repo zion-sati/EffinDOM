@@ -10,3 +10,4 @@ log_step "Running @effindomv2/runtime publish checks"
 run_in_dir "${PACKAGE_DIR}" npm run typecheck
 run_in_dir "${PACKAGE_DIR}" npm run build:package
 run_in_dir "${PACKAGE_DIR}" npm pack --dry-run >/dev/null
+stage_local_package "${PACKAGE_DIR}"
