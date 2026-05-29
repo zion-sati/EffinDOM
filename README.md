@@ -13,7 +13,8 @@ This runtime repo is MIT licensed. See `LICENSE.md`.
 
 ```bash
 npm install
-npm run typecheck
 npm run build
 npm run publish:local
 ```
+
+`npm run build` bootstraps Skia (if needed), type-checks, builds and stages runtime assets (including the manifest and bundled runtime fonts), and validates npm packability with a dry run.

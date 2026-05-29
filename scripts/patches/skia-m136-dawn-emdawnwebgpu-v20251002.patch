@@ -1,0 +1,297 @@
+diff --git a/src/gpu/graphite/dawn/DawnBuffer.cpp b/src/gpu/graphite/dawn/DawnBuffer.cpp
+index 2f47165fb5..f919b4d423 100644
+--- a/src/gpu/graphite/dawn/DawnBuffer.cpp
++++ b/src/gpu/graphite/dawn/DawnBuffer.cpp
+@@ -16,46 +16,35 @@
+ namespace skgpu::graphite {
+ namespace {
+ #if defined(__EMSCRIPTEN__)
+-bool is_map_succeeded(WGPUBufferMapAsyncStatus status) {
+-    return status == WGPUBufferMapAsyncStatus_Success;
++bool is_map_succeeded(wgpu::MapAsyncStatus status) {
++    return status == wgpu::MapAsyncStatus::Success;
+ }
+ 
+ [[maybe_unused]]
+-void log_map_error(WGPUBufferMapAsyncStatus status, const char*) {
++void log_map_error(wgpu::MapAsyncStatus status, wgpu::StringView message) {
+     const char* statusStr;
+     LogPriority priority = LogPriority::kError;
+     switch (status) {
+-        case WGPUBufferMapAsyncStatus_ValidationError:
+-            statusStr = "ValidationError";
+-            break;
+-        case WGPUBufferMapAsyncStatus_Unknown:
+-            statusStr = "Unknown";
+-            break;
+-        case WGPUBufferMapAsyncStatus_DeviceLost:
+-            statusStr = "DeviceLost";
+-            break;
+-        case WGPUBufferMapAsyncStatus_DestroyedBeforeCallback:
+-            statusStr = "DestroyedBeforeCallback";
+-            priority = LogPriority::kDebug;
+-            break;
+-        case WGPUBufferMapAsyncStatus_UnmappedBeforeCallback:
+-            statusStr = "UnmappedBeforeCallback";
++        case wgpu::MapAsyncStatus::CallbackCancelled:
++            statusStr = "CallbackCancelled";
+             priority = LogPriority::kDebug;
+             break;
+-        case WGPUBufferMapAsyncStatus_MappingAlreadyPending:
+-            statusStr = "MappingAlreadyPending";
+-            break;
+-        case WGPUBufferMapAsyncStatus_OffsetOutOfRange:
+-            statusStr = "OffsetOutOfRange";
++        case wgpu::MapAsyncStatus::Error:
++            statusStr = "Error";
+             break;
+-        case WGPUBufferMapAsyncStatus_SizeOutOfRange:
+-            statusStr = "SizeOutOfRange";
++        case wgpu::MapAsyncStatus::Aborted:
++            statusStr = "Aborted";
++            priority = LogPriority::kDebug;
+             break;
+         default:
+             statusStr = "<other>";
+             break;
+     }
+-    SKGPU_LOG(priority, "Buffer async map failed with status %s.", statusStr);
++    SKGPU_LOG(priority,
++              "Buffer async map failed with status %s, message '%.*s'.",
++              statusStr,
++              static_cast<int>(message.length),
++              message.data);
+ }
+ 
+ #else
+@@ -241,9 +230,9 @@ void DawnBuffer::onAsyncMap(GpuFinishedProc proc, GpuFinishedContext ctx) {
+             isWrite ? wgpu::MapMode::Write : wgpu::MapMode::Read,
+             0,
+             fBuffer.GetSize(),
+-            [](WGPUBufferMapAsyncStatus s, void* userData) {
+-                sk_sp<DawnBuffer> buffer(static_cast<DawnBuffer*>(userData));
+-                buffer->mapCallback(s, /*message=*/nullptr);
++            wgpu::CallbackMode::AllowSpontaneous,
++            [](wgpu::MapAsyncStatus s, wgpu::StringView m, DawnBuffer* buf) {
++                buf->mapCallback(s, m);
+             },
+             buffer.release());
+ }
+diff --git a/src/gpu/graphite/dawn/DawnCaps.cpp b/src/gpu/graphite/dawn/DawnCaps.cpp
+index 3358904098..eaa8fc4942 100644
+--- a/src/gpu/graphite/dawn/DawnCaps.cpp
++++ b/src/gpu/graphite/dawn/DawnCaps.cpp
+@@ -442,11 +442,9 @@ void DawnCaps::initCaps(const DawnBackendContext& backendContext, const ContextO
+ #endif // defined(__EMSCRIPTEN__)
+ 
+ #if defined(__EMSCRIPTEN__)
+-    wgpu::SupportedLimits supportedLimits;
+-    // TODO(crbug.com/42241199): Update to use wgpu::Status when webgpu.h in Emscripten is updated.
+-    [[maybe_unused]] bool limitsSucceeded = backendContext.fDevice.GetLimits(&supportedLimits);
+-    SkASSERT(limitsSucceeded);
+-    wgpu::Limits& limits = supportedLimits.limits;
++    wgpu::Limits limits;
++    [[maybe_unused]] wgpu::Status limitsSucceeded = backendContext.fDevice.GetLimits(&limits);
++    SkASSERT(limitsSucceeded == wgpu::Status::Success);
+ #else
+     wgpu::Limits limits;
+     wgpu::DawnTexelCopyBufferRowAlignmentLimits alignmentLimits{};
+diff --git a/src/gpu/graphite/dawn/DawnCommandBuffer.cpp b/src/gpu/graphite/dawn/DawnCommandBuffer.cpp
+index 331794336a..87e573a09b 100644
+--- a/src/gpu/graphite/dawn/DawnCommandBuffer.cpp
++++ b/src/gpu/graphite/dawn/DawnCommandBuffer.cpp
+@@ -26,11 +26,6 @@
+ 
+ #if defined(__EMSCRIPTEN__)
+ #include <emscripten/version.h>
+-
+-namespace wgpu {
+-using TexelCopyBufferInfo = ImageCopyBuffer;
+-using TexelCopyTextureInfo = ImageCopyTexture;
+-}  // namespace wgpu
+ #endif
+ 
+ namespace skgpu::graphite {
+@@ -310,7 +305,7 @@ bool DawnCommandBuffer::beginRenderPass(const RenderPassDesc& renderPassDesc,
+ 
+ #if WGPU_TIMESTAMP_WRITES_DEFINED
+ #if defined(__EMSCRIPTEN__)
+-    wgpu::RenderPassTimestampWrites wgpuTimestampWrites;
++    wgpu::PassTimestampWrites wgpuTimestampWrites;
+ #else
+     wgpu::PassTimestampWrites wgpuTimestampWrites;
+ #endif
+@@ -1024,7 +1019,7 @@ void DawnCommandBuffer::beginComputePass() {
+     wgpu::ComputePassDescriptor wgpuComputePassDescriptor = {};
+ #if WGPU_TIMESTAMP_WRITES_DEFINED
+ #if defined(__EMSCRIPTEN__)
+-    wgpu::ComputePassTimestampWrites wgpuTimestampWrites;
++    wgpu::PassTimestampWrites wgpuTimestampWrites;
+ #else
+     wgpu::PassTimestampWrites wgpuTimestampWrites;
+ #endif
+diff --git a/src/gpu/graphite/dawn/DawnErrorChecker.cpp b/src/gpu/graphite/dawn/DawnErrorChecker.cpp
+index 8965f5a028..6b6853efc6 100644
+--- a/src/gpu/graphite/dawn/DawnErrorChecker.cpp
++++ b/src/gpu/graphite/dawn/DawnErrorChecker.cpp
+@@ -53,12 +53,17 @@ SkEnumBitMask<DawnErrorType> DawnErrorChecker::popErrorScopes() {
+                 , fWait(sharedContext) {}
+     } errorState(fSharedContext);
+ 
+-    wgpu::ErrorCallback errorCallback = [](WGPUErrorType status, const char* msg, void* userData) {
+-        ErrorState* errorState = static_cast<ErrorState*>(userData);
+-        if (status != WGPUErrorType_NoError) {
++    auto errorCallback = [](wgpu::PopErrorScopeStatus status,
++                            wgpu::ErrorType type,
++                            wgpu::StringView msg,
++                            ErrorState* errorState) {
++        if (status == wgpu::PopErrorScopeStatus::Success && type != wgpu::ErrorType::NoError) {
+             SkASSERT(errorState->fScopeIdx >= 0);
+             const char* errorScopeName = kErrorScopeNames[errorState->fScopeIdx];
+-            SKGPU_LOG_E("Failed in error scope (%s): %s", errorScopeName, msg);
++            SKGPU_LOG_E("Failed in error scope (%s): %.*s",
++                        errorScopeName,
++                        static_cast<int>(msg.length),
++                        msg.data);
+             errorState->fError |= kErrorScopeTypes[errorState->fScopeIdx];
+         }
+         errorState->fScopeIdx--;
+@@ -67,17 +72,20 @@ SkEnumBitMask<DawnErrorType> DawnErrorChecker::popErrorScopes() {
+ 
+     // Pop all three error scopes:
+     // Internal
+-    fSharedContext->device().PopErrorScope(errorCallback, &errorState);
++    fSharedContext->device().PopErrorScope(
++            wgpu::CallbackMode::AllowSpontaneous, errorCallback, &errorState);
+     errorState.fWait.busyWait();
+     errorState.fWait.reset();
+ 
+     // OutOfMemory
+-    fSharedContext->device().PopErrorScope(errorCallback, &errorState);
++    fSharedContext->device().PopErrorScope(
++            wgpu::CallbackMode::AllowSpontaneous, errorCallback, &errorState);
+     errorState.fWait.busyWait();
+     errorState.fWait.reset();
+ 
+     // Validation
+-    fSharedContext->device().PopErrorScope(errorCallback, &errorState);
++    fSharedContext->device().PopErrorScope(
++            wgpu::CallbackMode::AllowSpontaneous, errorCallback, &errorState);
+     errorState.fWait.busyWait();
+ #else
+     struct ErrorState {
+diff --git a/src/gpu/graphite/dawn/DawnGraphicsPipeline.cpp b/src/gpu/graphite/dawn/DawnGraphicsPipeline.cpp
+index 7bae71de65..33e47a0ac6 100644
+--- a/src/gpu/graphite/dawn/DawnGraphicsPipeline.cpp
++++ b/src/gpu/graphite/dawn/DawnGraphicsPipeline.cpp
+@@ -607,7 +607,7 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
+         } else {
+             layout.arrayStride = 0;
+ #if defined(__EMSCRIPTEN__)
+-            layout.stepMode = wgpu::VertexStepMode::VertexBufferNotUsed;
++            layout.stepMode = wgpu::VertexStepMode::Undefined;
+ #else
+             layout.stepMode = wgpu::VertexStepMode::Undefined;
+ #endif
+@@ -631,7 +631,7 @@ sk_sp<DawnGraphicsPipeline> DawnGraphicsPipeline::Make(
+         } else {
+             layout.arrayStride = 0;
+ #if defined(__EMSCRIPTEN__)
+-            layout.stepMode = wgpu::VertexStepMode::VertexBufferNotUsed;
++            layout.stepMode = wgpu::VertexStepMode::Undefined;
+ #else
+             layout.stepMode = wgpu::VertexStepMode::Undefined;
+ #endif
+diff --git a/src/gpu/graphite/dawn/DawnGraphiteUtils.cpp b/src/gpu/graphite/dawn/DawnGraphiteUtils.cpp
+index 383805dc21..e1692d297f 100644
+--- a/src/gpu/graphite/dawn/DawnGraphiteUtils.cpp
++++ b/src/gpu/graphite/dawn/DawnGraphiteUtils.cpp
+@@ -197,8 +197,18 @@ static bool check_shader_module([[maybe_unused]] const DawnSharedContext* shared
+     handler.fShaderText = shaderText;
+     handler.fErrorHandler = errorHandler;
+ #if defined(__EMSCRIPTEN__)
+-    // Deprecated function.
+-    module->GetCompilationInfo(&Handler::Fn, &handler);
++    // New async API using DawnAsyncWait for WASM event-loop compatibility.
++    DawnAsyncWait waitHandle(sharedContext);
++    module->GetCompilationInfo(
++            wgpu::CallbackMode::AllowSpontaneous,
++            [handlerPtr = &handler, &waitHandle](wgpu::CompilationInfoRequestStatus status,
++                                                 const wgpu::CompilationInfo* info) {
++                Handler::Fn(static_cast<WGPUCompilationInfoRequestStatus>(status),
++                            reinterpret_cast<const WGPUCompilationInfo*>(info),
++                            handlerPtr);
++                waitHandle.signal();
++            });
++    waitHandle.busyWait();
+ #else
+     // New API.
+     wgpu::FutureWaitInfo waitInfo{};
+@@ -230,7 +240,7 @@ bool DawnCompileWGSLShaderModule(const DawnSharedContext* sharedContext,
+                                  wgpu::ShaderModule* module,
+                                  ShaderErrorHandler* errorHandler) {
+ #if defined(__EMSCRIPTEN__)
+-    wgpu::ShaderModuleWGSLDescriptor wgslDesc;
++    wgpu::ShaderSourceWGSL wgslDesc;
+ #else
+     wgpu::ShaderSourceWGSL wgslDesc;
+ #endif
+diff --git a/src/gpu/graphite/dawn/DawnQueueManager.cpp b/src/gpu/graphite/dawn/DawnQueueManager.cpp
+index 946c697cb2..7d2da7a939 100644
+--- a/src/gpu/graphite/dawn/DawnQueueManager.cpp
++++ b/src/gpu/graphite/dawn/DawnQueueManager.cpp
+@@ -37,12 +37,9 @@ DawnWorkSubmissionWithAsyncWait::DawnWorkSubmissionWithAsyncWait(
+         const DawnSharedContext* sharedContext)
+         : GpuWorkSubmission(std::move(cmdBuffer), queueManager), fAsyncWait(sharedContext) {
+     queueManager->dawnQueue().OnSubmittedWorkDone(
+-            // This is parameter is being removed:
+-            // https://github.com/webgpu-native/webgpu-headers/issues/130
+-            /*signalValue=*/0,
+-            [](WGPUQueueWorkDoneStatus, void* userData) {
+-                auto asyncWaitPtr = static_cast<DawnAsyncWait*>(userData);
+-                asyncWaitPtr->signal();
++            wgpu::CallbackMode::AllowSpontaneous,
++            [](wgpu::QueueWorkDoneStatus, wgpu::StringView, DawnAsyncWait* asyncWait) {
++                asyncWait->signal();
+             },
+             &fAsyncWait);
+ }
+diff --git a/src/gpu/graphite/dawn/DawnResourceProvider.cpp b/src/gpu/graphite/dawn/DawnResourceProvider.cpp
+index 8eab40442a..3ea44bc1ac 100644
+--- a/src/gpu/graphite/dawn/DawnResourceProvider.cpp
++++ b/src/gpu/graphite/dawn/DawnResourceProvider.cpp
+@@ -36,7 +36,7 @@ constexpr int kMaxNumberOfCachedTextureBindGroups = 4096;
+ 
+ wgpu::ShaderModule create_shader_module(const wgpu::Device& device, const char* source) {
+ #if defined(__EMSCRIPTEN__)
+-    wgpu::ShaderModuleWGSLDescriptor wgslDesc;
++    wgpu::ShaderSourceWGSL wgslDesc;
+ #else
+     wgpu::ShaderSourceWGSL wgslDesc;
+ #endif
+diff --git a/src/gpu/graphite/dawn/DawnSharedContext.cpp b/src/gpu/graphite/dawn/DawnSharedContext.cpp
+index 089daba7c7..70d30461b3 100644
+--- a/src/gpu/graphite/dawn/DawnSharedContext.cpp
++++ b/src/gpu/graphite/dawn/DawnSharedContext.cpp
+@@ -20,7 +20,7 @@ namespace {
+ 
+ wgpu::ShaderModule CreateNoopFragment(const wgpu::Device& device) {
+ #if defined(__EMSCRIPTEN__)
+-    wgpu::ShaderModuleWGSLDescriptor wgslDesc;
++    wgpu::ShaderSourceWGSL wgslDesc;
+ #else
+     wgpu::ShaderSourceWGSL wgslDesc;
+ #endif
+diff --git a/src/sksl/codegen/SkSLWGSLCodeGenerator.cpp b/src/sksl/codegen/SkSLWGSLCodeGenerator.cpp
+index 9cb0816..0375895 100644
+--- a/src/sksl/codegen/SkSLWGSLCodeGenerator.cpp
++++ b/src/sksl/codegen/SkSLWGSLCodeGenerator.cpp
+@@ -1655,7 +1655,7 @@ void WGSLCodeGenerator::writeUserDefinedIODecl(const Layout& layout,
+         // avoid any expensive shader or data rewriting to ensure 'first'. Skia has a long-standing
+         // policy to only use flat shading when it's constant for a primitive so the vertex doesn't
+         // matter. See https://www.w3.org/TR/WGSL/#interpolation-sampling-either
+-        this->write("@interpolate(flat, either) ");
++        this->write("@interpolate(flat) ");
+     } else if (flags & ModifierFlag::kNoPerspective) {
+         this->write("@interpolate(linear) ");
+     }

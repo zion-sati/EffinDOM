@@ -173,12 +173,26 @@ echo
 
 mkdir -p "$WORK_DIR"
 PREP_LOCK_DIR="${WORK_DIR}/.skia-source-lock"
-
+PREP_LOCK_WAIT_SECONDS="${SKIA_PREP_LOCK_WAIT_SECONDS:-300}"
+LOCK_WAITED=0
 while ! mkdir "${PREP_LOCK_DIR}" 2>/dev/null; do
+  if [ "${LOCK_WAITED}" -eq 0 ]; then
+    yellow "-- Another Skia build prep is holding ${PREP_LOCK_DIR}; waiting up to ${PREP_LOCK_WAIT_SECONDS}s..."
+  fi
+  if [ "${LOCK_WAITED}" -ge "${PREP_LOCK_WAIT_SECONDS}" ]; then
+    red "ERROR: Timed out waiting for Skia prep lock: ${PREP_LOCK_DIR}"
+    echo "  If no other build is running, clear stale lock and retry:"
+    echo "    rm -rf ${PREP_LOCK_DIR}"
+    echo "  Override wait timeout with SKIA_PREP_LOCK_WAIT_SECONDS=<seconds>."
+    exit 1
+  fi
   sleep 1
+  LOCK_WAITED=$((LOCK_WAITED + 1))
 done
+printf '%s\n' "$$" > "${PREP_LOCK_DIR}/owner.pid"
 
 cleanup_prepare_lock() {
+  rm -f "${PREP_LOCK_DIR}/owner.pid" >/dev/null 2>&1 || true
   rmdir "${PREP_LOCK_DIR}" >/dev/null 2>&1 || true
 }
 
@@ -190,15 +204,16 @@ if [ ! -d "$DEPOT_TOOLS_DIR" ]; then
   bold "-- Cloning depot_tools..."
   if [ -n "$DEPOT_TOOLS_COMMIT" ]; then
     # Full clone so we can check out the pinned commit.
-    git clone https://chromium.googlesource.com/chromium/tools/depot_tools.git \
-      "$DEPOT_TOOLS_DIR"
+    GIT_TRACE=1 git clone --verbose https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+      "$DEPOT_TOOLS_DIR" 2>&1 | while IFS= read -r line; do echo "   $line"; done
     git -C "$DEPOT_TOOLS_DIR" checkout "$DEPOT_TOOLS_COMMIT"
     bold "   Pinned depot_tools to: $DEPOT_TOOLS_COMMIT"
   else
     # No pin requested — use a shallow clone of HEAD.
-    git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git \
-      "$DEPOT_TOOLS_DIR"
+    GIT_TRACE=1 git clone --verbose --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+      "$DEPOT_TOOLS_DIR" 2>&1 | while IFS= read -r line; do echo "   $line"; done
   fi
+  bold "   depot_tools cloned successfully"
 fi
 export PATH="$DEPOT_TOOLS_DIR:$PATH"
 
@@ -236,16 +251,17 @@ bold "   webgpu_cpp : $EMDAWN_WEBGPU_CPP_INC"
 # ── Step 2: Skia source ───────────────────────────────────────────────────────
 SKIA_DIR="$WORK_DIR/skia"
 if [ ! -d "$SKIA_DIR" ]; then
-  bold "-- Cloning Skia..."
-  git clone https://skia.googlesource.com/skia.git "$SKIA_DIR"
+  bold "-- Cloning Skia (large repo, ~3-5 min on first run)..."
+  GIT_TRACE=1 git clone --verbose https://skia.googlesource.com/skia.git "$SKIA_DIR" 2>&1 | while IFS= read -r line; do echo "   $line"; done
+  bold "   Skia cloned successfully"
 fi
 cd "$SKIA_DIR"
 
 bold "-- Checking out revision: $SKIA_REVISION"
-git fetch origin "$SKIA_REVISION"
+GIT_TRACE=1 git fetch origin "$SKIA_REVISION" 2>&1 | while IFS= read -r line; do echo "   $line"; done
 git checkout FETCH_HEAD
 
-bold "-- Syncing Skia dependencies (python3 tools/git-sync-deps)..."
+bold "-- Syncing Skia dependencies (this may take 5-10 minutes)..."
 python3 tools/git-sync-deps
 
 # ── Step 2b: Apply compatibility patches ──────────────────────────────────────
@@ -439,22 +455,28 @@ if [ "$FORCE" = true ] && [ -d "$BIN_DIR" ]; then
   bold "-- Cleaning stale build output: $BIN_DIR"
   rm -rf "$BIN_DIR"
 fi
-bin/gn gen "$BIN_DIR" --args="$GN_ARGS"
+bold "   Running GN configure..."
+bin/gn gen "$BIN_DIR" --args="$GN_ARGS" 2>&1 | while IFS= read -r line; do echo "   $line"; done
+bold "   GN configure completed"
 
 # ── Step 4: Build ──────────────────────────────────────────────────────────────
-bold "-- Building libskia.a and libsvg.a (this takes ~30-60 minutes on first run)..."
-ninja -C "$BIN_DIR" skia
-ninja -C "$BIN_DIR" svg
+bold "-- Building libskia.a and libsvg.a (this takes 30-60 minutes on first run)..."
+bold "   Building Skia (wasm-graphite)..."
+ninja -C "$BIN_DIR" -v skia 2>&1 | grep -E '(Ninja|error|warning|\[.*\])' | while IFS= read -r line; do echo "   $line"; done
+bold "   Building SVG support..."
+ninja -C "$BIN_DIR" -v svg 2>&1 | grep -E '(Ninja|error|warning|\[.*\])' | while IFS= read -r line; do echo "   $line"; done
 
 # ── Step 5: Stage into SKIA_WASM_DIR ─────────────────────────────────────────
 bold "-- Staging output into $STAGING..."
 rm -rf "$STAGING"
 mkdir -p "$STAGING/include"
 
+bold "   Copying libraries..."
 cp "$BIN_DIR/libskia.a"           "$STAGING/"
 cp "$BIN_DIR/libsvg.a"            "$STAGING/"
 cp "$BIN_DIR/libskshaper.a"       "$STAGING/"
 
+bold "   Copying headers..."
 for subdir in core effects gpu ports private config; do
   if [ -d "include/$subdir" ]; then
     cp -r "include/$subdir" "$STAGING/include/"
