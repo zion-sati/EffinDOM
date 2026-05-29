@@ -1,0 +1,303 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EffinDom v2 Core Smoke Harness</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      gap: 12px;
+    }
+    canvas {
+      border: 1px solid #334155;
+      border-radius: 12px;
+      image-rendering: pixelated;
+      box-shadow: 0 20px 40px rgba(15, 23, 42, 0.35);
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="fui-canvas"></canvas>
+  <script>
+    (function () {
+      const logicalWidth = 320;
+      const logicalHeight = 220;
+      const dpr = Math.max(1, window.devicePixelRatio || 1);
+      const canvas = document.getElementById('fui-canvas');
+      canvas.width = Math.round(logicalWidth * dpr);
+      canvas.height = Math.round(logicalHeight * dpr);
+      canvas.style.width = logicalWidth + 'px';
+      canvas.style.height = logicalHeight + 'px';
+
+      window.__effindomV2Ready = false;
+      window.__effindomV2LastHit = 0;
+      window.__effindomV2Backend = 'none';
+      const ED_BACKEND_NONE = 0;
+      const ED_BACKEND_WEBGPU = 1;
+      const ED_BACKEND_WEBGL2 = 2;
+      const ED_BACKEND_CPU = 3;
+      const ED_DEVICE_RECOVERING = 2;
+      let softwareCanvas = null;
+      let softwareContext = null;
+
+      function floatBits(value) {
+        const buffer = new ArrayBuffer(4);
+        const view = new DataView(buffer);
+        view.setFloat32(0, value, true);
+        return view.getUint32(0, true);
+      }
+
+      function handle(index, generation) {
+        return (BigInt(generation >>> 0) << 32n) | BigInt(index >>> 0);
+      }
+
+      function pushHandle(words, value) {
+        words.push(Number(value & 0xffffffffn) >>> 0);
+        words.push(Number((value >> 32n) & 0xffffffffn) >>> 0);
+      }
+
+      const CMD_CREATE_NODE = 1;
+      const CMD_SET_BOUNDS = 10;
+      const CMD_SET_BOX_STYLE = 20;
+      const CMD_SET_LINEAR_GRADIENT = 22;
+      const CMD_SET_SVG = 33;
+      const CMD_COMMIT_PAINT_ORDER = 98;
+      const CMD_COMMIT_SCENE = 99;
+
+      const OP_DRAW_NODE = 1;
+
+      const ED_BOUNDS_FLAG_INTERACTIVE = 1 << 0;
+      const ED_CLIP_MODE_RASTER_SAFE_VISUAL = 0;
+      const ED_BOUNDS_CLIP_MODE_SHIFT = 1;
+      const ED_BOUNDS_CLIP_MODE_MASK = 0x3 << ED_BOUNDS_CLIP_MODE_SHIFT;
+
+      function pushCreateNode(words, nodeHandle) {
+        words.push(CMD_CREATE_NODE);
+        pushHandle(words, nodeHandle);
+      }
+
+      function pushBounds(words, nodeHandle, rect, interactive, clipMode = ED_CLIP_MODE_RASTER_SAFE_VISUAL) {
+        words.push(CMD_SET_BOUNDS);
+        pushHandle(words, nodeHandle);
+        words.push(floatBits(rect.x), floatBits(rect.y), floatBits(rect.width), floatBits(rect.height));
+        words.push(floatBits(rect.x), floatBits(rect.y), floatBits(rect.width), floatBits(rect.height));
+        words.push(floatBits(rect.x), floatBits(rect.y), floatBits(rect.width), floatBits(rect.height));
+        const boundsFlags =
+          (interactive ? ED_BOUNDS_FLAG_INTERACTIVE : 0) |
+          ((clipMode << ED_BOUNDS_CLIP_MODE_SHIFT) & ED_BOUNDS_CLIP_MODE_MASK);
+        words.push(boundsFlags >>> 0);
+      }
+
+      function pushBoxStyle(words, nodeHandle, bgColor, radii, borderWidth = 0, borderColor = 0, borderStyle = 0) {
+        words.push(CMD_SET_BOX_STYLE);
+        pushHandle(words, nodeHandle);
+        words.push(bgColor >>> 0);
+        words.push(
+          floatBits(radii.tl),
+          floatBits(radii.tr),
+          floatBits(radii.br),
+          floatBits(radii.bl),
+          floatBits(borderWidth),
+          borderColor >>> 0,
+          borderStyle >>> 0,
+          floatBits(0),
+          floatBits(0),
+        );
+      }
+
+      function pushLinearGradient(words, nodeHandle, startX, startY, endX, endY, stops) {
+        words.push(CMD_SET_LINEAR_GRADIENT);
+        pushHandle(words, nodeHandle);
+        words.push(floatBits(startX), floatBits(startY), floatBits(endX), floatBits(endY), stops.length >>> 0);
+        for (const stop of stops) {
+          words.push(floatBits(stop.offset), stop.color >>> 0);
+        }
+      }
+
+      function pushSvg(words, nodeHandle, svgId, tintColor) {
+        words.push(CMD_SET_SVG);
+        pushHandle(words, nodeHandle);
+        words.push(svgId >>> 0, tintColor >>> 0);
+      }
+
+      function pushCommitPaintOrder(words, handles) {
+        words.push(CMD_COMMIT_PAINT_ORDER, handles.length >>> 0);
+        for (const nodeHandle of handles) {
+          pushHandle(words, nodeHandle);
+        }
+      }
+
+      function pushCommitScene(words, instructions) {
+        words.push(CMD_COMMIT_SCENE, instructions.length >>> 0);
+        for (const instruction of instructions) {
+          words.push(instruction.opcode >>> 0);
+          pushHandle(words, instruction.handle);
+          words.push(floatBits(instruction.arg0 || 0), floatBits(instruction.arg1 || 0));
+        }
+      }
+
+      function buildScene() {
+        const root = handle(1, 1);
+        const accent = handle(2, 1);
+        const words = [];
+        pushCreateNode(words, root);
+        pushCreateNode(words, accent);
+        pushBounds(words, root, { x: 24, y: 24, width: 272, height: 172 }, false);
+        pushBoxStyle(words, root, 0x2563ebff, { tl: 18, tr: 18, br: 18, bl: 18 }, 4, 0x93c5fdff);
+        pushLinearGradient(words, root, 24, 24, 296, 196, [
+          { offset: 0, color: 0x38bdf8ff },
+          { offset: 1, color: 0x1d4ed8ff },
+        ]);
+        pushBounds(words, accent, { x: 92, y: 58, width: 136, height: 112 }, true);
+        pushSvg(words, accent, 7, 0xf97316ff);
+        pushCommitPaintOrder(words, [root, accent]);
+        pushCommitScene(words, [
+          { opcode: OP_DRAW_NODE, handle: root, arg0: 0, arg1: 0 },
+          { opcode: OP_DRAW_NODE, handle: accent, arg0: 0, arg1: 0 },
+        ]);
+        return new Uint32Array(words);
+      }
+
+      function registerAssets(Module) {
+        const svg = new TextEncoder().encode(
+          '<svg xmlns="http://www.w3.org/2000/svg" width="64" height="64" viewBox="0 0 64 64">' +
+          '<rect x="8" y="8" width="48" height="48" rx="10" fill="#ffffff"/>' +
+          '<circle cx="32" cy="32" r="10" fill="#000000"/>' +
+          '</svg>'
+        );
+        const ptr = Module._malloc(svg.byteLength);
+        HEAPU8.set(svg, ptr);
+        Module._ed_register_svg(7, ptr, svg.byteLength);
+        Module._free(ptr);
+      }
+
+      function backendName(backend) {
+        switch (backend) {
+          case ED_BACKEND_WEBGPU:
+            return 'webgpu';
+          case ED_BACKEND_WEBGL2:
+            return 'webgl2';
+          case ED_BACKEND_CPU:
+            return 'cpu';
+          default:
+            return 'none';
+        }
+      }
+
+      function presentSoftwareFrame(Module) {
+        if (!softwareCanvas) {
+          softwareCanvas = document.createElement('canvas');
+          softwareCanvas.dataset.effindomSoftwareOverlay = 'true';
+          softwareCanvas.setAttribute('aria-hidden', 'true');
+          softwareCanvas.style.position = 'absolute';
+          softwareCanvas.style.pointerEvents = 'none';
+          softwareCanvas.style.zIndex = '1';
+          document.body.appendChild(softwareCanvas);
+          softwareContext = softwareCanvas.getContext('2d');
+        }
+        if (!softwareContext) {
+          throw new Error('Expected Canvas2D context for software fallback.');
+        }
+        const ptr = Module._ed_get_sw_framebuffer();
+        const pixelPtr = typeof ptr === 'bigint' ? Number(ptr) : ptr;
+        if (!Number.isSafeInteger(pixelPtr) || pixelPtr <= 0) {
+          return;
+        }
+        softwareCanvas.width = canvas.width;
+        softwareCanvas.height = canvas.height;
+        softwareCanvas.style.left = canvas.offsetLeft + 'px';
+        softwareCanvas.style.top = canvas.offsetTop + 'px';
+        softwareCanvas.style.width = canvas.style.width;
+        softwareCanvas.style.height = canvas.style.height;
+        softwareCanvas.style.borderRadius = getComputedStyle(canvas).borderRadius;
+        const imageData = softwareContext.createImageData(canvas.width, canvas.height);
+        imageData.data.set(HEAPU8.subarray(pixelPtr, pixelPtr + (canvas.width * canvas.height * 4)));
+        softwareContext.putImageData(imageData, 0, 0);
+      }
+
+      async function waitForBackend(Module) {
+        const deadline = performance.now() + 1500;
+        while (performance.now() < deadline) {
+          const backend = Module._ed_get_backend_type();
+          if (backend !== ED_BACKEND_NONE) {
+            return backend;
+          }
+          if (Module._ed_get_device_state() !== ED_DEVICE_RECOVERING) {
+            return backend;
+          }
+          await new Promise((resolve) => requestAnimationFrame(resolve));
+        }
+        return Module._ed_get_backend_type();
+      }
+
+      async function initRenderer(Module) {
+        Module._ed_init(canvas.width, canvas.height, dpr);
+        let backend = await waitForBackend(Module);
+        if (backend === ED_BACKEND_WEBGPU) {
+          return backend;
+        }
+
+        Module._ed_init_webgl(canvas.width, canvas.height, dpr);
+        backend = Module._ed_get_backend_type();
+        if (backend === ED_BACKEND_WEBGL2) {
+          return backend;
+        }
+
+        Module._ed_init_sw(canvas.width, canvas.height, dpr);
+        backend = Module._ed_get_backend_type();
+        if (backend === ED_BACKEND_CPU) {
+          return backend;
+        }
+
+        throw new Error('Failed to initialize a Tier 1 renderer backend.');
+      }
+
+      function installPointerRouting(Module) {
+        canvas.addEventListener('click', function (event) {
+          const rect = canvas.getBoundingClientRect();
+          const x = ((event.clientX - rect.left) / rect.width) * logicalWidth;
+          const y = ((event.clientY - rect.top) / rect.height) * logicalHeight;
+          const hit = Module._ed_hit_test(x, y);
+          window.__effindomV2LastHit = typeof hit === 'bigint' ? Number(hit) : hit;
+        });
+      }
+
+      window.Module = {
+        canvas,
+        effindomV2FramePresented: function () {
+          window.__effindomV2Ready = true;
+        },
+        onRuntimeInitialized: async function () {
+          const Module = window.Module;
+          installPointerRouting(Module);
+          const backend = await initRenderer(Module);
+          window.__effindomV2Backend = backendName(backend);
+          registerAssets(Module);
+          const words = buildScene();
+          const ptr = Module._malloc(words.byteLength);
+          HEAPU32.set(words, ptr >>> 2);
+          Module._ed_execute_command_buffer(ptr, words.length);
+          Module._free(ptr);
+          function frame(timestamp) {
+            Module._ed_render_frame(timestamp);
+            if (Module._ed_get_backend_type() === ED_BACKEND_CPU) {
+              presentSoftwareFrame(Module);
+            }
+            requestAnimationFrame(frame);
+          }
+          requestAnimationFrame(frame);
+        }
+      };
+    })();
+  </script>
+  <script src="./effindom-core-v2.js"></script>
+</body>
+</html>

@@ -1,0 +1,167 @@
+// wrapped fixture padding 0001 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0002 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0003 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0004 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0005 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0006 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0007 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0008 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0009 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0010 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0011 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0012 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0013 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0014 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0015 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0016 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0017 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0018 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0019 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0020 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0021 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0022 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0023 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0024 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0025 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0026 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0027 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0028 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0029 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0030 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0031 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0032 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0033 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0034 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0035 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0036 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0037 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0038 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0039 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0040 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0041 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0042 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0043 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0044 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0045 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0046 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0047 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0048 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0049 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0050 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0051 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0052 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0053 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0054 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0055 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0056 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0057 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0058 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0059 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+// wrapped fixture padding 0060 alpha beta gamma delta epsilon zeta eta theta iota kappa lambda
+std::vector<std::int32_t> WrappedFixtureDocument::ComputeLineBreaks(
+    std::string_view utf8,
+    float max_width,
+    std::uint32_t font_id,
+    float font_size,
+    bool obscured) const {
+    const auto compute_with_candidates = [&](std::string_view segment, const std::vector<std::int32_t>& candidates) {
+        std::vector<std::int32_t> breaks{0};
+        std::unordered_map<std::uint64_t, float> width_cache{};
+        ShapedTextRun full_segment_shape{};
+        std::vector<TextClusterStop> full_segment_stops{};
+        const bool use_ascii_prefix_widths =
+            IsAsciiOnly(segment) &&
+            ShapeText(segment, font_id, font_size, full_segment_shape, obscured);
+
+        if (use_ascii_prefix_widths) {
+            full_segment_stops = BuildClusterStops(
+                full_segment_shape.glyphs,
+                full_segment_shape.width,
+                segment.size());
+        }
+
+        const auto measure_range = [&](std::int32_t start, std::int32_t end) -> float {
+            if (end <= start) {
+                return 0.0f;
+            }
+            if (use_ascii_prefix_widths) {
+                const float start_x = ClusterXForIndex(
+                    full_segment_stops,
+                    full_segment_shape.width,
+                    static_cast<std::uint32_t>(start),
+                    segment.size());
+                const float end_x = ClusterXForIndex(
+                    full_segment_stops,
+                    full_segment_shape.width,
+                    static_cast<std::uint32_t>(end),
+                    segment.size());
+                return std::max(end_x - start_x, 0.0f);
+            }
+
+            const std::uint64_t key =
+                (static_cast<std::uint64_t>(static_cast<std::uint32_t>(start)) << 32U) |
+                static_cast<std::uint32_t>(end);
+            const auto found = width_cache.find(key);
+            if (found != width_cache.end()) {
+                return found->second;
+            }
+
+            const float width = MeasureSingleLineWidth(
+                std::string_view(
+                    segment.data() + static_cast<std::size_t>(start),
+                    static_cast<std::size_t>(end - start)),
+                font_id,
+                font_size,
+                obscured);
+            width_cache.emplace(key, width);
+            return width;
+        };
+
+        std::int32_t line_start = 0;
+        std::int32_t last_fit = 0;
+
+        for (std::size_t index = 1; index < candidates.size(); index += 1U) {
+            const std::int32_t next = candidates[index];
+            const float width = measure_range(line_start, next);
+            if (width <= max_width || line_start == last_fit) {
+                last_fit = next;
+                continue;
+            }
+            breaks.push_back(last_fit);
+            line_start = last_fit;
+            last_fit = line_start;
+            index -= 1U;
+        }
+
+        if (breaks.back() != static_cast<std::int32_t>(segment.size())) {
+            breaks.push_back(static_cast<std::int32_t>(segment.size()));
+        }
+        return breaks;
+    };
+
+    std::vector<std::int32_t> breaks{0};
+    std::int32_t segment_start = 0;
+    for (std::size_t index = 0; index < utf8.size(); index += 1U) {
+        const unsigned char ch = static_cast<unsigned char>(utf8[index]);
+        if (ch != '\n' && ch != '\r') {
+            continue;
+        }
+        const std::int32_t break_offset = static_cast<std::int32_t>(index);
+        append_segment_breaks(
+            std::string_view(
+                utf8.data() + segment_start,
+                static_cast<std::size_t>(break_offset - segment_start)),
+            segment_start);
+        if (ch == '\r' && index + 1U < utf8.size() && utf8[index + 1U] == '\n') {
+            index += 1U;
+        }
+        segment_start = static_cast<std::int32_t>(index + 1U);
+    }
+
+    append_segment_breaks(
+        std::string_view(
+            utf8.data() + segment_start,
+            static_cast<std::size_t>(static_cast<std::int32_t>(utf8.size()) - segment_start)),
+        segment_start);
+    return breaks;
+}

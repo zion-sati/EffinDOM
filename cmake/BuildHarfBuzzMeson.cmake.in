@@ -1,0 +1,40 @@
+cmake_minimum_required(VERSION 3.20)
+
+set(_meson [==[@EFFINDOM_HARFBUZZ_MESON_EXECUTABLE@]==])
+set(_ninja [==[@EFFINDOM_HARFBUZZ_NINJA_EXECUTABLE@]==])
+set(_source_dir [==[@EFFINDOM_HARFBUZZ_SOURCE_DIR@]==])
+set(_build_dir [==[@EFFINDOM_HARFBUZZ_MESON_BUILD_DIR@]==])
+set(_cross_file [==[@EFFINDOM_HARFBUZZ_CROSS_FILE@]==])
+
+set(_setup_args)
+@EFFINDOM_HARFBUZZ_MESON_SETUP_ARGS_BLOCK@
+
+set(_setup_command
+    "${_meson}"
+    "setup"
+    "--wipe"
+    "${_build_dir}"
+    "${_source_dir}"
+)
+if(NOT _cross_file STREQUAL "")
+    list(APPEND _setup_command "--cross-file=${_cross_file}")
+endif()
+list(APPEND _setup_command ${_setup_args})
+
+execute_process(
+    COMMAND ${_setup_command}
+    COMMAND_ECHO STDOUT
+    RESULT_VARIABLE _setup_status
+)
+if(NOT _setup_status EQUAL 0)
+    message(FATAL_ERROR "Failed to configure HarfBuzz with Meson.")
+endif()
+
+execute_process(
+    COMMAND "${_ninja}" -C "${_build_dir}" lib
+    COMMAND_ECHO STDOUT
+    RESULT_VARIABLE _build_status
+)
+if(NOT _build_status EQUAL 0)
+    message(FATAL_ERROR "Failed to build HarfBuzz with Meson.")
+endif()

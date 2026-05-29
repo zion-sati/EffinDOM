@@ -1,0 +1,19 @@
+[binaries]
+c = '@EFFINDOM_HARFBUZZ_EMCC@'
+cpp = '@EFFINDOM_HARFBUZZ_EMXX@'
+ar = '@EFFINDOM_HARFBUZZ_EMAR@'
+ranlib = '@EFFINDOM_HARFBUZZ_EMRANLIB@'
+nm = '@EFFINDOM_HARFBUZZ_EMNM@'
+strip = '@EFFINDOM_HARFBUZZ_EMSTRIP@'
+pkg-config = 'false'
+
+[host_machine]
+system = 'emscripten'
+cpu_family = '@EFFINDOM_HARFBUZZ_CPU_FAMILY@'
+cpu = '@EFFINDOM_HARFBUZZ_CPU@'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true
+
+@EFFINDOM_HARFBUZZ_WASM_BUILTIN_OPTIONS@

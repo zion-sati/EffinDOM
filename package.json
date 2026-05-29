@@ -1,0 +1,19 @@
+{
+  "name": "effindom-runtime-repo",
+  "private": true,
+  "version": "0.1.0",
+  "description": "Standalone runtime repository for @effindomv2/runtime",
+  "engines": {
+    "node": ">=18"
+  },
+  "workspaces": [
+    "v2/browser-bridge"
+  ],
+  "scripts": {
+    "typecheck": "npm --workspace v2/browser-bridge run typecheck",
+    "build": "npm --workspace v2/browser-bridge run build:package",
+    "test": "npm --workspace v2/browser-bridge run test",
+    "publish:local": "bash scripts/publish/local/runtime.sh",
+    "publish:npm": "bash scripts/publish/npm/runtime.sh"
+  }
+}

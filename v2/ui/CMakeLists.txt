@@ -1,0 +1,119 @@
+set(EFFINDOM_V2_UI_SOURCES
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/Api.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeBoxModel.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeCallbacks.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeClipboard.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntime.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeCrossSelection.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeEditing.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeEditingTextState.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeEditingGeometry.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeGrid.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeInput.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeNodes.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeText.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeTextLayout.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeTextNonWrap.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeTextShaping.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeWrappedText.cpp"
+)
+
+add_library(effindom_v2_ui STATIC ${EFFINDOM_V2_UI_SOURCES})
+target_include_directories(effindom_v2_ui
+    PUBLIC
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    PRIVATE
+        "${CMAKE_SOURCE_DIR}/v2/core/include"
+)
+target_link_libraries(effindom_v2_ui
+    PRIVATE effindom_compile_flags
+    PRIVATE effindom_woff2dec
+    PUBLIC harfbuzz
+    PUBLIC effindom_icu_i18n
+    PUBLIC effindom_icu_common
+    PUBLIC effindom_icu_stubdata
+    PUBLIC yogacore
+)
+
+if(EMSCRIPTEN)
+    set(EFFINDOM_V2_UI_BROWSER_OUTPUT_DIR
+        "${CMAKE_SOURCE_DIR}/public/v2/ui"
+        CACHE PATH "Output directory for v2 ui browser artifacts")
+    set(_EFFINDOM_V2_UI_HTML_SOURCE "${CMAKE_CURRENT_SOURCE_DIR}/browser/index.html")
+    set(_EFFINDOM_V2_UI_HTML_OUTPUT "${EFFINDOM_V2_UI_BROWSER_OUTPUT_DIR}/index.html")
+    add_custom_command(
+        OUTPUT "${_EFFINDOM_V2_UI_HTML_OUTPUT}"
+        COMMAND ${CMAKE_COMMAND} -E make_directory "${EFFINDOM_V2_UI_BROWSER_OUTPUT_DIR}"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${_EFFINDOM_V2_UI_HTML_SOURCE}"
+            "${_EFFINDOM_V2_UI_HTML_OUTPUT}"
+        DEPENDS "${_EFFINDOM_V2_UI_HTML_SOURCE}"
+        COMMENT "[EffinDom v2 ui] Staging browser harness"
+    )
+    add_custom_target(effindom_v2_ui_browser_assets DEPENDS "${_EFFINDOM_V2_UI_HTML_OUTPUT}")
+
+    add_executable(effindom_v2_ui_wasm
+        "${CMAKE_CURRENT_SOURCE_DIR}/src/WasmMain.cpp"
+    )
+    add_dependencies(effindom_v2_ui_wasm effindom_v2_ui_browser_assets)
+    target_include_directories(effindom_v2_ui_wasm PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+    )
+    target_link_libraries(effindom_v2_ui_wasm PRIVATE
+        effindom_v2_ui
+        effindom_compile_flags
+        effindom_wasm_feature_flags
+    )
+    set_target_properties(effindom_v2_ui_wasm PROPERTIES
+        OUTPUT_NAME "effindom-ui-v2"
+        RUNTIME_OUTPUT_DIRECTORY "${EFFINDOM_V2_UI_BROWSER_OUTPUT_DIR}"
+        SUFFIX ".js"
+    )
+    target_link_options(effindom_v2_ui_wasm PRIVATE
+        -sALLOW_MEMORY_GROWTH=1
+        -sEXPORT_ALL=1
+        -sMODULARIZE=1
+        -sEXPORT_NAME=EffinDomUiV2ModuleFactory
+        -sENVIRONMENT=web
+        "-sEXPORTED_FUNCTIONS=@${CMAKE_CURRENT_SOURCE_DIR}/exports.txt"
+        --emit-symbol-map
+    )
+else()
+    add_executable(effindom_v2_ui_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUiSupport.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_cross_selection.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_editing.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_semantic.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_text_layout.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_text_selection.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_text_wrapped.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_text_input.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_grid.cpp"
+    )
+    target_include_directories(effindom_v2_ui_tests PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}/src"
+        "${CMAKE_SOURCE_DIR}/v2/core/include"
+    )
+    target_link_libraries(effindom_v2_ui_tests PRIVATE
+        effindom_v2_ui
+        Catch2::Catch2WithMain
+        effindom_compile_flags
+    )
+    if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT APPLE)
+        target_link_libraries(effindom_v2_ui_tests PRIVATE
+            "-Wl,--start-group"
+            effindom_icu_i18n
+            effindom_icu_common
+            effindom_icu_stubdata
+            "-Wl,--end-group"
+        )
+    endif()
+    target_compile_definitions(effindom_v2_ui_tests PRIVATE EFFINDOM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+
+    include(Catch)
+    catch_discover_tests(effindom_v2_ui_tests)
+endif()

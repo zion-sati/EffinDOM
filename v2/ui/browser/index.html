@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>EffinDom v2 UI Bridge Smoke Harness</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: system-ui, sans-serif;
+      background: #0f172a;
+      color: #e2e8f0;
+      display: grid;
+      place-items: center;
+      min-height: 100vh;
+      gap: 12px;
+    }
+    canvas {
+      border: 1px solid #334155;
+      border-radius: 12px;
+      image-rendering: pixelated;
+      box-shadow: 0 20px 40px rgba(15, 23, 42, 0.35);
+      background: transparent;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="fui-canvas"></canvas>
+  <script src="./bridge-harness.js"></script>
+</body>
+</html>
