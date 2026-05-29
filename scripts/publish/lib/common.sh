@@ -36,6 +36,28 @@ if (typeof value === "string") {
 ' "${package_dir}/package.json" "${field}"
 }
 
+package_json_set_name() {
+local package_dir="$1"
+local package_name="$2"
+node --input-type=module -e '
+import { readFileSync, writeFileSync } from "node:fs";
+const [packageJsonPath, nextName] = process.argv.slice(1);
+const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+packageJson.name = nextName;
+writeFileSync(packageJsonPath, JSON.stringify(packageJson, null, 2) + "\n");
+' "${package_dir}/package.json" "${package_name}"
+}
+
+effective_package_name() {
+local package_dir="$1"
+local package_name="${EFFINDOM_PACKAGE_NAME:-}"
+if [ -n "${package_name}" ]; then
+  printf '%s\n' "${package_name}"
+  return
+fi
+package_json_field "${package_dir}" "name"
+}
+
 assert_publishable_package() {
   local package_dir="$1"
   local package_name
@@ -62,10 +84,23 @@ publish_package() {
   ensure_npm_logged_in
   local package_name
   local package_version
+  local publish_dir="${package_dir}"
+  local publish_temp_dir=""
+  local publish_name
+  publish_name="$(effective_package_name "${package_dir}")"
   package_name="$(package_json_field "${package_dir}" "name")"
   package_version="$(package_json_field "${package_dir}" "version")"
-  log_step "Publishing ${package_name}@${package_version}"
-  run_in_dir "${package_dir}" npm publish --access public "$@"
+  if [ "${publish_name}" != "${package_name}" ]; then
+    publish_temp_dir="$(mktemp -d "${REPO_ROOT}/build/.npm-publish-XXXXXX")"
+    cp -R "${package_dir}/." "${publish_temp_dir}/"
+    package_json_set_name "${publish_temp_dir}" "${publish_name}"
+    publish_dir="${publish_temp_dir}"
+  fi
+  log_step "Publishing ${publish_name}@${package_version}"
+  run_in_dir "${publish_dir}" npm publish --access public "$@"
+  if [ -n "${publish_temp_dir}" ]; then
+    rm -rf "${publish_temp_dir}" >/dev/null 2>&1 || true
+  fi
 }
 
 stage_local_package() {
@@ -76,10 +111,25 @@ stage_local_package() {
   mkdir -p "${REPO_ROOT}/build"
   mkdir -p "${published_root}"
 
+  local pack_dir="${package_dir}"
+  local pack_temp_dir=""
+  local package_name
+  local package_version
+  local publish_name
+  publish_name="$(effective_package_name "${package_dir}")"
+  package_name="$(package_json_field "${package_dir}" "name")"
+  package_version="$(package_json_field "${package_dir}" "version")"
+  if [ "${publish_name}" != "${package_name}" ]; then
+    pack_temp_dir="$(mktemp -d "${REPO_ROOT}/build/.npm-pack-src-XXXXXX")"
+    cp -R "${package_dir}/." "${pack_temp_dir}/"
+    package_json_set_name "${pack_temp_dir}" "${publish_name}"
+    pack_dir="${pack_temp_dir}"
+  fi
+
   local pack_output_file
   pack_output_file="$(mktemp "${REPO_ROOT}/build/.npm-pack.XXXXXX")"
 
-  run_in_dir "${package_dir}" npm pack --json --ignore-scripts > "${pack_output_file}"
+  run_in_dir "${pack_dir}" npm pack --json --ignore-scripts > "${pack_output_file}"
 
   local pack_info
   pack_info="$(node --input-type=module -e '
@@ -105,7 +155,7 @@ process.stdout.write(item.filename + "\n" + item.name + "\n" + item.version + "\
   sanitized_package_name="${sanitized_package_name//\//-}"
 
   local package_output_dir="${published_root}/${sanitized_package_name}-${package_version}"
-  local tarball_path="${package_dir}/${tarball_name}"
+  local tarball_path="${pack_dir}/${tarball_name}"
   local unpack_dir
   unpack_dir="$(mktemp -d "${REPO_ROOT}/build/.npm-pack-unpack-XXXXXX")"
 
@@ -119,7 +169,10 @@ process.stdout.write(item.filename + "\n" + item.name + "\n" + item.version + "\
   fi
   rm -rf "${unpack_dir}"
   mv "${tarball_path}" "${published_root}/${tarball_name}"
+  if [ -n "${pack_temp_dir}" ]; then
+    rm -rf "${pack_temp_dir}" >/dev/null 2>&1 || true
+  fi
 
-  log_step "Staged ${package_name}@${package_version} into ${package_output_dir}"
+  log_step "Staged ${publish_name}@${package_version} into ${package_output_dir}"
   log_step "Wrote tarball ${published_root}/${tarball_name}"
 }

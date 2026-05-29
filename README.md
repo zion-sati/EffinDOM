@@ -6,6 +6,19 @@ This repository contains the runtime lane of EffinDom: the browser bridge, manif
 
 It is not the app SDK itself. The Fui-* packages provide the app-facing controls and builders; this runtime owns loading, manifest resolution, asset staging, and browser-host integration.
 
+FUI-AS lives in the separate public repo:
+
+- https://github.com/zion-sati/fui-as
+
+For the public project story and consumer docs, see:
+
+- `docs/WHY_EFFINDOM.md`
+- `docs/QUICKSTART.md`
+- `docs/v2/browser-bridge/QUICKSTART.md`
+- `docs/v2/core/QUICKSTART.md`
+- `docs/v2/fui-as/QUICKSTART.md`
+- `docs/v2/fui-as/SDK_INDEX.md`
+
 ## What ships
 
 - `@effindomv2/runtime` (`v2/browser-bridge`)
@@ -13,6 +26,7 @@ It is not the app SDK itself. The Fui-* packages provide the app-facing controls
 - `effindom.v2.manifest.json`
 - runtime asset payloads under `dist/runtime/`
 - bundled fonts under `dist/fonts/`
+- the copied public docs under `docs/`
 
 ## Build and local publish
 
@@ -25,6 +39,8 @@ npm run publish:local
 `npm run build` bootstraps Skia if needed, type-checks, builds and stages the runtime assets, and validates npm packability with a dry run.
 
 `npm run publish:local` creates an unpacked package under `published/<package-name>-<version>/` and writes the matching tarball into `published/`.
+
+If your npm account does not own the default `@effindomv2/runtime` scope, set `EFFINDOM_PACKAGE_NAME` to a scope you control before running `npm run publish:local` or `npm run publish:npm`.
 
 ## Publishing
 
