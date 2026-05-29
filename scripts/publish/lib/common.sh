@@ -17,6 +17,14 @@ run_in_dir() {
   )
 }
 
+ensure_npm_deps() {
+  local package_dir="$1"
+  local install_cmd="$2"
+  if [ ! -d "${package_dir}/node_modules" ]; then
+    (cd "${package_dir}" && eval "${install_cmd}")
+  fi
+}
+
 package_json_field() {
   local package_dir="$1"
   local field="$2"

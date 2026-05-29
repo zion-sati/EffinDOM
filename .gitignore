@@ -8,6 +8,7 @@ v2/fui-as/build/
 /v2/fui-rs/target/
 /out/
 /published/
+/v2/create-fui-as-app/dist/
 
 # ─────────────────────────────────────────────
 # CMake generated files (in-source, if ever)
@@ -38,6 +39,9 @@ Testing/
 
 # public/ is a generated staging directory for local serving and test runs.
 public/
+
+# v2/fui-as/demo/src/generated/ is the folder we use to emit matching AssemblyScript callback bindings.
+v2/fui-as/demo/src/generated/
 
 # ─────────────────────────────────────────────
 # Node.js / npm
