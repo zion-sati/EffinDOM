@@ -295,9 +295,9 @@ export class IncrementalFontManager {
     return new Uint8Array(await response.arrayBuffer());
   }
 
-  private reportBridgeError(error: unknown): void {
-    (window as Window & { __bridgeError?: string }).__bridgeError =
-      error instanceof Error ? error.message : String(error);
+  private reportNonFatalFontError(context: string, error: unknown): void {
+    const message = error instanceof Error ? error.message : String(error);
+    console.error(`[fui_host] ${context}: ${message}`);
   }
 
   private applyFontFallbacks(fontId: number, fallbackIds: readonly number[]): void {
@@ -470,7 +470,10 @@ export class IncrementalFontManager {
           fontState.requestedCharactersByFamily.delete(pendingRequest.familyKey);
         }
       }
-      this.reportBridgeError(error);
+      this.reportNonFatalFontError(
+        `incremental font shard fetch failed for ${pendingRequest.googleFamily} (${shardKey})`,
+        error,
+      );
       throw error;
     }
   }

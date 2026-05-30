@@ -64,7 +64,8 @@ export function installCallbacks(runtimeRef: { current: BridgeRuntime | null }):
         return;
       }
       void runtime.loadFont(fontId, url).catch((error: unknown) => {
-        window.__bridgeError = error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
+        console.error(`[fui_host] font ${String(fontId)} failed lazy load from ${url}: ${message}`);
       });
     },
     onMissingFontCoverage: (fontId, coverageKind, sampleText) => {
