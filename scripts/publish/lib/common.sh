@@ -25,6 +25,15 @@ ensure_npm_deps() {
   fi
 }
 
+ensure_npm_path() {
+  local package_dir="$1"
+  local relative_path="$2"
+  local install_cmd="$3"
+  if [ ! -e "${package_dir}/${relative_path}" ]; then
+    (cd "${package_dir}" && eval "${install_cmd}")
+  fi
+}
+
 package_json_field() {
   local package_dir="$1"
   local field="$2"
