@@ -143,8 +143,9 @@ export interface UiModule {
   _ui_remove_semantic_scope(token: number): void;
   _ui_set_width(handle: WasmHandleLike, value: number, unit: number): void;
   _ui_set_height(handle: WasmHandleLike, value: number, unit: number): void;
+  _ui_set_fill_width(handle: WasmHandleLike, fill: number): void;
+  _ui_set_fill_height(handle: WasmHandleLike, fill: number): void;
   _ui_set_flex_direction(handle: WasmHandleLike, direction: number): void;
-  _ui_set_flex_grow(handle: WasmHandleLike, grow: number): void;
   _ui_set_flex_basis(handle: WasmHandleLike, basis: number): void;
   _ui_set_justify_content(handle: WasmHandleLike, justify: number): void;
   _ui_set_align_items(handle: WasmHandleLike, align: number): void;

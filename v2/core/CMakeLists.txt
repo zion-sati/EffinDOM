@@ -16,6 +16,7 @@ target_link_libraries(effindom_v2_core
 )
 
 if(EMSCRIPTEN)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/exports.txt")
     if(NOT TARGET effindom_skia_graphite OR NOT TARGET effindom_skia_ganesh)
         include("${CMAKE_SOURCE_DIR}/cmake/SkiaWasm.cmake")
     endif()
@@ -73,6 +74,7 @@ if(EMSCRIPTEN)
         "-sEXPORTED_FUNCTIONS=@${CMAKE_CURRENT_SOURCE_DIR}/exports.txt"
         --emit-symbol-map
     )
+    set_property(TARGET effindom_v2_core_wasm APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/exports.txt")
 else()
     include("${CMAKE_CURRENT_SOURCE_DIR}/cmake/SkiaNative.cmake")
     target_link_libraries(effindom_v2_core

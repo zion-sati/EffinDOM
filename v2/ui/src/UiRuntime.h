@@ -122,8 +122,9 @@ public:
 
     bool SetWidth(std::uint64_t handle, float value, std::uint32_t unit_enum);
     bool SetHeight(std::uint64_t handle, float value, std::uint32_t unit_enum);
+    bool SetFillWidth(std::uint64_t handle, bool fill);
+    bool SetFillHeight(std::uint64_t handle, bool fill);
     bool SetFlexDirection(std::uint64_t handle, std::uint32_t dir_enum);
-    bool SetFlexGrow(std::uint64_t handle, float grow);
     bool SetFlexBasis(std::uint64_t handle, float basis);
     bool SetJustifyContent(std::uint64_t handle, std::uint32_t justify_enum);
     bool SetAlignItems(std::uint64_t handle, std::uint32_t align_enum);
@@ -394,6 +395,7 @@ private:
         std::vector<std::uint64_t>& paint_order,
         std::vector<SceneInstruction>& scene,
         std::vector<std::uint64_t>& deferred_portal_roots);
+    void ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_handle);
     void DestroyRegisteredFont(RegisteredFont& font);
     const RegisteredFont* LookupFont(std::uint32_t font_id) const;
     FontMetrics GetFontMetrics(const RegisteredFont& font, float font_size) const;

@@ -873,6 +873,10 @@ bool UiRuntime::SetWidth(std::uint64_t handle, float value, std::uint32_t unit_e
     default:
         return false;
     }
+    node->has_width = true;
+    node->width = value;
+    node->width_unit = unit_enum;
+    node->fill_width = false;
     layout_dirty_ = true;
     return true;
 }
@@ -895,6 +899,36 @@ bool UiRuntime::SetHeight(std::uint64_t handle, float value, std::uint32_t unit_
     default:
         return false;
     }
+    node->has_height = true;
+    node->height = value;
+    node->height_unit = unit_enum;
+    node->fill_height = false;
+    layout_dirty_ = true;
+    return true;
+}
+
+bool UiRuntime::SetFillWidth(std::uint64_t handle, bool fill) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr) {
+        return false;
+    }
+    if (node->fill_width == fill) {
+        return true;
+    }
+    node->fill_width = fill;
+    layout_dirty_ = true;
+    return true;
+}
+
+bool UiRuntime::SetFillHeight(std::uint64_t handle, bool fill) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr) {
+        return false;
+    }
+    if (node->fill_height == fill) {
+        return true;
+    }
+    node->fill_height = fill;
     layout_dirty_ = true;
     return true;
 }
@@ -918,22 +952,14 @@ bool UiRuntime::SetFlexDirection(std::uint64_t handle, std::uint32_t dir_enum) {
     return true;
 }
 
-bool UiRuntime::SetFlexGrow(std::uint64_t handle, float grow) {
-    UINode* node = ResolveMutable(handle);
-    if (node == nullptr || node->yg_node == nullptr || !std::isfinite(grow) || grow < 0.0f) {
-        return false;
-    }
-    YGNodeStyleSetFlexGrow(node->yg_node, grow);
-    layout_dirty_ = true;
-    return true;
-}
-
 bool UiRuntime::SetFlexBasis(std::uint64_t handle, float basis) {
     UINode* node = ResolveMutable(handle);
     if (node == nullptr || node->yg_node == nullptr || !std::isfinite(basis) || basis < 0.0f) {
         return false;
     }
     YGNodeStyleSetFlexBasis(node->yg_node, basis);
+    node->has_flex_basis = true;
+    node->flex_basis = basis;
     layout_dirty_ = true;
     return true;
 }

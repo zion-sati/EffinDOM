@@ -30,8 +30,9 @@ _ui_register_icu_data
 _ui_font_loaded
 _ui_set_width
 _ui_set_height
+_ui_set_fill_width
+_ui_set_fill_height
 _ui_set_flex_direction
-_ui_set_flex_grow
 _ui_set_flex_basis
 _ui_set_justify_content
 _ui_set_align_items

@@ -32,6 +32,8 @@ interface UiModule {
   _ui_resize_window(logicalWidth: number, logicalHeight: number): void;
   _ui_set_width(handle: number | bigint, value: number, unitEnum: number): void;
   _ui_set_height(handle: number | bigint, value: number, unitEnum: number): void;
+  _ui_set_fill_width(handle: number | bigint, fill: boolean): void;
+  _ui_set_fill_height(handle: number | bigint, fill: boolean): void;
   _ui_set_padding(handle: number | bigint, left: number, top: number, right: number, bottom: number): void;
   _ui_set_clip_to_bounds(handle: number | bigint, clip: boolean): void;
   _ui_set_bg_color(handle: number | bigint, color: number): void;

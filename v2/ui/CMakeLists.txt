@@ -37,6 +37,7 @@ target_link_libraries(effindom_v2_ui
 )
 
 if(EMSCRIPTEN)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/exports.txt")
     set(EFFINDOM_V2_UI_BROWSER_OUTPUT_DIR
         "${CMAKE_SOURCE_DIR}/public/v2/ui"
         CACHE PATH "Output directory for v2 ui browser artifacts")
@@ -80,6 +81,7 @@ if(EMSCRIPTEN)
         "-sEXPORTED_FUNCTIONS=@${CMAKE_CURRENT_SOURCE_DIR}/exports.txt"
         --emit-symbol-map
     )
+    set_property(TARGET effindom_v2_ui_wasm APPEND PROPERTY LINK_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/exports.txt")
 else()
     add_executable(effindom_v2_ui_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUiSupport.cpp"

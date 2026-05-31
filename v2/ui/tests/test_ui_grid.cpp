@@ -437,8 +437,8 @@ TEST_CASE("v2 ui grid helper paths restore point percent and undefined styles", 
     CHECK(YGNodeStyleGetHeight(GetRuntime().Resolve(point_child)->yg_node).unit == YGUnitPoint);
     CHECK(YGNodeStyleGetWidth(GetRuntime().Resolve(percent_child)->yg_node).unit == YGUnitPercent);
     CHECK(YGNodeStyleGetHeight(GetRuntime().Resolve(percent_child)->yg_node).unit == YGUnitPercent);
-    CHECK(YGNodeStyleGetWidth(GetRuntime().Resolve(undefined_child)->yg_node).unit == YGUnitUndefined);
-    CHECK(YGNodeStyleGetHeight(GetRuntime().Resolve(undefined_child)->yg_node).unit == YGUnitUndefined);
+    CHECK(YGNodeStyleGetWidth(GetRuntime().Resolve(undefined_child)->yg_node).unit == YGUnitAuto);
+    CHECK(YGNodeStyleGetHeight(GetRuntime().Resolve(undefined_child)->yg_node).unit == YGUnitAuto);
 }
 
 TEST_CASE("v2 ui grid distributes spanning auto tracks before zeroing remaining star space", "[v2][ui][grid]") {

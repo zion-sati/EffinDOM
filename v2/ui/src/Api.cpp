@@ -131,12 +131,16 @@ void ui_set_height(ui_handle_t handle, float value, uint32_t unit_enum) {
     (void)effindom::v2::ui::GetRuntime().SetHeight(handle, value, unit_enum);
 }
 
-void ui_set_flex_direction(ui_handle_t handle, uint32_t dir_enum) {
-    (void)effindom::v2::ui::GetRuntime().SetFlexDirection(handle, dir_enum);
+void ui_set_fill_width(ui_handle_t handle, bool fill) {
+    (void)effindom::v2::ui::GetRuntime().SetFillWidth(handle, fill);
 }
 
-void ui_set_flex_grow(ui_handle_t handle, float grow) {
-    (void)effindom::v2::ui::GetRuntime().SetFlexGrow(handle, grow);
+void ui_set_fill_height(ui_handle_t handle, bool fill) {
+    (void)effindom::v2::ui::GetRuntime().SetFillHeight(handle, fill);
+}
+
+void ui_set_flex_direction(ui_handle_t handle, uint32_t dir_enum) {
+    (void)effindom::v2::ui::GetRuntime().SetFlexDirection(handle, dir_enum);
 }
 
 void ui_set_flex_basis(ui_handle_t handle, float basis) {

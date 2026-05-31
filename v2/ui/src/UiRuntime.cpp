@@ -33,6 +33,10 @@ float FocusedTextCaretScrollOverscan(const UINode& node) {
     return caret_width + caret_margin;
 }
 
+bool IsHorizontalFlexDirection(YGFlexDirection direction) {
+    return direction == YGFlexDirectionRow || direction == YGFlexDirectionRowReverse;
+}
+
 class SemanticBufferBuilder {
 public:
     enum StateFlags : std::uint32_t {
@@ -183,6 +187,93 @@ UiRuntime::UiRuntime()
     : string_arena_(kFrameArenaCapacity, 0U) {
     command_buffer_.reserve(1024);
     semantic_buffer_.reserve(256);
+}
+
+void UiRuntime::ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_handle) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr) {
+        return;
+    }
+
+    if (node->has_width) {
+        switch (node->width_unit) {
+        case UI_SIZE_UNIT_PIXEL:
+            YGNodeStyleSetWidth(node->yg_node, node->width);
+            break;
+        case UI_SIZE_UNIT_AUTO:
+            YGNodeStyleSetWidthAuto(node->yg_node);
+            break;
+        case UI_SIZE_UNIT_PERCENT:
+            YGNodeStyleSetWidthPercent(node->yg_node, node->width);
+            break;
+        default:
+            YGNodeStyleSetWidthAuto(node->yg_node);
+            break;
+        }
+    } else {
+        YGNodeStyleSetWidthAuto(node->yg_node);
+    }
+
+    if (node->has_height) {
+        switch (node->height_unit) {
+        case UI_SIZE_UNIT_PIXEL:
+            YGNodeStyleSetHeight(node->yg_node, node->height);
+            break;
+        case UI_SIZE_UNIT_AUTO:
+            YGNodeStyleSetHeightAuto(node->yg_node);
+            break;
+        case UI_SIZE_UNIT_PERCENT:
+            YGNodeStyleSetHeightPercent(node->yg_node, node->height);
+            break;
+        default:
+            YGNodeStyleSetHeightAuto(node->yg_node);
+            break;
+        }
+    } else {
+        YGNodeStyleSetHeightAuto(node->yg_node);
+    }
+
+    if (node->has_flex_basis) {
+        YGNodeStyleSetFlexBasis(node->yg_node, node->flex_basis);
+    } else {
+        YGNodeStyleSetFlexBasisAuto(node->yg_node);
+    }
+
+    YGNodeStyleSetAlignSelf(node->yg_node, YGAlignAuto);
+
+    if (parent_handle == UI_INVALID_HANDLE) {
+        if (node->fill_width) {
+            YGNodeStyleSetWidthPercent(node->yg_node, 100.0f);
+        }
+        if (node->fill_height) {
+            YGNodeStyleSetHeightPercent(node->yg_node, 100.0f);
+        }
+    } else {
+        const UINode* parent = Resolve(parent_handle);
+        if (parent != nullptr && parent->yg_node != nullptr) {
+            const bool parent_is_horizontal = IsHorizontalFlexDirection(YGNodeStyleGetFlexDirection(parent->yg_node));
+            if (node->fill_width) {
+                if (parent_is_horizontal) {
+                    YGNodeStyleSetFlexBasis(node->yg_node, 0.0f);
+                    YGNodeStyleSetFlexGrow(node->yg_node, 1.0f);
+                } else {
+                    YGNodeStyleSetAlignSelf(node->yg_node, YGAlignStretch);
+                }
+            }
+            if (node->fill_height) {
+                if (!parent_is_horizontal) {
+                    YGNodeStyleSetFlexBasis(node->yg_node, 0.0f);
+                    YGNodeStyleSetFlexGrow(node->yg_node, 1.0f);
+                } else {
+                    YGNodeStyleSetAlignSelf(node->yg_node, YGAlignStretch);
+                }
+            }
+        }
+    }
+
+    for (const std::uint64_t child_handle : node->children) {
+        ApplyLayoutStyles(child_handle, handle);
+    }
 }
 
 void UiRuntime::Reset() {
@@ -537,6 +628,7 @@ void UiRuntime::CommitFrame() {
         std::uint32_t layout_pass = 0U;
         do {
             layout_dirty_ = false;
+            ApplyLayoutStyles(root_handle_, UI_INVALID_HANDLE);
             const ProfileClock::time_point layout_start = ProfileClock::now();
             YGNodeCalculateLayout(root->yg_node, window_width_, window_height_, YGDirectionLTR);
             current_text_commit_profile_.yoga_layout_ms += ElapsedMilliseconds(layout_start, ProfileClock::now());

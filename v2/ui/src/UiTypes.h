@@ -153,6 +153,16 @@ struct UINode {
     UiVisibility visibility = UI_VISIBILITY_NORMAL;
  
     YGNodeRef yg_node = nullptr;
+    bool has_width = false;
+    float width = 0.0f;
+    std::uint32_t width_unit = 0U;
+    bool has_height = false;
+    float height = 0.0f;
+    std::uint32_t height_unit = 0U;
+    bool has_flex_basis = false;
+    float flex_basis = 0.0f;
+    bool fill_width = false;
+    bool fill_height = false;
     std::uint64_t parent_handle = UI_INVALID_HANDLE;
     std::uint64_t scroll_proxy_target_handle = UI_INVALID_HANDLE;
     std::vector<std::uint64_t> children{};

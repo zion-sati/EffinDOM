@@ -787,6 +787,44 @@ TEST_CASE("v2 ui centres each wrapped line within the text node bounds", "[v2][u
     CHECK(saw_center_offset);
 }
 
+TEST_CASE("v2 ui fill sizing respects padding and margins", "[v2][ui][layout]") {
+    ui_reset();
+
+    const ui_handle_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const ui_handle_t fixed = ui_create_node(UI_NODE_FLEX_BOX);
+    const ui_handle_t fill = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(fixed != UI_INVALID_HANDLE);
+    REQUIRE(fill != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(200.0f, 100.0f);
+    ui_set_width(root, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_flex_direction(root, 1U);
+    ui_set_padding(root, 10.0f, 10.0f, 10.0f, 10.0f);
+
+    ui_set_width(fixed, 50.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(fixed, 20.0f, UI_SIZE_UNIT_PIXEL);
+
+    ui_set_fill_width(fill, true);
+    ui_set_fill_height(fill, true);
+    ui_set_margin(fill, 5.0f, 5.0f, 5.0f, 5.0f);
+
+    ui_node_add_child(root, fixed);
+    ui_node_add_child(root, fill);
+    ui_commit_frame();
+
+    const auto bounds = ReadBounds(ReadCommandBuffer());
+    REQUIRE(bounds.find(fixed) != bounds.end());
+    REQUIRE(bounds.find(fill) != bounds.end());
+
+    CHECK(bounds.at(fixed).width == Approx(50.0f).margin(0.01f));
+    CHECK(bounds.at(fixed).height == Approx(20.0f).margin(0.01f));
+    CHECK(bounds.at(fill).width == Approx(120.0f).margin(0.01f));
+    CHECK(bounds.at(fill).height == Approx(70.0f).margin(0.01f));
+}
+
 TEST_CASE("v2 ui caps wrapped text height and emits bottom fade when max lines clip", "[v2][ui][layout][text]") {
     ui_reset();
 
@@ -1517,8 +1555,10 @@ TEST_CASE("v2 ui text and layout setters cover enums, fonts, measurement, and st
     ui_set_width(box, 7.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(box, 8.0f, UI_SIZE_UNIT_PIXEL);
     CHECK(GetRuntime().SetNodeColor(box, 0x12345678U));
-    CHECK(GetRuntime().SetFlexGrow(box, 1.0f));
-    CHECK(YGNodeStyleGetFlexGrow(GetRuntime().Resolve(box)->yg_node) == Approx(1.0f));
+    CHECK(GetRuntime().SetFillWidth(box, true));
+    CHECK(GetRuntime().SetFillHeight(box, true));
+    CHECK(GetRuntime().Resolve(box)->fill_width);
+    CHECK(GetRuntime().Resolve(box)->fill_height);
 
     ui_set_font(text, 1U, 24.0f);
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>("AVA"), 3U);

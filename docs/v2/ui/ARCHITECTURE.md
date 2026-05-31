@@ -102,8 +102,9 @@ void ui_set_is_portal(ui_handle_t handle, bool is_portal);
 // --- 4. Layout (Yoga Flexbox) ---
 void ui_set_width(ui_handle_t handle, float value, uint32_t unit_enum);
 void ui_set_height(ui_handle_t handle, float value, uint32_t unit_enum);
+void ui_set_fill_width(ui_handle_t handle, bool fill);
+void ui_set_fill_height(ui_handle_t handle, bool fill);
 void ui_set_flex_direction(ui_handle_t handle, uint32_t dir_enum);
-void ui_set_flex_grow(ui_handle_t handle, float grow);
 void ui_set_flex_basis(ui_handle_t handle, float basis);
 void ui_set_justify_content(ui_handle_t handle, uint32_t justify_enum);
 void ui_set_align_items(ui_handle_t handle, uint32_t align_enum);
