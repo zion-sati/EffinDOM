@@ -240,7 +240,6 @@ void UiRuntime::ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_han
     }
 
     YGNodeStyleSetAlignSelf(node->yg_node, YGAlignAuto);
-    YGNodeStyleSetFlexShrink(node->yg_node, YGUndefined);
 
     if (parent_handle == UI_INVALID_HANDLE) {
         if (node->fill_width) {
@@ -253,20 +252,24 @@ void UiRuntime::ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_han
         const UINode* parent = Resolve(parent_handle);
         if (parent != nullptr && parent->yg_node != nullptr) {
             const bool parent_is_horizontal = IsHorizontalFlexDirection(YGNodeStyleGetFlexDirection(parent->yg_node));
+            
+            const bool has_auto_cross_axis_size = parent_is_horizontal
+                ? (!node->fill_height && (!node->has_height || node->height_unit == UI_SIZE_UNIT_AUTO))
+                : (!node->fill_width && (!node->has_width || node->width_unit == UI_SIZE_UNIT_AUTO));
+            const bool has_auto_main_axis_size = parent_is_horizontal
+                ? (!node->fill_width && (!node->has_width || node->width_unit == UI_SIZE_UNIT_AUTO))
+                : (!node->fill_height && (!node->has_height || node->height_unit == UI_SIZE_UNIT_AUTO));
+            
+            if (has_auto_main_axis_size) {
+                YGNodeStyleSetFlexShrink(node->yg_node, 0.0f);
+            }
+            
             if (parent->is_scroll_view) {
-                const bool has_auto_cross_axis_size = parent_is_horizontal
-                    ? (!node->fill_height && (!node->has_height || node->height_unit == UI_SIZE_UNIT_AUTO))
-                    : (!node->fill_width && (!node->has_width || node->width_unit == UI_SIZE_UNIT_AUTO));
-                const bool has_auto_main_axis_size = parent_is_horizontal
-                    ? (!node->fill_width && (!node->has_width || node->width_unit == UI_SIZE_UNIT_AUTO))
-                    : (!node->fill_height && (!node->has_height || node->height_unit == UI_SIZE_UNIT_AUTO));
                 if (has_auto_cross_axis_size) {
                     YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexStart);
                 }
-                if (has_auto_main_axis_size) {
-                    YGNodeStyleSetFlexShrink(node->yg_node, 0.0f);
-                }
             }
+            
             if (node->fill_width) {
                 if (parent_is_horizontal) {
                     YGNodeStyleSetFlexBasis(node->yg_node, 0.0f);
