@@ -62,8 +62,8 @@ npx playwright install chromium
 
 For the top-level v2 build entrypoint, see [docs/QUICKSTART.md](../../QUICKSTART.md).
 For the v2 FUI-AS docs hub, see [docs/v2/fui-as/SDK_INDEX.md](../fui-as/SDK_INDEX.md).
-For the current v2 FUI-AS public SDK surface, see [docs/v2/fui-as/API_REFERENCE.md](../fui-as/API_REFERENCE.md).
-For the current v2 FUI-AS control/node guide, see [docs/v2/fui-as/CONTROLS_AND_NODES.md](../fui-as/CONTROLS_AND_NODES.md).
+For the v2 FUI-AS public SDK surface, see [docs/v2/fui-as/API_REFERENCE.md](../fui-as/API_REFERENCE.md).
+For the v2 FUI-AS control/node guide, see [docs/v2/fui-as/CONTROLS_AND_NODES.md](../fui-as/CONTROLS_AND_NODES.md).
 For v2 FUI-AS semantic defaults and a11y contracts, see [docs/v2/fui-as/ACCESSIBILITY_AND_SEMANTICS.md](../fui-as/ACCESSIBILITY_AND_SEMANTICS.md).
 For per-type control/node pages, see [docs/v2/fui-as/reference/README.md](../fui-as/reference/README.md).
 For callback/event contracts, see [docs/v2/fui-as/EVENTS_AND_CALLBACKS.md](../fui-as/EVENTS_AND_CALLBACKS.md).

@@ -102,7 +102,7 @@ This builds:
 - [v2 UI quickstart](./v2/ui/QUICKSTART.md)
 - [v2 Browser Bridge quickstart](./v2/browser-bridge/QUICKSTART.md)
 - [v2 FUI AssemblyScript quickstart](./v2/fui-as/QUICKSTART.md)
-- [v2 FUI AssemblyScript app scaffolding (`npm create @effindomv2/fui-as-app`)](./v2/fui-as/QUICKSTART.md#scaffold-a-new-app-phase-4)
+- [v2 FUI AssemblyScript app scaffolding (`npm create @effindomv2/fui-as-app`)](./v2/fui-as/QUICKSTART.md#scaffold-a-new-app)
 - [v2 FUI AssemblyScript SDK docs index](./v2/fui-as/SDK_INDEX.md)
 - [v2 FUI AssemblyScript API reference](./v2/fui-as/API_REFERENCE.md)
 - [v2 FUI AssemblyScript controls and nodes](./v2/fui-as/CONTROLS_AND_NODES.md)
