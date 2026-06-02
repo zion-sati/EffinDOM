@@ -21,6 +21,35 @@ void ApplyEffectiveMargin(YGNodeRef yg_node, float left, float top, float right,
     YGNodeStyleSetMargin(yg_node, YGEdgeBottom, bottom);
 }
 
+bool ApplyYogaAlign(YGNodeRef yg_node, std::uint32_t align_enum, bool self) {
+    YGAlign align = YGAlignAuto;
+    switch (align_enum) {
+    case UI_ALIGN_SELF_AUTO:
+        align = YGAlignAuto;
+        break;
+    case UI_ALIGN_SELF_START:
+        align = YGAlignFlexStart;
+        break;
+    case UI_ALIGN_SELF_CENTER:
+        align = YGAlignCenter;
+        break;
+    case UI_ALIGN_SELF_END:
+        align = YGAlignFlexEnd;
+        break;
+    case UI_ALIGN_SELF_STRETCH:
+        align = YGAlignStretch;
+        break;
+    default:
+        return false;
+    }
+    if (self) {
+        YGNodeStyleSetAlignSelf(yg_node, align);
+    } else {
+        YGNodeStyleSetAlignItems(yg_node, align == YGAlignAuto ? YGAlignFlexStart : align);
+    }
+    return true;
+}
+
 }
 
 void UiRuntime::CapturePendingFocusId(std::uint64_t subtree_root) {
@@ -877,6 +906,8 @@ bool UiRuntime::SetWidth(std::uint64_t handle, float value, std::uint32_t unit_e
     node->width = value;
     node->width_unit = unit_enum;
     node->fill_width = false;
+    node->has_fill_width_percent = false;
+    node->has_resolved_fill_width = false;
     layout_dirty_ = true;
     return true;
 }
@@ -903,6 +934,8 @@ bool UiRuntime::SetHeight(std::uint64_t handle, float value, std::uint32_t unit_
     node->height = value;
     node->height_unit = unit_enum;
     node->fill_height = false;
+    node->has_fill_height_percent = false;
+    node->has_resolved_fill_height = false;
     layout_dirty_ = true;
     return true;
 }
@@ -916,6 +949,12 @@ bool UiRuntime::SetFillWidth(std::uint64_t handle, bool fill) {
         return true;
     }
     node->fill_width = fill;
+    if (fill) {
+        node->has_width = false;
+        node->has_fill_width_percent = false;
+        node->has_resolved_fill_width = false;
+        YGNodeStyleSetWidthAuto(node->yg_node);
+    }
     layout_dirty_ = true;
     return true;
 }
@@ -929,6 +968,157 @@ bool UiRuntime::SetFillHeight(std::uint64_t handle, bool fill) {
         return true;
     }
     node->fill_height = fill;
+    if (fill) {
+        node->has_height = false;
+        node->has_fill_height_percent = false;
+        node->has_resolved_fill_height = false;
+        YGNodeStyleSetHeightAuto(node->yg_node);
+    }
+    layout_dirty_ = true;
+    return true;
+}
+
+bool UiRuntime::SetFillWidthPercent(std::uint64_t handle, float percent) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr || !std::isfinite(percent) || percent < 0.0f) {
+        return false;
+    }
+    node->has_width = false;
+    node->fill_width = false;
+    node->has_fill_width_percent = true;
+    node->fill_width_percent = percent;
+    node->has_resolved_fill_width = false;
+    YGNodeStyleSetWidthAuto(node->yg_node);
+    layout_dirty_ = true;
+    return true;
+}
+
+bool UiRuntime::SetFillHeightPercent(std::uint64_t handle, float percent) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr || !std::isfinite(percent) || percent < 0.0f) {
+        return false;
+    }
+    node->has_height = false;
+    node->fill_height = false;
+    node->has_fill_height_percent = true;
+    node->fill_height_percent = percent;
+    node->has_resolved_fill_height = false;
+    YGNodeStyleSetHeightAuto(node->yg_node);
+    layout_dirty_ = true;
+    return true;
+}
+
+namespace {
+
+bool ApplyMinMaxAxis(
+    YGNodeRef yg_node,
+    float value,
+    std::uint32_t unit_enum,
+    bool min_axis,
+    bool width_axis) {
+    switch (unit_enum) {
+    case UI_SIZE_UNIT_PIXEL:
+        if (width_axis) {
+            if (min_axis) {
+                YGNodeStyleSetMinWidth(yg_node, value);
+            } else {
+                YGNodeStyleSetMaxWidth(yg_node, value);
+            }
+        } else if (min_axis) {
+            YGNodeStyleSetMinHeight(yg_node, value);
+        } else {
+            YGNodeStyleSetMaxHeight(yg_node, value);
+        }
+        return true;
+    case UI_SIZE_UNIT_PERCENT:
+        if (width_axis) {
+            if (min_axis) {
+                YGNodeStyleSetMinWidthPercent(yg_node, value);
+            } else {
+                YGNodeStyleSetMaxWidthPercent(yg_node, value);
+            }
+        } else if (min_axis) {
+            YGNodeStyleSetMinHeightPercent(yg_node, value);
+        } else {
+            YGNodeStyleSetMaxHeightPercent(yg_node, value);
+        }
+        return true;
+    case UI_SIZE_UNIT_AUTO:
+        if (width_axis) {
+            if (min_axis) {
+                YGNodeStyleSetMinWidth(yg_node, YGUndefined);
+            } else {
+                YGNodeStyleSetMaxWidth(yg_node, YGUndefined);
+            }
+        } else if (min_axis) {
+            YGNodeStyleSetMinHeight(yg_node, YGUndefined);
+        } else {
+            YGNodeStyleSetMaxHeight(yg_node, YGUndefined);
+        }
+        return true;
+    default:
+        return false;
+    }
+}
+
+}
+
+bool UiRuntime::SetMinWidth(std::uint64_t handle, float value, std::uint32_t unit_enum) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr || (unit_enum != UI_SIZE_UNIT_AUTO && (!std::isfinite(value) || value < 0.0f))) {
+        return false;
+    }
+    if (!ApplyMinMaxAxis(node->yg_node, value, unit_enum, true, true)) {
+        return false;
+    }
+    node->has_min_width = unit_enum != UI_SIZE_UNIT_AUTO;
+    node->min_width = value;
+    node->min_width_unit = unit_enum;
+    layout_dirty_ = true;
+    return true;
+}
+
+bool UiRuntime::SetMaxWidth(std::uint64_t handle, float value, std::uint32_t unit_enum) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr || (unit_enum != UI_SIZE_UNIT_AUTO && (!std::isfinite(value) || value < 0.0f))) {
+        return false;
+    }
+    if (!ApplyMinMaxAxis(node->yg_node, value, unit_enum, false, true)) {
+        return false;
+    }
+    node->has_max_width = unit_enum != UI_SIZE_UNIT_AUTO;
+    node->max_width = value;
+    node->max_width_unit = unit_enum;
+    layout_dirty_ = true;
+    return true;
+}
+
+bool UiRuntime::SetMinHeight(std::uint64_t handle, float value, std::uint32_t unit_enum) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr || (unit_enum != UI_SIZE_UNIT_AUTO && (!std::isfinite(value) || value < 0.0f))) {
+        return false;
+    }
+    if (!ApplyMinMaxAxis(node->yg_node, value, unit_enum, true, false)) {
+        return false;
+    }
+    node->has_min_height = unit_enum != UI_SIZE_UNIT_AUTO;
+    node->min_height = value;
+    node->min_height_unit = unit_enum;
+    layout_dirty_ = true;
+    return true;
+}
+
+bool UiRuntime::SetMaxHeight(std::uint64_t handle, float value, std::uint32_t unit_enum) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr || (unit_enum != UI_SIZE_UNIT_AUTO && (!std::isfinite(value) || value < 0.0f))) {
+        return false;
+    }
+    if (!ApplyMinMaxAxis(node->yg_node, value, unit_enum, false, false)) {
+        return false;
+    }
+    node->has_max_height = unit_enum != UI_SIZE_UNIT_AUTO;
+    node->max_height = value;
+    node->max_height_unit = unit_enum;
     layout_dirty_ = true;
     return true;
 }
@@ -992,23 +1182,20 @@ bool UiRuntime::SetAlignItems(std::uint64_t handle, std::uint32_t align_enum) {
     if (node == nullptr || node->yg_node == nullptr) {
         return false;
     }
-    switch (align_enum) {
-    case 0U:
-    case 1U:
-        YGNodeStyleSetAlignItems(node->yg_node, YGAlignFlexStart);
-        break;
-    case 2U:
-        YGNodeStyleSetAlignItems(node->yg_node, YGAlignCenter);
-        break;
-    case 3U:
-        YGNodeStyleSetAlignItems(node->yg_node, YGAlignFlexEnd);
-        break;
-    case 4U:
-        YGNodeStyleSetAlignItems(node->yg_node, YGAlignStretch);
-        break;
-    default:
+    if (!ApplyYogaAlign(node->yg_node, align_enum == 0U ? UI_ALIGN_SELF_START : align_enum, false)) {
         return false;
     }
+    layout_dirty_ = true;
+    return true;
+}
+
+bool UiRuntime::SetAlignSelf(std::uint64_t handle, std::uint32_t align_enum) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr || !ApplyYogaAlign(node->yg_node, align_enum, true)) {
+        return false;
+    }
+    node->has_align_self = true;
+    node->align_self = align_enum;
     layout_dirty_ = true;
     return true;
 }

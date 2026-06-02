@@ -1,0 +1,955 @@
+#include "TestUiSupport.h"
+
+TEST_CASE("v2 ui hierarchy operations support reparenting and invalid input", "[v2][ui][unit]") {
+    using effindom::v2::ui::GetRuntime;
+    using effindom::v2::ui::PackHandle;
+
+    ui_reset();
+
+    const std::uint64_t root_a = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t root_b = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t child = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root_a != UI_INVALID_HANDLE);
+    REQUIRE(root_b != UI_INVALID_HANDLE);
+    REQUIRE(child != UI_INVALID_HANDLE);
+
+    CHECK_FALSE(GetRuntime().AddChild(root_a, root_a));
+    CHECK_FALSE(GetRuntime().AddChild(root_a, UI_INVALID_HANDLE));
+    CHECK(GetRuntime().AddChild(root_a, child));
+    CHECK(GetRuntime().AddChild(root_a, child));
+    CHECK(GetRuntime().AddChild(root_b, child));
+
+    const effindom::v2::ui::UINode* root_a_node = GetRuntime().Resolve(root_a);
+    const effindom::v2::ui::UINode* root_b_node = GetRuntime().Resolve(root_b);
+    const effindom::v2::ui::UINode* child_node = GetRuntime().Resolve(child);
+    REQUIRE(root_a_node != nullptr);
+    REQUIRE(root_b_node != nullptr);
+    REQUIRE(child_node != nullptr);
+    CHECK(root_a_node->children.empty());
+    REQUIRE(root_b_node->children.size() == 1U);
+    CHECK(root_b_node->children.front() == child);
+    CHECK(child_node->parent_handle == root_b);
+
+    CHECK_FALSE(GetRuntime().RemoveChild(PackHandle(0U, 1U), child));
+    CHECK_FALSE(GetRuntime().RemoveChild(root_a, child));
+    ui_node_remove_child(root_b, child);
+    CHECK_FALSE(GetRuntime().RemoveChild(root_b, child));
+    CHECK(GetRuntime().Resolve(child)->parent_handle == UI_INVALID_HANDLE);
+}
+
+
+TEST_CASE("v2 ui pointer move without button does not drag stale scroll state", "[v2][ui][unit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(content, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, content);
+    ui_set_scroll_offset(scroll, 0.0f, 60.0f);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    runtime.active_scroll_handle_ = scroll;
+    runtime.active_scroll_dragged_ = false;
+    runtime.primary_pointer_down_ = false;
+    runtime.last_pointer_logical_x_ = 40.0f;
+    runtime.last_pointer_logical_y_ = 40.0f;
+
+    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, content, 48.0f, 54.0f);
+
+    const auto* scroll_node = runtime.Resolve(scroll);
+    REQUIRE(scroll_node != nullptr);
+    CHECK(scroll_node->scroll_offset_y == Approx(60.0f));
+    CHECK(scroll_node->scroll_velocity_x == Approx(0.0f));
+    CHECK(scroll_node->scroll_velocity_y == Approx(0.0f));
+}
+
+
+TEST_CASE("v2 ui wheel events scroll the hovered scroll view", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(content, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, content);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    runtime.last_hovered_handle_ = content;
+    runtime.last_pointer_logical_x_ = 40.0f;
+    runtime.last_pointer_logical_y_ = 40.0f;
+
+    ui_on_wheel_event(0.0f, 28.0f);
+
+    const auto* scroll_node = runtime.Resolve(scroll);
+    REQUIRE(scroll_node != nullptr);
+    CHECK(scroll_node->scroll_offset_y == Approx(28.0f));
+}
+
+
+TEST_CASE("v2 ui wheel events do not latch onto a sibling scroll view outside its bounds", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t gap = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t track = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(content != UI_INVALID_HANDLE);
+    REQUIRE(gap != UI_INVALID_HANDLE);
+    REQUIRE(track != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 176.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_flex_direction(root, 1U);
+
+    ui_set_width(scroll, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(content, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(gap, 8.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(gap, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(track, 8.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(track, 80.0f, UI_SIZE_UNIT_PIXEL);
+
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(root, gap);
+    ui_node_add_child(root, track);
+    ui_node_add_child(scroll, content);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    runtime.last_hovered_handle_ = gap;
+    runtime.last_pointer_logical_x_ = 164.0f;
+    runtime.last_pointer_logical_y_ = 40.0f;
+    ui_on_wheel_event(0.0f, 20.0f);
+
+    const auto* scroll_node = runtime.Resolve(scroll);
+    REQUIRE(scroll_node != nullptr);
+    CHECK(scroll_node->scroll_offset_y == Approx(0.0f));
+
+    runtime.last_hovered_handle_ = track;
+    runtime.last_pointer_logical_x_ = 172.0f;
+    runtime.last_pointer_logical_y_ = 40.0f;
+    ui_on_wheel_event(0.0f, 16.0f);
+    CHECK(scroll_node->scroll_offset_y == Approx(0.0f));
+}
+
+
+TEST_CASE("v2 ui wheel and touch scroll share scroll-box proxy routing", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll_box = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t gap = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t track = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll_box != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(content != UI_INVALID_HANDLE);
+    REQUIRE(gap != UI_INVALID_HANDLE);
+    REQUIRE(track != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 176.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_flex_direction(root, 1U);
+    ui_set_width(scroll_box, 176.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll_box, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_flex_direction(scroll_box, 1U);
+    ui_set_width(scroll, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(content, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(gap, 8.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(gap, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(track, 8.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(track, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_proxy_target(scroll_box, scroll);
+
+    ui_node_add_child(root, scroll_box);
+    ui_node_add_child(scroll_box, scroll);
+    ui_node_add_child(scroll_box, gap);
+    ui_node_add_child(scroll_box, track);
+    ui_node_add_child(scroll, content);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    runtime.last_hovered_handle_ = gap;
+    runtime.last_pointer_logical_x_ = 164.0f;
+    runtime.last_pointer_logical_y_ = 40.0f;
+
+    ui_on_wheel_event(0.0f, 20.0f);
+
+    const auto* scroll_node = runtime.Resolve(scroll);
+    REQUIRE(scroll_node != nullptr);
+    CHECK(scroll_node->scroll_offset_y == Approx(20.0f));
+
+    ui_touch_scroll_begin(gap, 164.0f, 40.0f);
+    CHECK(runtime.active_scroll_handle_ == scroll);
+
+    ui_touch_scroll_update(0.0f, 16.0f);
+    CHECK(runtime.Resolve(scroll)->scroll_offset_y == Approx(36.0f));
+    CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(16.0f));
+
+    ui_touch_scroll_end();
+    CHECK(runtime.active_scroll_handle_ == UI_INVALID_HANDLE);
+    CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(16.0f));
+}
+
+
+TEST_CASE("v2 ui nested scroll-box proxy hands wheel and touch scrolling to an ancestor at vertical edges", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t outer_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t outer_content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll_box = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t inner_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t inner_content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t spacer = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(outer_scroll != UI_INVALID_HANDLE);
+    REQUIRE(outer_content != UI_INVALID_HANDLE);
+    REQUIRE(scroll_box != UI_INVALID_HANDLE);
+    REQUIRE(inner_scroll != UI_INVALID_HANDLE);
+    REQUIRE(inner_content != UI_INVALID_HANDLE);
+    REQUIRE(spacer != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_scroll, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_content, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_content, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll_box, 92.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll_box, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_content, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_content, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(spacer, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(spacer, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_proxy_target(scroll_box, inner_scroll);
+
+    ui_node_add_child(root, outer_scroll);
+    ui_node_add_child(outer_scroll, outer_content);
+    ui_node_add_child(outer_content, scroll_box);
+    ui_node_add_child(outer_content, spacer);
+    ui_node_add_child(scroll_box, inner_scroll);
+    ui_node_add_child(inner_scroll, inner_content);
+    ui_commit_frame();
+
+    ui_set_scroll_offset(outer_scroll, 0.0f, 40.0f);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    runtime.last_hovered_handle_ = scroll_box;
+    runtime.last_pointer_logical_x_ = 40.0f;
+    runtime.last_pointer_logical_y_ = 40.0f;
+    ui_on_wheel_event(0.0f, -20.0f);
+
+    REQUIRE(runtime.Resolve(outer_scroll) != nullptr);
+    REQUIRE(runtime.Resolve(inner_scroll) != nullptr);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(20.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(0.0f));
+
+    ui_touch_scroll_begin(scroll_box, 40.0f, 40.0f);
+    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    ui_touch_scroll_update(0.0f, -15.0f);
+    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(5.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(0.0f));
+
+    ui_set_scroll_offset(outer_scroll, 0.0f, 20.0f);
+    ui_set_scroll_offset(inner_scroll, 0.0f, 140.0f);
+    ui_commit_frame();
+
+    ui_on_wheel_event(0.0f, 20.0f);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(40.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(140.0f));
+
+    ui_touch_scroll_begin(scroll_box, 40.0f, 40.0f);
+    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    ui_touch_scroll_update(0.0f, 15.0f);
+    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(55.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(140.0f));
+}
+
+
+TEST_CASE("v2 ui clipped overflow does not retarget wheel scrolling through a scroll proxy owner", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t outer_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t outer_content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll_box = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t inner_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t inner_content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t spacer = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(outer_scroll != UI_INVALID_HANDLE);
+    REQUIRE(outer_content != UI_INVALID_HANDLE);
+    REQUIRE(scroll_box != UI_INVALID_HANDLE);
+    REQUIRE(inner_scroll != UI_INVALID_HANDLE);
+    REQUIRE(inner_content != UI_INVALID_HANDLE);
+    REQUIRE(spacer != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_scroll, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_content, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_content, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll_box, 92.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll_box, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_clip_to_bounds(scroll_box, true);
+    ui_set_width(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_content, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_content, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(spacer, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(spacer, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_proxy_target(scroll_box, inner_scroll);
+
+    ui_node_add_child(root, outer_scroll);
+    ui_node_add_child(outer_scroll, outer_content);
+    ui_node_add_child(outer_content, scroll_box);
+    ui_node_add_child(outer_content, spacer);
+    ui_node_add_child(scroll_box, inner_scroll);
+    ui_node_add_child(inner_scroll, inner_content);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    CHECK(runtime.ResolveScrollTarget(inner_content, 116.0f, 40.0f) == outer_scroll);
+
+    runtime.last_hovered_handle_ = inner_content;
+    runtime.last_pointer_logical_x_ = 116.0f;
+    runtime.last_pointer_logical_y_ = 40.0f;
+    ui_on_wheel_event(0.0f, 20.0f);
+
+    const auto* outer_node = runtime.Resolve(outer_scroll);
+    const auto* inner_node = runtime.Resolve(inner_scroll);
+    REQUIRE(outer_node != nullptr);
+    REQUIRE(inner_node != nullptr);
+    CHECK(outer_node->scroll_offset_y == Approx(20.0f));
+    CHECK(inner_node->scroll_offset_y == Approx(0.0f));
+}
+
+
+TEST_CASE("v2 ui horizontal wheel and touch fall back to an ancestor that can scroll that axis", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t outer_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t outer_content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t inner_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t inner_content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(outer_scroll != UI_INVALID_HANDLE);
+    REQUIRE(outer_content != UI_INVALID_HANDLE);
+    REQUIRE(inner_scroll != UI_INVALID_HANDLE);
+    REQUIRE(inner_content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(120.0f, 120.0f);
+    ui_set_width(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_content, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_content, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_content, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_content, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_enabled(outer_scroll, true, false);
+    ui_set_scroll_enabled(inner_scroll, false, true);
+
+    ui_node_add_child(root, outer_scroll);
+    ui_node_add_child(outer_scroll, outer_content);
+    ui_node_add_child(outer_content, inner_scroll);
+    ui_node_add_child(inner_scroll, inner_content);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    runtime.last_pointer_logical_x_ = 40.0f;
+    runtime.last_pointer_logical_y_ = 40.0f;
+    ui_on_wheel_event(24.0f, 0.0f);
+
+    const auto* outer_node = runtime.Resolve(outer_scroll);
+    const auto* inner_node = runtime.Resolve(inner_scroll);
+    REQUIRE(outer_node != nullptr);
+    REQUIRE(inner_node != nullptr);
+    CHECK(outer_node->scroll_offset_x == Approx(24.0f));
+    CHECK(inner_node->scroll_offset_y == Approx(0.0f));
+
+    ui_touch_scroll_begin(inner_scroll, 40.0f, 40.0f);
+    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    ui_touch_scroll_update(30.0f, 0.0f);
+    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(54.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(0.0f));
+}
+
+
+TEST_CASE("v2 ui vertical wheel and touch fall back to an ancestor once the nested scroll view is at its edge", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t outer_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t outer_content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t inner_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t inner_content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(outer_scroll != UI_INVALID_HANDLE);
+    REQUIRE(outer_content != UI_INVALID_HANDLE);
+    REQUIRE(inner_scroll != UI_INVALID_HANDLE);
+    REQUIRE(inner_content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(120.0f, 120.0f);
+    ui_set_width(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_content, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_content, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_content, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_content, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_enabled(outer_scroll, false, true);
+    ui_set_scroll_enabled(inner_scroll, false, true);
+
+    ui_node_add_child(root, outer_scroll);
+    ui_node_add_child(outer_scroll, outer_content);
+    ui_node_add_child(outer_content, inner_scroll);
+    ui_node_add_child(inner_scroll, inner_content);
+    ui_commit_frame();
+
+    ui_set_scroll_offset(outer_scroll, 0.0f, 40.0f);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    runtime.last_pointer_logical_x_ = 40.0f;
+    runtime.last_pointer_logical_y_ = 40.0f;
+    ui_on_wheel_event(0.0f, -20.0f);
+
+    const auto* outer_node = runtime.Resolve(outer_scroll);
+    const auto* inner_node = runtime.Resolve(inner_scroll);
+    REQUIRE(outer_node != nullptr);
+    REQUIRE(inner_node != nullptr);
+    CHECK(outer_node->scroll_offset_y == Approx(20.0f));
+    CHECK(inner_node->scroll_offset_y == Approx(0.0f));
+
+    ui_touch_scroll_begin(inner_scroll, 40.0f, 40.0f);
+    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    ui_touch_scroll_update(0.0f, -15.0f);
+    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(5.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(0.0f));
+
+    ui_set_scroll_offset(outer_scroll, 0.0f, 20.0f);
+    ui_set_scroll_offset(inner_scroll, 0.0f, 140.0f);
+    ui_commit_frame();
+
+    ui_on_wheel_event(0.0f, 20.0f);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(40.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(140.0f));
+
+    ui_touch_scroll_begin(inner_scroll, 40.0f, 40.0f);
+    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    ui_touch_scroll_update(0.0f, 15.0f);
+    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(55.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(140.0f));
+}
+
+
+TEST_CASE("v2 ui horizontal wheel and touch fall back to an ancestor when the nested scroll view hits left and right edges", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t outer_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t outer_content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t inner_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t inner_content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(outer_scroll != UI_INVALID_HANDLE);
+    REQUIRE(outer_content != UI_INVALID_HANDLE);
+    REQUIRE(inner_scroll != UI_INVALID_HANDLE);
+    REQUIRE(inner_content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(120.0f, 120.0f);
+    ui_set_width(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_content, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_content, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_content, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_content, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_enabled(outer_scroll, true, false);
+    ui_set_scroll_enabled(inner_scroll, true, false);
+
+    ui_node_add_child(root, outer_scroll);
+    ui_node_add_child(outer_scroll, outer_content);
+    ui_node_add_child(outer_content, inner_scroll);
+    ui_node_add_child(inner_scroll, inner_content);
+    ui_commit_frame();
+
+    ui_set_scroll_offset(outer_scroll, 30.0f, 0.0f);
+    ui_set_scroll_offset(inner_scroll, 140.0f, 0.0f);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    runtime.last_pointer_logical_x_ = 40.0f;
+    runtime.last_pointer_logical_y_ = 40.0f;
+
+    ui_on_wheel_event(20.0f, 0.0f);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(50.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_x == Approx(140.0f));
+
+    ui_touch_scroll_begin(inner_scroll, 40.0f, 40.0f);
+    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    ui_touch_scroll_update(15.0f, 0.0f);
+    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(65.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_x == Approx(140.0f));
+
+    ui_set_scroll_offset(outer_scroll, 65.0f, 0.0f);
+    ui_set_scroll_offset(inner_scroll, 0.0f, 0.0f);
+    ui_commit_frame();
+
+    runtime.last_pointer_logical_x_ = 10.0f;
+    ui_on_wheel_event(-20.0f, 0.0f);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(45.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_x == Approx(0.0f));
+
+    ui_touch_scroll_begin(inner_scroll, 10.0f, 40.0f);
+    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    ui_touch_scroll_update(-15.0f, 0.0f);
+    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(30.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_x == Approx(0.0f));
+}
+
+
+TEST_CASE("v2 ui touch scroll can split diagonal movement across horizontal and vertical ancestors", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t outer_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t outer_content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t inner_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t inner_content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(outer_scroll != UI_INVALID_HANDLE);
+    REQUIRE(outer_content != UI_INVALID_HANDLE);
+    REQUIRE(inner_scroll != UI_INVALID_HANDLE);
+    REQUIRE(inner_content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(120.0f, 120.0f);
+    ui_set_width(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_content, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_content, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_content, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_content, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_enabled(outer_scroll, true, false);
+    ui_set_scroll_enabled(inner_scroll, false, true);
+
+    ui_node_add_child(root, outer_scroll);
+    ui_node_add_child(outer_scroll, outer_content);
+    ui_node_add_child(outer_content, inner_scroll);
+    ui_node_add_child(inner_scroll, inner_content);
+    ui_commit_frame();
+
+    ui_touch_scroll_begin(inner_scroll, 40.0f, 40.0f);
+    ui_touch_scroll_update(30.0f, 24.0f);
+
+    auto& runtime = GetRuntime();
+    REQUIRE(runtime.Resolve(outer_scroll) != nullptr);
+    REQUIRE(runtime.Resolve(inner_scroll) != nullptr);
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(30.0f));
+    CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_x == Approx(30.0f));
+    CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_y == Approx(0.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(24.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_x == Approx(0.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_y == Approx(24.0f));
+
+    runtime.CommitFrame();
+    CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(30.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(24.0f));
+    CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_x == Approx(30.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_y == Approx(24.0f));
+
+    ui_touch_scroll_end();
+    CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_x == Approx(30.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_y == Approx(24.0f));
+}
+
+
+TEST_CASE("v2 ui touch scroll updates a scroll view and preserves fling velocity after release", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(content, 420.0f, UI_SIZE_UNIT_PIXEL);
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, content);
+    ui_commit_frame();
+
+    ui_touch_scroll_begin(content, 40.0f, 40.0f);
+    CHECK(GetRuntime().active_scroll_handle_ == scroll);
+    CHECK(ui_touch_scroll_allows_pull_to_refresh());
+
+    ui_touch_scroll_update(0.0f, 28.0f);
+    REQUIRE(GetRuntime().Resolve(scroll) != nullptr);
+    CHECK(GetRuntime().Resolve(scroll)->scroll_offset_y == Approx(28.0f));
+    CHECK(GetRuntime().Resolve(scroll)->scroll_velocity_y == Approx(28.0f));
+    CHECK_FALSE(ui_touch_scroll_allows_pull_to_refresh());
+
+    ui_touch_scroll_end();
+    CHECK(GetRuntime().active_scroll_handle_ == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Resolve(scroll)->scroll_velocity_y == Approx(28.0f));
+
+    ui_commit_frame();
+    CHECK(GetRuntime().Resolve(scroll)->scroll_offset_y == Approx(56.0f));
+    CHECK(GetRuntime().Resolve(scroll)->scroll_velocity_y == Approx(26.6f));
+}
+
+
+TEST_CASE("v2 ui touch fling default friction uses platform-specific coarse-pointer tuning", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+    using effindom::v2::ui::PlatformFamily;
+
+    auto run_touch_fling = [](std::uint32_t platform_family) {
+        ui_reset();
+
+        const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+        const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+        const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+        REQUIRE(root != UI_INVALID_HANDLE);
+        REQUIRE(scroll != UI_INVALID_HANDLE);
+        REQUIRE(content != UI_INVALID_HANDLE);
+
+        ui_set_root(root);
+        ui_set_width(root, 320.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_height(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_width(scroll, 200.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_height(scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_width(content, 200.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_height(content, 420.0f, UI_SIZE_UNIT_PIXEL);
+        ui_node_add_child(root, scroll);
+        ui_node_add_child(scroll, content);
+        ui_commit_frame();
+
+        GetRuntime().SetCoarsePointerMode(true);
+        GetRuntime().SetPlatformFamily(platform_family);
+
+        ui_touch_scroll_begin(content, 40.0f, 40.0f);
+        ui_touch_scroll_update(0.0f, 28.0f);
+        ui_touch_scroll_end();
+        ui_commit_frame();
+
+        const auto* scroll_node = GetRuntime().Resolve(scroll);
+        REQUIRE(scroll_node != nullptr);
+        return scroll_node->scroll_velocity_y;
+    };
+
+    const float android_velocity = run_touch_fling(static_cast<std::uint32_t>(PlatformFamily::Linux));
+    const float apple_velocity = run_touch_fling(static_cast<std::uint32_t>(PlatformFamily::Apple));
+
+    CHECK(android_velocity == Approx(28.0f * 0.982f));
+    CHECK(apple_velocity == Approx(28.0f * 0.988f));
+    CHECK(apple_velocity > android_velocity);
+}
+
+
+TEST_CASE("v2 ui cross-node selection covers intermediate nodes and clears on empty click", "[v2][ui][cross-selection]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t first = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t middle = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t last = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(first != UI_INVALID_HANDLE);
+    REQUIRE(middle != UI_INVALID_HANDLE);
+    REQUIRE(last != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_selection_area(root, true);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 160.0f, UI_SIZE_UNIT_PIXEL);
+    for (const std::uint64_t child : {first, middle, last}) {
+        ui_set_width(child, 200.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_font(child, 1U, 20.0f);
+        ui_set_selectable(child, true, 0x40007AFFU);
+        ui_node_add_child(root, child);
+    }
+    ui_set_text(first, reinterpret_cast<const std::uint8_t*>("One"), 3U);
+    ui_set_text(middle, reinterpret_cast<const std::uint8_t*>("Two"), 3U);
+    ui_set_text(last, reinterpret_cast<const std::uint8_t*>("Three"), 5U);
+    ui_commit_frame();
+
+    const auto* first_node = GetRuntime().Resolve(first);
+    const auto* last_node = GetRuntime().Resolve(last);
+    REQUIRE(first_node != nullptr);
+    REQUIRE(last_node != nullptr);
+    const auto [start_x, _] = GetRuntime().GetLocalPositionFromIndex(*first_node, 0U);
+    const auto [end_x, __] = GetRuntime().GetLocalPositionFromIndex(*last_node, 5U);
+
+    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
+    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, last, last_node->abs_x + end_x, last_node->abs_y + (last_node->line_height * 0.5f));
+    ui_on_pointer_event(UI_EVENT_POINTER_UP, last, last_node->abs_x + end_x, last_node->abs_y + (last_node->line_height * 0.5f));
+
+    ui_commit_frame();
+    auto highlights = ReadHighlights(ReadCommandBuffer());
+    REQUIRE(highlights.find(middle) != highlights.end());
+    CHECK_FALSE(highlights.at(middle).rects.empty());
+
+    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, root, 2.0f, 2.0f);
+    CHECK_FALSE(GetRuntime().cross_selection_active_);
+    REQUIRE_FALSE(g_cross_selection_changes.empty());
+    CHECK(g_cross_selection_changes.back().handle == root);
+    CHECK(g_cross_selection_changes.back().text.empty());
+    ui_commit_frame();
+    highlights = ReadHighlights(ReadCommandBuffer());
+    if (highlights.find(first) != highlights.end()) {
+        CHECK(highlights.at(first).rects.empty());
+    }
+    if (highlights.find(middle) != highlights.end()) {
+        CHECK(highlights.at(middle).rects.empty());
+    }
+    if (highlights.find(last) != highlights.end()) {
+        CHECK(highlights.at(last).rects.empty());
+    }
+}
+
+
+TEST_CASE("v2 ui selection-area select-all uses cross-selection and clears on click", "[v2][ui][cross-selection]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_selection_area(root, true);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("Scrollable list"), 15U);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    auto* text_node = GetRuntime().ResolveMutable(text);
+    REQUIRE(text_node != nullptr);
+
+    CHECK(GetRuntime().SelectAllText(text));
+    CHECK(GetRuntime().cross_selection_active_);
+    CHECK(GetRuntime().active_selection_handle_ == UI_INVALID_HANDLE);
+    CHECK(text_node->selection_start == 0U);
+    CHECK(text_node->selection_end == 0U);
+    REQUIRE_FALSE(g_cross_selection_changes.empty());
+    CHECK(g_cross_selection_changes.back().handle == root);
+    CHECK(g_cross_selection_changes.back().text == "Scrollable list");
+
+    ui_commit_frame();
+    auto highlights = ReadHighlights(ReadCommandBuffer());
+    REQUIRE(highlights.find(text) != highlights.end());
+    CHECK_FALSE(highlights.at(text).rects.empty());
+
+    const auto [click_x, click_line] = GetRuntime().GetLocalPositionFromIndex(*text_node, 4U);
+    REQUIRE(click_line == 0U);
+    ui_on_pointer_event(
+        UI_EVENT_POINTER_DOWN,
+        text,
+        text_node->abs_x + click_x + 0.5f,
+        text_node->abs_y + (text_node->line_height * 0.5f));
+    ui_on_pointer_event(
+        UI_EVENT_POINTER_UP,
+        text,
+        text_node->abs_x + click_x + 0.5f,
+        text_node->abs_y + (text_node->line_height * 0.5f));
+
+    CHECK_FALSE(GetRuntime().cross_selection_active_);
+    REQUIRE_FALSE(g_cross_selection_changes.empty());
+    CHECK(g_cross_selection_changes.back().handle == root);
+    CHECK(g_cross_selection_changes.back().text.empty());
+
+    ui_commit_frame();
+    highlights = ReadHighlights(ReadCommandBuffer());
+    if (highlights.find(text) != highlights.end()) {
+        CHECK(highlights.at(text).rects.empty());
+    }
+}
+
+
+TEST_CASE("v2 ui mouse drag cross-selection keeps its anchor for shift horizontal keys", "[v2][ui][cross-selection]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t first = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t second = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(first != UI_INVALID_HANDLE);
+    REQUIRE(second != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_selection_area(root, true);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    for (const std::uint64_t child : {first, second}) {
+        ui_set_width(child, 200.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_font(child, 1U, 20.0f);
+        ui_set_selectable(child, true, 0x40007AFFU);
+        ui_set_interactive(child, true);
+        ui_node_add_child(root, child);
+    }
+    ui_set_text(first, reinterpret_cast<const std::uint8_t*>("Hello"), 5U);
+    ui_set_text(second, reinterpret_cast<const std::uint8_t*>("World"), 5U);
+    ui_commit_frame();
+
+    const auto* first_node = GetRuntime().Resolve(first);
+    const auto* second_node = GetRuntime().Resolve(second);
+    REQUIRE(first_node != nullptr);
+    REQUIRE(second_node != nullptr);
+    const auto [start_x, start_line] = GetRuntime().GetLocalPositionFromIndex(*first_node, 2U);
+    const auto [end_x, end_line] = GetRuntime().GetLocalPositionFromIndex(*second_node, 3U);
+    REQUIRE(start_line == 0);
+    REQUIRE(end_line == 0);
+
+    ui_on_pointer_event(
+        UI_EVENT_POINTER_DOWN,
+        first,
+        first_node->abs_x + start_x + 0.5f,
+        first_node->abs_y + (first_node->line_height * 0.5f));
+    ui_on_pointer_event(
+        UI_EVENT_POINTER_MOVE,
+        second,
+        second_node->abs_x + end_x + 0.5f,
+        second_node->abs_y + (second_node->line_height * 0.5f));
+    ui_on_pointer_event(
+        UI_EVENT_POINTER_UP,
+        second,
+        second_node->abs_x + end_x + 0.5f,
+        second_node->abs_y + (second_node->line_height * 0.5f));
+
+    CHECK(GetRuntime().cross_selection_active_);
+    CHECK(GetRuntime().start_node_handle_ == first);
+    CHECK(GetRuntime().start_index_ == 2U);
+    CHECK(GetRuntime().end_node_handle_ == second);
+    CHECK(GetRuntime().end_index_ == 3U);
+    ResetInteractionLogs();
+
+    ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowRight"), 10U, UI_KEY_MOD_SHIFT);
+
+    CHECK(GetRuntime().start_node_handle_ == first);
+    CHECK(GetRuntime().start_index_ == 2U);
+    CHECK(GetRuntime().end_node_handle_ == second);
+    CHECK(GetRuntime().end_index_ == 4U);
+    REQUIRE_FALSE(g_cross_selection_changes.empty());
+}
+
+

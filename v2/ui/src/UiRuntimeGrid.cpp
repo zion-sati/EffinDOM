@@ -53,9 +53,9 @@ void RestoreGridDimension(YGNodeRef node, bool is_width, YGValue value) {
     case YGUnitUndefined:
     default:
         if (is_width) {
-            YGNodeStyleSetWidth(node, YGUndefined);
+            YGNodeStyleSetWidthAuto(node);
         } else {
-            YGNodeStyleSetHeight(node, YGUndefined);
+            YGNodeStyleSetHeightAuto(node);
         }
         break;
     }
@@ -522,6 +522,8 @@ void UiRuntime::LayoutGrid(
 
         const GridStyleSnapshot snapshot = ApplyGridMeasurementStyle(*child, alloc_width, alloc_height);
         YGNodeCalculateLayout(child->yg_node, alloc_width, alloc_height, YGDirectionLTR);
+        child->layout_width = YGNodeLayoutGetWidth(child->yg_node);
+        child->layout_height = YGNodeLayoutGetHeight(child->yg_node);
         const float origin_x = child_abs_x - YGNodeLayoutGetLeft(child->yg_node);
         const float origin_y = child_abs_y - YGNodeLayoutGetTop(child->yg_node);
         const float scene_origin_x = child_scene_x - YGNodeLayoutGetLeft(child->yg_node);

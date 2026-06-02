@@ -1,6 +1,6 @@
 #include "EngineInternal.h"
+#include "SvgIntrinsicSize.h"
 
-#include <array>
 #include <utility>
 
 #include <include/core/SkData.h>
@@ -87,9 +87,9 @@ void Engine::RegisterSvg(std::uint32_t svg_id, const std::uint8_t* bytes, std::u
         return;
     }
 
-    const SkSize reported_size = dom->containerSize();
-    const float intrinsic_width = std::max(reported_size.width(), 1.0f);
-    const float intrinsic_height = std::max(reported_size.height(), 1.0f);
+    const detail::SvgIntrinsicSize parsed_size = detail::ParseSvgIntrinsicSize(bytes, length);
+    const float intrinsic_width = std::max(parsed_size.width, 1.0f);
+    const float intrinsic_height = std::max(parsed_size.height, 1.0f);
     dom->setContainerSize(SkSize::Make(intrinsic_width, intrinsic_height));
 
     SkPictureRecorder recorder;

@@ -32,10 +32,17 @@ _ui_set_width
 _ui_set_height
 _ui_set_fill_width
 _ui_set_fill_height
+_ui_set_fill_width_percent
+_ui_set_fill_height_percent
+_ui_set_min_width
+_ui_set_max_width
+_ui_set_min_height
+_ui_set_max_height
 _ui_set_flex_direction
 _ui_set_flex_basis
 _ui_set_justify_content
 _ui_set_align_items
+_ui_set_align_self
 _ui_set_padding
 _ui_set_margin
 _ui_set_position_type

@@ -124,10 +124,17 @@ public:
     bool SetHeight(std::uint64_t handle, float value, std::uint32_t unit_enum);
     bool SetFillWidth(std::uint64_t handle, bool fill);
     bool SetFillHeight(std::uint64_t handle, bool fill);
+    bool SetFillWidthPercent(std::uint64_t handle, float percent);
+    bool SetFillHeightPercent(std::uint64_t handle, float percent);
+    bool SetMinWidth(std::uint64_t handle, float value, std::uint32_t unit_enum);
+    bool SetMaxWidth(std::uint64_t handle, float value, std::uint32_t unit_enum);
+    bool SetMinHeight(std::uint64_t handle, float value, std::uint32_t unit_enum);
+    bool SetMaxHeight(std::uint64_t handle, float value, std::uint32_t unit_enum);
     bool SetFlexDirection(std::uint64_t handle, std::uint32_t dir_enum);
     bool SetFlexBasis(std::uint64_t handle, float basis);
     bool SetJustifyContent(std::uint64_t handle, std::uint32_t justify_enum);
     bool SetAlignItems(std::uint64_t handle, std::uint32_t align_enum);
+    bool SetAlignSelf(std::uint64_t handle, std::uint32_t align_enum);
     bool SetPadding(std::uint64_t handle, float left, float top, float right, float bottom);
     bool SetMargin(std::uint64_t handle, float left, float top, float right, float bottom);
     bool SetPositionType(std::uint64_t handle, std::uint32_t pos_enum);
@@ -396,6 +403,12 @@ private:
         std::vector<SceneInstruction>& scene,
         std::vector<std::uint64_t>& deferred_portal_roots);
     void ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_handle);
+    bool ResolveFillPercentLayout(std::uint64_t handle, std::uint64_t parent_handle);
+    float ComputeFillAxisAvailableSpace(
+        const UINode& node,
+        const UINode* parent,
+        bool width_axis,
+        bool parent_is_horizontal) const;
     void DestroyRegisteredFont(RegisteredFont& font);
     const RegisteredFont* LookupFont(std::uint32_t font_id) const;
     FontMetrics GetFontMetrics(const RegisteredFont& font, float font_size) const;

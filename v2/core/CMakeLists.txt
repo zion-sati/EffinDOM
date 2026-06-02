@@ -3,6 +3,7 @@ set(EFFINDOM_V2_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/EngineCommand.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/EngineRender.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/EngineShared.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/SvgIntrinsicSize.cpp"
 )
 
 add_library(effindom_v2_core STATIC ${EFFINDOM_V2_CORE_SOURCES})

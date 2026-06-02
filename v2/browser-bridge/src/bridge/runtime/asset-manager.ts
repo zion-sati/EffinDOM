@@ -1,14 +1,13 @@
 import type { AssetLoadResult, CoreModule } from '../../core-types';
 import { writeBytesToHeap } from '../utils/heap';
 import { IncrementalFontManager } from './font-manager';
+import { normalizeSvgBytesForCore, parseSvgIntrinsicSize } from './svg-intrinsic-size';
 
 interface BitmapLike {
   readonly width: number;
   readonly height: number;
   close?(): void;
 }
-
-const svgTextDecoder = new TextDecoder();
 
 function createDecodeCanvas(width: number, height: number): HTMLCanvasElement {
   const canvas = document.createElement('canvas');
@@ -41,61 +40,6 @@ function extractBitmapRgba(bitmap: CanvasImageSource & BitmapLike): Uint8Array {
   );
 }
 
-function parseSvgLength(value: string | null): number | null {
-  if (value === null) {
-    return null;
-  }
-  const trimmed = value.trim();
-  if (trimmed.length === 0) {
-    return null;
-  }
-  const match = /^([+-]?(?:\d+\.?\d*|\.\d+))/.exec(trimmed);
-  const numericPrefix = match?.[1];
-  if (numericPrefix === undefined) {
-    return null;
-  }
-  const parsed = Number.parseFloat(numericPrefix);
-  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
-}
-
-function parseSvgViewBox(value: string | null): AssetLoadResult | null {
-  if (value === null) {
-    return null;
-  }
-  const parts = value
-    .trim()
-    .split(/[\s,]+/)
-    .map((entry) => Number.parseFloat(entry))
-    .filter((entry) => Number.isFinite(entry));
-  if (parts.length !== 4) {
-    return null;
-  }
-  const width = parts[2];
-  const height = parts[3];
-  if (width === undefined || height === undefined) {
-    return null;
-  }
-  if (width <= 0 || height <= 0) {
-    return null;
-  }
-  return { width, height };
-}
-
-function parseSvgIntrinsicSize(bytes: Uint8Array): AssetLoadResult {
-  const markup = svgTextDecoder.decode(bytes);
-  const documentRoot = new DOMParser().parseFromString(markup, 'image/svg+xml').documentElement;
-  const width = parseSvgLength(documentRoot.getAttribute('width'));
-  const height = parseSvgLength(documentRoot.getAttribute('height'));
-  if (width !== null && height !== null) {
-    return { width, height };
-  }
-  const viewBox = parseSvgViewBox(documentRoot.getAttribute('viewBox'));
-  if (viewBox !== null) {
-    return viewBox;
-  }
-  return { width: 1, height: 1 };
-}
-
 export class AssetManager {
   private readonly loadedSvgs = new Map<number, string>();
   private readonly loadedTextures = new Map<number, string>();
@@ -114,7 +58,7 @@ export class AssetManager {
     }
     const bytes = new Uint8Array(await response.arrayBuffer());
     const size = parseSvgIntrinsicSize(bytes);
-    const svgBytes = writeBytesToHeap(this.core, bytes);
+    const svgBytes = writeBytesToHeap(this.core, normalizeSvgBytesForCore(bytes));
     try {
       this.core._ed_register_svg(svgId, svgBytes.ptr, svgBytes.len);
     } finally {
@@ -171,7 +115,7 @@ export class AssetManager {
           throw new Error(`Failed to refetch SVG ${url}: ${String(response.status)}`);
         }
         const bytes = new Uint8Array(await response.arrayBuffer());
-        const svgBytes = writeBytesToHeap(this.core, bytes);
+        const svgBytes = writeBytesToHeap(this.core, normalizeSvgBytesForCore(bytes));
         try {
           this.core._ed_register_svg(svgId, svgBytes.ptr, svgBytes.len);
         } finally {

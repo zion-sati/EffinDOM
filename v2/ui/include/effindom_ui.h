@@ -64,6 +64,14 @@ typedef enum UiPositionType {
     UI_POSITION_ABSOLUTE = 1
 } UiPositionType;
 
+typedef enum UiAlignSelf {
+    UI_ALIGN_SELF_AUTO = 0,
+    UI_ALIGN_SELF_START = 1,
+    UI_ALIGN_SELF_CENTER = 2,
+    UI_ALIGN_SELF_END = 3,
+    UI_ALIGN_SELF_STRETCH = 4
+} UiAlignSelf;
+
 typedef enum UiVisibility {
     UI_VISIBILITY_NORMAL = 0,
     UI_VISIBILITY_HIDDEN = 1,
@@ -140,10 +148,17 @@ void ui_set_width(ui_handle_t handle, float value, uint32_t unit_enum);
 void ui_set_height(ui_handle_t handle, float value, uint32_t unit_enum);
 void ui_set_fill_width(ui_handle_t handle, bool fill);
 void ui_set_fill_height(ui_handle_t handle, bool fill);
+void ui_set_fill_width_percent(ui_handle_t handle, float percent);
+void ui_set_fill_height_percent(ui_handle_t handle, float percent);
+void ui_set_min_width(ui_handle_t handle, float value, uint32_t unit_enum);
+void ui_set_max_width(ui_handle_t handle, float value, uint32_t unit_enum);
+void ui_set_min_height(ui_handle_t handle, float value, uint32_t unit_enum);
+void ui_set_max_height(ui_handle_t handle, float value, uint32_t unit_enum);
 void ui_set_flex_direction(ui_handle_t handle, uint32_t dir_enum);
 void ui_set_flex_basis(ui_handle_t handle, float basis);
 void ui_set_justify_content(ui_handle_t handle, uint32_t justify_enum);
 void ui_set_align_items(ui_handle_t handle, uint32_t align_enum);
+void ui_set_align_self(ui_handle_t handle, uint32_t align_enum);
 void ui_set_padding(ui_handle_t handle, float left, float top, float right, float bottom);
 void ui_set_margin(ui_handle_t handle, float left, float top, float right, float bottom);
 void ui_set_position_type(ui_handle_t handle, uint32_t pos_enum);

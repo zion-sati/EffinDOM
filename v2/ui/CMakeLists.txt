@@ -85,7 +85,13 @@ if(EMSCRIPTEN)
 else()
     add_executable(effindom_v2_ui_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUiSupport.cpp"
-        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_command_builder.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_layout_text.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_portals.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_input.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_runtime_api.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_scroll.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_misc.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_cross_selection.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_editing.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_semantic.cpp"

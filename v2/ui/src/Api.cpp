@@ -139,6 +139,30 @@ void ui_set_fill_height(ui_handle_t handle, bool fill) {
     (void)effindom::v2::ui::GetRuntime().SetFillHeight(handle, fill);
 }
 
+void ui_set_fill_width_percent(ui_handle_t handle, float percent) {
+    (void)effindom::v2::ui::GetRuntime().SetFillWidthPercent(handle, percent);
+}
+
+void ui_set_fill_height_percent(ui_handle_t handle, float percent) {
+    (void)effindom::v2::ui::GetRuntime().SetFillHeightPercent(handle, percent);
+}
+
+void ui_set_min_width(ui_handle_t handle, float value, uint32_t unit_enum) {
+    (void)effindom::v2::ui::GetRuntime().SetMinWidth(handle, value, unit_enum);
+}
+
+void ui_set_max_width(ui_handle_t handle, float value, uint32_t unit_enum) {
+    (void)effindom::v2::ui::GetRuntime().SetMaxWidth(handle, value, unit_enum);
+}
+
+void ui_set_min_height(ui_handle_t handle, float value, uint32_t unit_enum) {
+    (void)effindom::v2::ui::GetRuntime().SetMinHeight(handle, value, unit_enum);
+}
+
+void ui_set_max_height(ui_handle_t handle, float value, uint32_t unit_enum) {
+    (void)effindom::v2::ui::GetRuntime().SetMaxHeight(handle, value, unit_enum);
+}
+
 void ui_set_flex_direction(ui_handle_t handle, uint32_t dir_enum) {
     (void)effindom::v2::ui::GetRuntime().SetFlexDirection(handle, dir_enum);
 }
@@ -153,6 +177,10 @@ void ui_set_justify_content(ui_handle_t handle, uint32_t justify_enum) {
 
 void ui_set_align_items(ui_handle_t handle, uint32_t align_enum) {
     (void)effindom::v2::ui::GetRuntime().SetAlignItems(handle, align_enum);
+}
+
+void ui_set_align_self(ui_handle_t handle, uint32_t align_enum) {
+    (void)effindom::v2::ui::GetRuntime().SetAlignSelf(handle, align_enum);
 }
 
 void ui_set_padding(ui_handle_t handle, float left, float top, float right, float bottom) {

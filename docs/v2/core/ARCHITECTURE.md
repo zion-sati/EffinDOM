@@ -212,6 +212,11 @@ Tier 2 now treats a node's explicit `width` / `height` as its **outer border box
 
 This split matters because child layout, text local coordinates, scroll metrics, and descendant clipping all use the content box, while the node's own border/background still paint across the full outer border edge. In other words: the box sent to Yoga is the component's real size, not a content box that later has to "make room" for borders by shrinking inward.
 
+Tier 2 keeps Yoga's default stretch behavior for generic flex containers, while
+Tier 3 can opt a specific child out of cross-axis stretch through the explicit
+`alignSelf(...)` layout surface. Built-in buttons use that path by default so
+they stay content-sized in stretching columns unless app code asks them to fill.
+
 Scroll offset notification now also carries an explicit re-entrancy guard inside Tier 2: nested app-driven scroll mutations on the same surface are deferred into a follow-up notification instead of recursively re-entering `ApplyScrollOffset(...)` on the callback stack.
 
 ### Tier 2 text overflow fade contract

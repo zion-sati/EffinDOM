@@ -238,35 +238,66 @@ void UiRuntime::ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_han
     } else {
         YGNodeStyleSetFlexBasisAuto(node->yg_node);
     }
+    YGNodeStyleSetFlexGrow(node->yg_node, 0.0f);
 
     YGNodeStyleSetAlignSelf(node->yg_node, YGAlignAuto);
+    if (node->has_align_self) {
+        switch (node->align_self) {
+        case UI_ALIGN_SELF_AUTO:
+            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignAuto);
+            break;
+        case UI_ALIGN_SELF_START:
+            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexStart);
+            break;
+        case UI_ALIGN_SELF_CENTER:
+            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignCenter);
+            break;
+        case UI_ALIGN_SELF_END:
+            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexEnd);
+            break;
+        case UI_ALIGN_SELF_STRETCH:
+            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignStretch);
+            break;
+        default:
+            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignAuto);
+            break;
+        }
+    }
 
     if (parent_handle == UI_INVALID_HANDLE) {
         if (node->fill_width) {
             YGNodeStyleSetWidthPercent(node->yg_node, 100.0f);
+        } else if (node->has_fill_width_percent) {
+            YGNodeStyleSetWidthPercent(node->yg_node, node->fill_width_percent);
         }
         if (node->fill_height) {
             YGNodeStyleSetHeightPercent(node->yg_node, 100.0f);
+        } else if (node->has_fill_height_percent) {
+            YGNodeStyleSetHeightPercent(node->yg_node, node->fill_height_percent);
         }
     } else {
         const UINode* parent = Resolve(parent_handle);
         if (parent != nullptr && parent->yg_node != nullptr) {
             const bool parent_is_horizontal = IsHorizontalFlexDirection(YGNodeStyleGetFlexDirection(parent->yg_node));
-            if (node->fill_width) {
-                if (parent_is_horizontal) {
-                    YGNodeStyleSetFlexBasis(node->yg_node, 0.0f);
-                    YGNodeStyleSetFlexGrow(node->yg_node, 1.0f);
+            if (node->has_fill_width_percent || (node->fill_width && parent_is_horizontal)) {
+                if (node->has_resolved_fill_width) {
+                    YGNodeStyleSetWidth(node->yg_node, node->resolved_fill_width);
                 } else {
-                    YGNodeStyleSetAlignSelf(node->yg_node, YGAlignStretch);
+                    YGNodeStyleSetWidthAuto(node->yg_node);
                 }
             }
-            if (node->fill_height) {
-                if (!parent_is_horizontal) {
-                    YGNodeStyleSetFlexBasis(node->yg_node, 0.0f);
-                    YGNodeStyleSetFlexGrow(node->yg_node, 1.0f);
+            if (node->has_fill_height_percent || (node->fill_height && !parent_is_horizontal)) {
+                if (node->has_resolved_fill_height) {
+                    YGNodeStyleSetHeight(node->yg_node, node->resolved_fill_height);
                 } else {
-                    YGNodeStyleSetAlignSelf(node->yg_node, YGAlignStretch);
+                    YGNodeStyleSetHeightAuto(node->yg_node);
                 }
+            }
+            if (node->fill_width && !parent_is_horizontal) {
+                YGNodeStyleSetAlignSelf(node->yg_node, YGAlignStretch);
+            }
+            if (node->fill_height && parent_is_horizontal) {
+                YGNodeStyleSetAlignSelf(node->yg_node, YGAlignStretch);
             }
         }
     }
@@ -274,6 +305,116 @@ void UiRuntime::ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_han
     for (const std::uint64_t child_handle : node->children) {
         ApplyLayoutStyles(child_handle, handle);
     }
+}
+
+float UiRuntime::ComputeFillAxisAvailableSpace(
+    const UINode& node,
+    const UINode* parent,
+    bool width_axis,
+    bool parent_is_horizontal) const {
+    if (parent == nullptr || parent->yg_node == nullptr) {
+        return width_axis ? window_width_ : window_height_;
+    }
+
+    const float parent_content_width = std::max(
+        0.0f,
+        YGNodeLayoutGetWidth(parent->yg_node) -
+            YGNodeLayoutGetBorder(parent->yg_node, YGEdgeLeft) -
+            YGNodeLayoutGetBorder(parent->yg_node, YGEdgeRight) -
+            YGNodeLayoutGetPadding(parent->yg_node, YGEdgeLeft) -
+            YGNodeLayoutGetPadding(parent->yg_node, YGEdgeRight));
+    const float parent_content_height = std::max(
+        0.0f,
+        YGNodeLayoutGetHeight(parent->yg_node) -
+            YGNodeLayoutGetBorder(parent->yg_node, YGEdgeTop) -
+            YGNodeLayoutGetBorder(parent->yg_node, YGEdgeBottom) -
+            YGNodeLayoutGetPadding(parent->yg_node, YGEdgeTop) -
+            YGNodeLayoutGetPadding(parent->yg_node, YGEdgeBottom));
+    float available = width_axis ? parent_content_width : parent_content_height;
+    const bool main_axis = width_axis == parent_is_horizontal;
+
+    if (main_axis) {
+        for (const std::uint64_t sibling_handle : parent->children) {
+            const UINode* sibling = Resolve(sibling_handle);
+            if (sibling == nullptr || sibling->yg_node == nullptr || sibling == &node) {
+                continue;
+            }
+            if (YGNodeStyleGetPositionType(sibling->yg_node) == YGPositionTypeAbsolute) {
+                continue;
+            }
+            const bool sibling_uses_main_axis_available_space = width_axis
+                ? (sibling->fill_width || sibling->has_fill_width_percent || (sibling->has_width && sibling->width_unit == UI_SIZE_UNIT_PERCENT))
+                : (sibling->fill_height || sibling->has_fill_height_percent || (sibling->has_height && sibling->height_unit == UI_SIZE_UNIT_PERCENT));
+            if (sibling_uses_main_axis_available_space) {
+                continue;
+            }
+            if (width_axis) {
+                available -=
+                    YGNodeLayoutGetWidth(sibling->yg_node) +
+                    YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeLeft) +
+                    YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeRight);
+            } else {
+                available -=
+                    YGNodeLayoutGetHeight(sibling->yg_node) +
+                    YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeTop) +
+                    YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeBottom);
+            }
+        }
+    }
+
+    if (parent != nullptr) {
+        if (width_axis) {
+            available -=
+                YGNodeLayoutGetMargin(node.yg_node, YGEdgeLeft) +
+                YGNodeLayoutGetMargin(node.yg_node, YGEdgeRight);
+        } else {
+            available -=
+                YGNodeLayoutGetMargin(node.yg_node, YGEdgeTop) +
+                YGNodeLayoutGetMargin(node.yg_node, YGEdgeBottom);
+        }
+    }
+
+    return std::max(0.0f, available);
+}
+
+bool UiRuntime::ResolveFillPercentLayout(std::uint64_t handle, std::uint64_t parent_handle) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr) {
+        return false;
+    }
+
+    bool changed = false;
+    const UINode* parent = parent_handle == UI_INVALID_HANDLE ? nullptr : Resolve(parent_handle);
+    const bool parent_is_horizontal =
+        parent != nullptr && parent->yg_node != nullptr && IsHorizontalFlexDirection(YGNodeStyleGetFlexDirection(parent->yg_node));
+
+    if (parent_handle != UI_INVALID_HANDLE && (node->has_fill_width_percent || (node->fill_width && parent_is_horizontal))) {
+        const float available = ComputeFillAxisAvailableSpace(*node, parent, true, parent_is_horizontal);
+        const float percent = node->fill_width ? 100.0f : node->fill_width_percent;
+        const float resolved = available * (percent / 100.0f);
+        if (!node->has_resolved_fill_width || std::abs(node->resolved_fill_width - resolved) > 0.01f) {
+            YGNodeStyleSetWidth(node->yg_node, resolved);
+            node->resolved_fill_width = resolved;
+            node->has_resolved_fill_width = true;
+            changed = true;
+        }
+    }
+    if (parent_handle != UI_INVALID_HANDLE && (node->has_fill_height_percent || (node->fill_height && !parent_is_horizontal))) {
+        const float available = ComputeFillAxisAvailableSpace(*node, parent, false, parent_is_horizontal);
+        const float percent = node->fill_height ? 100.0f : node->fill_height_percent;
+        const float resolved = available * (percent / 100.0f);
+        if (!node->has_resolved_fill_height || std::abs(node->resolved_fill_height - resolved) > 0.01f) {
+            YGNodeStyleSetHeight(node->yg_node, resolved);
+            node->resolved_fill_height = resolved;
+            node->has_resolved_fill_height = true;
+            changed = true;
+        }
+    }
+
+    for (const std::uint64_t child_handle : node->children) {
+        changed = ResolveFillPercentLayout(child_handle, handle) || changed;
+    }
+    return changed;
 }
 
 void UiRuntime::Reset() {
@@ -645,6 +786,9 @@ void UiRuntime::CommitFrame() {
             }
             current_text_commit_profile_.scroll_metrics_ms +=
                 ElapsedMilliseconds(scroll_metrics_start, ProfileClock::now());
+            if (ResolveFillPercentLayout(root_handle_, UI_INVALID_HANDLE)) {
+                layout_dirty_ = true;
+            }
             emit_layout_updates = emit_layout_updates || layout_dirty_;
             layout_pass += 1U;
         } while (layout_dirty_ && layout_pass < kMaxLayoutStabilizationPasses);

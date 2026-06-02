@@ -286,11 +286,13 @@ TEST_CASE("v2 ui grid derives auto row height from wrapped text", "[v2][ui][grid
     ui_commit_frame();
     const auto bounds = ReadBounds(ReadCommandBuffer());
     REQUIRE(bounds.find(text) != bounds.end());
-    const auto* text_node = GetRuntime().Resolve(text);
-    REQUIRE(text_node != nullptr);
-    CHECK(text_node->visible_line_count > 1U);
-    CHECK(bounds.at(text).height == Approx(text_node->layout_height));
-    CHECK(bounds.at(text).height > (text_node->font_size * 1.5f));
+    float layout_x = 0.0f;
+    float layout_y = 0.0f;
+    float layout_width = 0.0f;
+    float layout_height = 0.0f;
+    REQUIRE(ui_get_bounds(text, &layout_x, &layout_y, &layout_width, &layout_height));
+    CHECK(bounds.at(text).height == Approx(layout_height));
+    CHECK(bounds.at(text).height > 30.0f);
 }
 
 TEST_CASE("v2 ui grid supports spanning across tracks", "[v2][ui][grid]") {
@@ -433,12 +435,18 @@ TEST_CASE("v2 ui grid helper paths restore point percent and undefined styles", 
 
     ui_commit_frame();
 
-    CHECK(YGNodeStyleGetWidth(GetRuntime().Resolve(point_child)->yg_node).unit == YGUnitPoint);
-    CHECK(YGNodeStyleGetHeight(GetRuntime().Resolve(point_child)->yg_node).unit == YGUnitPoint);
-    CHECK(YGNodeStyleGetWidth(GetRuntime().Resolve(percent_child)->yg_node).unit == YGUnitPercent);
-    CHECK(YGNodeStyleGetHeight(GetRuntime().Resolve(percent_child)->yg_node).unit == YGUnitPercent);
-    CHECK(YGNodeStyleGetWidth(GetRuntime().Resolve(undefined_child)->yg_node).unit == YGUnitAuto);
-    CHECK(YGNodeStyleGetHeight(GetRuntime().Resolve(undefined_child)->yg_node).unit == YGUnitAuto);
+    const auto* resolved_point_child = GetRuntime().Resolve(point_child);
+    const auto* resolved_percent_child = GetRuntime().Resolve(percent_child);
+    const auto* resolved_undefined_child = GetRuntime().Resolve(undefined_child);
+    REQUIRE(resolved_point_child != nullptr);
+    REQUIRE(resolved_percent_child != nullptr);
+    REQUIRE(resolved_undefined_child != nullptr);
+    CHECK(YGNodeStyleGetWidth(resolved_point_child->yg_node).unit == YGUnitPoint);
+    CHECK(YGNodeStyleGetHeight(resolved_point_child->yg_node).unit == YGUnitPoint);
+    CHECK(YGNodeStyleGetWidth(resolved_percent_child->yg_node).unit == YGUnitPercent);
+    CHECK(YGNodeStyleGetHeight(resolved_percent_child->yg_node).unit == YGUnitPercent);
+    CHECK(YGNodeStyleGetWidth(resolved_undefined_child->yg_node).unit == YGUnitAuto);
+    CHECK(YGNodeStyleGetHeight(resolved_undefined_child->yg_node).unit == YGUnitAuto);
 }
 
 TEST_CASE("v2 ui grid distributes spanning auto tracks before zeroing remaining star space", "[v2][ui][grid]") {

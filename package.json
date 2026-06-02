@@ -1,7 +1,7 @@
 {
   "name": "effindom-runtime-repo",
   "private": true,
-  "version": "0.1.5",
+  "version": "0.1.6",
   "description": "Standalone runtime repository for @effindomv2/runtime",
   "engines": {
     "node": ">=18"

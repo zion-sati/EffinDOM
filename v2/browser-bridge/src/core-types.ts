@@ -145,10 +145,17 @@ export interface UiModule {
   _ui_set_height(handle: WasmHandleLike, value: number, unit: number): void;
   _ui_set_fill_width(handle: WasmHandleLike, fill: number): void;
   _ui_set_fill_height(handle: WasmHandleLike, fill: number): void;
+  _ui_set_fill_width_percent(handle: WasmHandleLike, percent: number): void;
+  _ui_set_fill_height_percent(handle: WasmHandleLike, percent: number): void;
+  _ui_set_min_width(handle: WasmHandleLike, value: number, unit: number): void;
+  _ui_set_max_width(handle: WasmHandleLike, value: number, unit: number): void;
+  _ui_set_min_height(handle: WasmHandleLike, value: number, unit: number): void;
+  _ui_set_max_height(handle: WasmHandleLike, value: number, unit: number): void;
   _ui_set_flex_direction(handle: WasmHandleLike, direction: number): void;
   _ui_set_flex_basis(handle: WasmHandleLike, basis: number): void;
   _ui_set_justify_content(handle: WasmHandleLike, justify: number): void;
   _ui_set_align_items(handle: WasmHandleLike, align: number): void;
+  _ui_set_align_self(handle: WasmHandleLike, align: number): void;
   _ui_set_padding(handle: WasmHandleLike, left: number, top: number, right: number, bottom: number): void;
   _ui_set_margin(handle: WasmHandleLike, left: number, top: number, right: number, bottom: number): void;
   _ui_set_position_type(handle: WasmHandleLike, positionType: number): void;
