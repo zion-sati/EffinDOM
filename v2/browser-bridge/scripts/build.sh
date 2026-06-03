@@ -25,6 +25,14 @@ rm -rf "${OUT_DIR}"
 mkdir -p "${REPO_ROOT}/build"
 STAGE_DIR="$(mktemp -d "${REPO_ROOT}/build/build-v2-browser-bridge-stage-XXXXXX")"
 
+# Publish checks should always start from fresh ganesh staging dirs so stale
+# cross-arch archives cannot leak into a later variant.
+rm -rf \
+  "${REPO_ROOT}/skia/wasm-ganesh" \
+  "${REPO_ROOT}/skia/wasm-ganesh-simd" \
+  "${REPO_ROOT}/skia/wasm64-ganesh" \
+  "${REPO_ROOT}/skia/wasm64-ganesh-simd"
+
 if ! command -v emcmake >/dev/null 2>&1 || ! command -v emcc >/dev/null 2>&1; then
   if [ -f "${HOME}/emsdk/emsdk_env.sh" ]; then
     # shellcheck disable=SC1091
@@ -34,13 +42,72 @@ fi
 
 mkdir -p "${OUT_DIR}"
 
-variant_pids=()
+current_variant_pid=""
+SKIA_WORKDIR_BASE="${SKIA_BUILD_WORKDIR:-${HOME}/.cache/effindom-skia-build}"
+SKIA_SOURCE_MIRROR_DIR="${SKIA_WORKDIR_BASE}/mirror/skia.git"
+SKIA_DEPOT_TOOLS_DIR="${SKIA_WORKDIR_BASE}/depot_tools"
+
+collect_descendant_pids() {
+  local frontier=("$@")
+  local next=()
+  local pid=""
+  local ppid=""
+
+  while [ "${#frontier[@]}" -gt 0 ]; do
+    next=()
+    while read -r pid ppid; do
+      [ -n "${pid}" ] || continue
+      [ -n "${ppid}" ] || continue
+      for parent in "${frontier[@]}"; do
+        if [ "${ppid}" = "${parent}" ]; then
+          next+=("${pid}")
+          break
+        fi
+      done
+    done < <(ps -axo pid=,ppid=)
+
+    if [ "${#next[@]}" -eq 0 ]; then
+      break
+    fi
+
+    printf '%s\n' "${next[@]}"
+    frontier=("${next[@]}")
+  done
+}
+
+kill_process_tree() {
+  local roots=("$@")
+  local descendants=()
+  local pid=""
+
+  while IFS= read -r pid; do
+    [ -n "${pid}" ] && descendants+=("${pid}")
+  done < <(collect_descendant_pids "${roots[@]}")
+
+  for pid in "${descendants[@]}"; do
+    kill -TERM "${pid}" >/dev/null 2>&1 || true
+  done
+  for pid in "${roots[@]}"; do
+    kill -TERM "${pid}" >/dev/null 2>&1 || true
+  done
+
+  sleep 2
+
+  descendants=()
+  while IFS= read -r pid; do
+    [ -n "${pid}" ] && descendants+=("${pid}")
+  done < <(collect_descendant_pids "${roots[@]}")
+
+  for pid in "${descendants[@]}" "${roots[@]}"; do
+    kill -KILL "${pid}" >/dev/null 2>&1 || true
+  done
+}
 
 kill_tracked_pids() {
   local pid=""
   for pid in "$@"; do
     if [ -n "${pid}" ]; then
-      kill "${pid}" >/dev/null 2>&1 || true
+      kill_process_tree "${pid}"
     fi
   done
 }
@@ -59,14 +126,14 @@ wait_for_pids() {
 cleanup() {
   local exit_code=$?
   trap - EXIT INT TERM HUP
-  kill_tracked_pids "${variant_pids[@]}"
-  wait_for_pids "${variant_pids[@]}" >/dev/null 2>&1 || true
+  kill_process_tree "${current_variant_pid}"
+  wait_for_pids "${current_variant_pid}" >/dev/null 2>&1 || true
   rm -rf "${STAGE_DIR}"
   exit "${exit_code}"
 }
 
 handle_shutdown_signal() {
-  kill_tracked_pids "${variant_pids[@]}"
+  kill_process_tree "${current_variant_pid}"
 }
 
 trap cleanup EXIT
@@ -142,6 +209,19 @@ prepare_icu_data() {
   fi
 }
 
+prepare_shared_deps() {
+  mkdir -p "${SKIA_WORKDIR_BASE}/mirror"
+
+  if [ ! -d "${SKIA_SOURCE_MIRROR_DIR}/objects" ]; then
+    rm -rf "${SKIA_SOURCE_MIRROR_DIR}"
+    git clone --mirror https://skia.googlesource.com/skia.git "${SKIA_SOURCE_MIRROR_DIR}"
+  fi
+
+  if [ ! -d "${SKIA_DEPOT_TOOLS_DIR}" ]; then
+    git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "${SKIA_DEPOT_TOOLS_DIR}"
+  fi
+}
+
 stage_variant() {
   local architecture_name="$1"
   local wasm_arch="$2"
@@ -153,15 +233,18 @@ stage_variant() {
 
   mkdir -p "${variant_dir}"
 
+  SKIA_WORKDIR="${SKIA_WORKDIR_BASE}/${architecture_name}"
+  mkdir -p "${SKIA_WORKDIR}"
+
   handle_stage_shutdown_signal() {
-   kill_tracked_pids "${core_pid}" "${ui_pid}"
+   kill_tracked_pids "${core_pid:-}" "${ui_pid:-}"
   }
 
   cleanup_stage() {
    local exit_code=$?
    trap - EXIT INT TERM HUP
-   kill_tracked_pids "${core_pid}" "${ui_pid}"
-   wait_for_pids "${core_pid}" "${ui_pid}" >/dev/null 2>&1 || true
+   kill_tracked_pids "${core_pid:-}" "${ui_pid:-}"
+   wait_for_pids "${core_pid:-}" "${ui_pid:-}" >/dev/null 2>&1 || true
    exit "${exit_code}"
   }
   trap cleanup_stage EXIT
@@ -169,62 +252,64 @@ stage_variant() {
 
   (
     cd "${REPO_ROOT}"
+    SKIA_BUILD_WORKDIR="${SKIA_WORKDIR}" \
+    SKIA_SOURCE_MIRROR="${SKIA_SOURCE_MIRROR_DIR}" \
+    SKIA_DEPOT_TOOLS_DIR="${SKIA_DEPOT_TOOLS_DIR}" \
     EFFINDOM_WASM_ARCH="${wasm_arch}" \
     EFFINDOM_SIMD="${simd_mode}" \
     EFFINDOM_BROWSER_OUTPUT_DIR="${variant_dir}/core-out" \
     EFFINDOM_TEMP_JS_OUTPUT="${variant_dir}/core.js" \
     EFFINDOM_TEMP_WASM_OUTPUT="${variant_dir}/core.wasm" \
     EFFINDOM_TEMP_SYMBOLS_OUTPUT="${variant_dir}/core.js.symbols" \
-    bash v2/core/scripts/build_wasm_arch.sh
+   bash v2/core/scripts/build_wasm_arch.sh
   ) &
   core_pid="$!"
 
+  if ! wait "${core_pid}"; then
+   exit_code=1
+   core_pid=""
+   return "${exit_code}"
+  fi
+  core_pid=""
+
   (
-    cd "${REPO_ROOT}"
-    EFFINDOM_WASM_ARCH="${wasm_arch}" \
-    EFFINDOM_SIMD="${simd_mode}" \
-    EFFINDOM_BROWSER_OUTPUT_DIR="${variant_dir}/ui-out" \
-    EFFINDOM_SKIP_BRIDGE_HARNESS=1 \
-    EFFINDOM_TEMP_JS_OUTPUT="${variant_dir}/ui.js" \
-    EFFINDOM_TEMP_WASM_OUTPUT="${variant_dir}/ui.wasm" \
-    EFFINDOM_TEMP_SYMBOLS_OUTPUT="${variant_dir}/ui.js.symbols" \
-    bash v2/ui/scripts/build_wasm_arch.sh
+   cd "${REPO_ROOT}"
+   SKIA_BUILD_WORKDIR="${SKIA_WORKDIR}" \
+   SKIA_SOURCE_MIRROR="${SKIA_SOURCE_MIRROR_DIR}" \
+   SKIA_DEPOT_TOOLS_DIR="${SKIA_DEPOT_TOOLS_DIR}" \
+   EFFINDOM_WASM_ARCH="${wasm_arch}" \
+   EFFINDOM_SIMD="${simd_mode}" \
+   EFFINDOM_BROWSER_OUTPUT_DIR="${variant_dir}/ui-out" \
+   EFFINDOM_SKIP_BRIDGE_HARNESS=1 \
+   EFFINDOM_TEMP_JS_OUTPUT="${variant_dir}/ui.js" \
+   EFFINDOM_TEMP_WASM_OUTPUT="${variant_dir}/ui.wasm" \
+   EFFINDOM_TEMP_SYMBOLS_OUTPUT="${variant_dir}/ui.js.symbols" \
+   bash v2/ui/scripts/build_wasm_arch.sh
   ) &
   ui_pid="$!"
 
-  if ! wait "${core_pid}"; then
-    exit_code=1
-    kill_tracked_pids "${ui_pid}"
-    wait_for_pids "${ui_pid}" >/dev/null 2>&1 || true
-    core_pid=""
-    ui_pid=""
-    return "${exit_code}"
-  fi
   if ! wait "${ui_pid}"; then
-    exit_code=1
+   exit_code=1
   fi
-  core_pid=""
-  ui_pid=""
   return "${exit_code}"
 }
 
-stage_variant "wasm32" "wasm32" "off" &
-variant_pids=("$!")
-stage_variant "wasm32-simd" "wasm32" "on" &
-variant_pids+=("$!")
-stage_variant "wasm64" "wasm64" "off" &
-variant_pids+=("$!")
-stage_variant "wasm64-simd" "wasm64" "on" &
-variant_pids+=("$!")
+prepare_shared_deps
 
-for variant_pid in "${variant_pids[@]}"; do
-  if ! wait "${variant_pid}"; then
-    kill_tracked_pids "${variant_pids[@]}"
-    wait_for_pids "${variant_pids[@]}" >/dev/null 2>&1 || true
+for variant_args in \
+  "wasm32 wasm32 off" \
+  "wasm32-simd wasm32 on" \
+  "wasm64 wasm64 off" \
+  "wasm64-simd wasm64 on"; do
+  # shellcheck disable=SC2086
+  ( stage_variant ${variant_args} ) &
+  current_variant_pid="$!"
+  if ! wait "${current_variant_pid}"; then
+    current_variant_pid=""
     exit 1
   fi
+  current_variant_pid=""
 done
-variant_pids=()
 
 prepare_icu_data
 

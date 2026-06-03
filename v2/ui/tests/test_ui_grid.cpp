@@ -202,6 +202,54 @@ TEST_CASE("v2 ui grid applies padding to track layout", "[v2][ui][grid]") {
     CHECK(bounds.at(b).height == Approx(40.0f));
 }
 
+TEST_CASE("v2 ui grid preserves child absolute bounds across noop commits", "[v2][ui][grid]") {
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t grid = ui_create_node(UI_NODE_GRID);
+    const std::uint64_t child = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(grid != UI_INVALID_HANDLE);
+    REQUIRE(child != UI_INVALID_HANDLE);
+
+    const float columns[] = {100.0f, 120.0f};
+    const std::uint8_t column_types[] = {UI_GRID_UNIT_PIXEL, UI_GRID_UNIT_PIXEL};
+    const float rows[] = {30.0f, 40.0f};
+    const std::uint8_t row_types[] = {UI_GRID_UNIT_PIXEL, UI_GRID_UNIT_PIXEL};
+
+    ui_set_root(root);
+    ui_set_width(root, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_padding(root, 24.0f, 18.0f, 0.0f, 0.0f);
+    ui_set_width(grid, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(grid, 70.0f, UI_SIZE_UNIT_PIXEL);
+    ui_grid_set_columns(grid, 2U, columns, column_types);
+    ui_grid_set_rows(grid, 2U, rows, row_types);
+    ui_node_add_child(root, grid);
+    ui_node_add_child(grid, child);
+    ui_node_set_grid_placement(child, 1U, 1U, 1U, 1U);
+
+    ui_commit_frame();
+
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    REQUIRE(ui_get_bounds(child, &x, &y, &width, &height));
+    CHECK(x == Approx(124.0f));
+    CHECK(y == Approx(48.0f));
+    CHECK(width == Approx(120.0f));
+    CHECK(height == Approx(40.0f));
+
+    ui_commit_frame();
+
+    REQUIRE(ui_get_bounds(child, &x, &y, &width, &height));
+    CHECK(x == Approx(124.0f));
+    CHECK(y == Approx(48.0f));
+    CHECK(width == Approx(120.0f));
+    CHECK(height == Approx(40.0f));
+}
+
 TEST_CASE("v2 ui grid distributes star columns and mixed tracks", "[v2][ui][grid]") {
     ui_reset();
     RegisterNotoSans();

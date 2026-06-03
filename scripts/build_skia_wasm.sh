@@ -41,6 +41,8 @@
 #   SKIA_REVISION        Skia git ref         (default: chrome/m136)
 #   DEPOT_TOOLS_COMMIT   depot_tools commit   (default: empty = HEAD)
 #   SKIA_BUILD_WORKDIR   Scratch space        (default: /tmp/effindom-skia-build)
+#   SKIA_SOURCE_MIRROR    Local mirror path    (optional, clone from mirror)
+#   SKIA_DEPOT_TOOLS_DIR  Shared depot_tools   (optional, reuse one clone)
 
 set -euo pipefail
 
@@ -58,6 +60,24 @@ bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
+
+# run_with_rate_limit_guard() {
+#   local log_file
+#   log_file="$(mktemp)"
+#   set +e
+#   "$@" 2>&1 | tee "${log_file}"
+#   local status="${PIPESTATUS[0]}"
+#   set -e
+
+#   if grep -Eq '429|RESOURCE_EXHAUSTED|QuotaFailure|rate limit exceeded' "${log_file}"; then
+#     red "ERROR: Skia fetch hit Google rate limiting; stopping build."
+#     rm -f "${log_file}"
+#     exit 1
+#   fi
+
+#   rm -f "${log_file}"
+#   return "${status}"
+# }
 
 render_gn_list() {
   local rendered=""
@@ -119,6 +139,8 @@ if [ "${SIMD_ENABLED}" = "ON" ]; then
 fi
 
 WORK_DIR="${SKIA_BUILD_WORKDIR:-${WORK_DIR_BASE_DEFAULT}}"
+SKIA_SOURCE_MIRROR="${SKIA_SOURCE_MIRROR:-}"
+SKIA_DEPOT_TOOLS_DIR="${SKIA_DEPOT_TOOLS_DIR:-}"
 
 GN_EXTRA_CFLAGS=""
 for flag in "${GN_EXTRA_CFLAGS_LIST[@]}"; do
@@ -199,7 +221,7 @@ cleanup_prepare_lock() {
 trap cleanup_prepare_lock EXIT
 
 # ── Step 1: depot_tools ───────────────────────────────────────────────────────
-DEPOT_TOOLS_DIR="$WORK_DIR/depot_tools"
+DEPOT_TOOLS_DIR="${SKIA_DEPOT_TOOLS_DIR:-$WORK_DIR/depot_tools}"
 if [ ! -d "$DEPOT_TOOLS_DIR" ]; then
   bold "-- Cloning depot_tools..."
   if [ -n "$DEPOT_TOOLS_COMMIT" ]; then
@@ -252,13 +274,21 @@ bold "   webgpu_cpp : $EMDAWN_WEBGPU_CPP_INC"
 SKIA_DIR="$WORK_DIR/skia"
 if [ ! -d "$SKIA_DIR" ]; then
   bold "-- Cloning Skia (large repo, ~3-5 min on first run)..."
-  GIT_TRACE=1 git clone --verbose https://skia.googlesource.com/skia.git "$SKIA_DIR" 2>&1 | while IFS= read -r line; do echo "   $line"; done
+  if [ -n "$SKIA_SOURCE_MIRROR" ]; then
+    if [ ! -d "$SKIA_SOURCE_MIRROR" ]; then
+      red "ERROR: SKIA_SOURCE_MIRROR does not exist: $SKIA_SOURCE_MIRROR"
+      exit 1
+    fi
+    git clone --verbose "$SKIA_SOURCE_MIRROR" "$SKIA_DIR"
+  else
+      git clone --verbose https://skia.googlesource.com/skia.git "$SKIA_DIR"
+  fi
   bold "   Skia cloned successfully"
 fi
 cd "$SKIA_DIR"
 
 bold "-- Checking out revision: $SKIA_REVISION"
-GIT_TRACE=1 git fetch origin "$SKIA_REVISION" 2>&1 | while IFS= read -r line; do echo "   $line"; done
+git fetch origin "$SKIA_REVISION"
 git checkout FETCH_HEAD
 
 bold "-- Syncing Skia dependencies (this may take 5-10 minutes)..."

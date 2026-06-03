@@ -1234,7 +1234,7 @@ test('find-on-page selectionchange ignores hidden editor selections', async ({ p
 
   await page.waitForFunction((textHandle) => window.__bridgeFindMatch?.handle === textHandle, scene.textHandle);
 
-  const retainedMatch = await page.evaluate(async () => {
+  await page.evaluate(() => {
     const editor = document.querySelector('[data-effindom-hidden-editor="true"]');
     if (!(editor instanceof HTMLInputElement || editor instanceof HTMLTextAreaElement)) {
       throw new Error('Expected hidden editor.');
@@ -1242,12 +1242,17 @@ test('find-on-page selectionchange ignores hidden editor selections', async ({ p
     editor.value = 'editor selection';
     editor.focus();
     editor.setSelectionRange(0, 6);
-    await new Promise((resolve) => setTimeout(resolve, 0));
-    return {
-      activeElementHiddenEditor: document.activeElement?.getAttribute('data-effindom-hidden-editor') ?? null,
-      match: window.__bridgeFindMatch,
-    };
   });
+
+  // Wait for the hidden editor to actually become the activeElement. Programmatic focus
+  // with aria-hidden toggles is macrotask-dependent across platforms, so poll until it
+  // becomes active rather than relying on a single macrotask sleep.
+  await page.waitForFunction(() => document.activeElement?.getAttribute('data-effindom-hidden-editor') === 'true');
+
+  const retainedMatch = await page.evaluate(() => ({
+    activeElementHiddenEditor: document.activeElement?.getAttribute('data-effindom-hidden-editor') ?? null,
+    match: window.__bridgeFindMatch,
+  }));
 
   expect(retainedMatch.activeElementHiddenEditor).toBe('true');
   expect(retainedMatch.match).toEqual({

@@ -4,9 +4,6 @@
 #include <emscripten/html5.h>
 #include <emscripten/html5_webgl.h>
 
-#include <webgpu/webgpu.h>
-#include <webgpu/webgpu_cpp.h>
-
 #include <include/core/SkColorSpace.h>
 #include <include/core/SkImageInfo.h>
 #include <include/core/SkSurface.h>
@@ -18,14 +15,6 @@
 #include <include/gpu/ganesh/gl/GrGLInterface.h>
 #include <include/gpu/ganesh/gl/GrGLMakeWebGLInterface.h>
 #include <include/gpu/ganesh/gl/GrGLTypes.h>
-#include <include/gpu/graphite/BackendTexture.h>
-#include <include/gpu/graphite/Context.h>
-#include <include/gpu/graphite/ContextOptions.h>
-#include <include/gpu/graphite/GraphiteTypes.h>
-#include <include/gpu/graphite/Recorder.h>
-#include <include/gpu/graphite/Surface.h>
-#include <include/gpu/graphite/dawn/DawnBackendContext.h>
-#include <include/gpu/graphite/dawn/DawnGraphiteTypes.h>
 
 #include <cstddef>
 #include <cstdint>
@@ -43,15 +32,6 @@ struct RenderState {
     EdBackendType active_backend = ED_BACKEND_NONE;
     EdDeviceState device_state = ED_DEVICE_OK;
     EdBackendType recovery_backend = ED_BACKEND_NONE;
-    std::uint32_t webgpu_attempt_serial = 0;
-
-    wgpu::Instance instance;
-    wgpu::Adapter adapter;
-    wgpu::Device device;
-    wgpu::Surface wgpu_surface;
-    WGPUTextureFormat surface_format = WGPUTextureFormat_BGRA8Unorm;
-    std::unique_ptr<skgpu::graphite::Context> graphite_ctx;
-    std::unique_ptr<skgpu::graphite::Recorder> recorder;
 
     EMSCRIPTEN_WEBGL_CONTEXT_HANDLE gl_ctx = 0;
     bool gl_explicit_swap_control = false;
@@ -82,19 +62,6 @@ EM_JS(void, effindom_v2_backend_changed, (int backend_type), {
     if (typeof Module['effindomV2BackendChanged'] === 'function') {
         Module['effindomV2BackendChanged'](backend_type);
     }
-});
-
-EM_JS(int, effindom_v2_get_preferred_canvas_format, (), {
-    try {
-        if (typeof navigator !== 'undefined' &&
-            navigator.gpu &&
-            typeof navigator.gpu.getPreferredCanvasFormat === 'function' &&
-            navigator.gpu.getPreferredCanvasFormat() === 'bgra8unorm') {
-            return 0x1B;
-        }
-    } catch (error) {
-    }
-    return 0x16;
 });
 
 EM_JS(int, effindom_v2_should_use_explicit_swap_control, (), {
@@ -133,20 +100,6 @@ void NotifyBackendChanged() {
     effindom_v2_backend_changed(static_cast<int>(g_state.active_backend));
 }
 
-void CancelPendingWebGpuAttempts() {
-    g_state.webgpu_attempt_serial += 1;
-}
-
-void ResetGraphiteState() {
-    g_state.recorder.reset();
-    g_state.graphite_ctx.reset();
-    g_state.wgpu_surface = wgpu::Surface();
-    g_state.device = wgpu::Device();
-    g_state.adapter = wgpu::Adapter();
-    g_state.instance = wgpu::Instance();
-    g_state.surface_format = WGPUTextureFormat_BGRA8Unorm;
-}
-
 void ResetGaneshState() {
     g_state.gl_surface.reset();
     g_state.ganesh_ctx.reset();
@@ -163,7 +116,6 @@ void ResetSoftwareState() {
 }
 
 void ResetAllBackends() {
-    ResetGraphiteState();
     ResetGaneshState();
     ResetSoftwareState();
     g_state.active_backend = ED_BACKEND_NONE;
@@ -178,9 +130,7 @@ void SetActiveBackend(EdBackendType backend) {
 }
 
 void MarkDeviceLost(EdBackendType backend) {
-    if (backend == ED_BACKEND_WEBGPU) {
-        ResetGraphiteState();
-    } else if (backend == ED_BACKEND_WEBGL2) {
+    if (backend == ED_BACKEND_WEBGL2) {
         ResetGaneshState();
     } else if (backend == ED_BACKEND_CPU) {
         ResetSoftwareState();
@@ -192,7 +142,6 @@ void MarkDeviceLost(EdBackendType backend) {
 }
 
 void PrepareForInit(std::uint32_t physical_w, std::uint32_t physical_h, float dpr, EdBackendType backend) {
-    CancelPendingWebGpuAttempts();
     ResetAllBackends();
     g_state.engine.Init(physical_w, physical_h, dpr);
     g_state.recovery_backend = backend;
@@ -240,115 +189,8 @@ bool CreateWebGlSurface() {
         kBottomLeft_GrSurfaceOrigin,
         kRGBA_8888_SkColorType,
         SkColorSpace::MakeSRGB(),
-        nullptr);
-    return static_cast<bool>(g_state.gl_surface);
-}
-
-void ConfigureGraphiteSurface() {
-    g_state.surface_format = static_cast<WGPUTextureFormat>(effindom_v2_get_preferred_canvas_format());
-    wgpu::SurfaceConfiguration config = {};
-    config.device = g_state.device;
-    config.format = static_cast<wgpu::TextureFormat>(g_state.surface_format);
-    config.usage = wgpu::TextureUsage::RenderAttachment;
-    config.alphaMode = wgpu::CompositeAlphaMode::Opaque;
-    config.width = g_state.engine.physical_width();
-    config.height = g_state.engine.physical_height();
-    config.presentMode = wgpu::PresentMode::Fifo;
-    g_state.wgpu_surface.Configure(&config);
-}
-
-void StartWebGpuInit() {
-    PrepareForInit(g_state.engine.physical_width(), g_state.engine.physical_height(), g_state.engine.dpr(), ED_BACKEND_WEBGPU);
-    g_state.device_state = ED_DEVICE_RECOVERING;
-    const std::uint32_t attempt_serial = ++g_state.webgpu_attempt_serial;
-
-    WGPUInstanceDescriptor instance_descriptor = {};
-    g_state.instance = wgpu::Instance::Acquire(wgpuCreateInstance(&instance_descriptor));
-    if (!g_state.instance) {
-        g_state.device_state = ED_DEVICE_LOST;
-        return;
-    }
-
-    WGPUEmscriptenSurfaceSourceCanvasHTMLSelector canvas_source = {};
-    canvas_source.chain.sType = WGPUSType_EmscriptenSurfaceSourceCanvasHTMLSelector;
-    canvas_source.selector = WGPUStringView{ kCanvasSelector, WGPU_STRLEN };
-    WGPUSurfaceDescriptor surface_descriptor = {};
-    surface_descriptor.nextInChain = &canvas_source.chain;
-    g_state.wgpu_surface = wgpu::Surface::Acquire(
-        wgpuInstanceCreateSurface(g_state.instance.Get(), &surface_descriptor));
-    if (!g_state.wgpu_surface) {
-        ResetGraphiteState();
-        g_state.device_state = ED_DEVICE_LOST;
-        return;
-    }
-
-    wgpu::RequestAdapterOptions adapter_options{};
-    adapter_options.compatibleSurface = g_state.wgpu_surface;
-    adapter_options.powerPreference = wgpu::PowerPreference::HighPerformance;
-    g_state.instance.RequestAdapter(
-        &adapter_options,
-        wgpu::CallbackMode::AllowSpontaneous,
-        [attempt_serial](wgpu::RequestAdapterStatus status, wgpu::Adapter adapter, wgpu::StringView) {
-            if (attempt_serial != g_state.webgpu_attempt_serial) {
-                return;
-            }
-            if (status != wgpu::RequestAdapterStatus::Success) {
-                ResetGraphiteState();
-                g_state.device_state = ED_DEVICE_LOST;
-                return;
-            }
-
-            g_state.adapter = std::move(adapter);
-            wgpu::DeviceDescriptor device_descriptor{};
-            device_descriptor.SetDeviceLostCallback(
-                wgpu::CallbackMode::AllowSpontaneous,
-                [](const wgpu::Device&, wgpu::DeviceLostReason, wgpu::StringView) {
-                    if (g_state.active_backend == ED_BACKEND_WEBGPU || g_state.device_state == ED_DEVICE_RECOVERING) {
-                        MarkDeviceLost(ED_BACKEND_WEBGPU);
-                    }
-                });
-            device_descriptor.SetUncapturedErrorCallback(
-                [](const wgpu::Device&, wgpu::ErrorType, wgpu::StringView) {
-                });
-            g_state.adapter.RequestDevice(
-                &device_descriptor,
-                wgpu::CallbackMode::AllowSpontaneous,
-                [attempt_serial](wgpu::RequestDeviceStatus status, wgpu::Device device, wgpu::StringView) {
-                    if (attempt_serial != g_state.webgpu_attempt_serial) {
-                        return;
-                    }
-                    if (status != wgpu::RequestDeviceStatus::Success) {
-                        ResetGraphiteState();
-                        g_state.device_state = ED_DEVICE_LOST;
-                        return;
-                    }
-
-                    g_state.device = std::move(device);
-                    ConfigureGraphiteSurface();
-
-                    skgpu::graphite::DawnBackendContext dawn_context;
-                    dawn_context.fInstance = g_state.instance;
-                    dawn_context.fDevice = g_state.device;
-                    dawn_context.fQueue = g_state.device.GetQueue();
-
-                    skgpu::graphite::ContextOptions context_options;
-                    g_state.graphite_ctx = skgpu::graphite::ContextFactory::MakeDawn(dawn_context, context_options);
-                    if (!g_state.graphite_ctx) {
-                        ResetGraphiteState();
-                        g_state.device_state = ED_DEVICE_LOST;
-                        return;
-                    }
-
-                    g_state.recorder = g_state.graphite_ctx->makeRecorder();
-                    if (!g_state.recorder) {
-                        ResetGraphiteState();
-                        g_state.device_state = ED_DEVICE_LOST;
-                        return;
-                    }
-
-                    SetActiveBackend(ED_BACKEND_WEBGPU);
-                });
-        });
+        nullptr        );
+        return static_cast<bool>(g_state.gl_surface);
 }
 
 void StartWebGlInit() {
@@ -381,6 +223,7 @@ void StartWebGlInit() {
 
     effindom_v2_install_webgl_context_lost_handler();
     emscripten_webgl_enable_extension(g_state.gl_ctx, "EXT_texture_filter_anisotropic");
+    emscripten_webgl_enable_extension(g_state.gl_ctx, "WEBGL_debug_renderer_info");
 
     sk_sp<const GrGLInterface> interface = GrGLInterfaces::MakeWebGL();
     if (!interface) {
@@ -416,11 +259,6 @@ void StartSoftwareInit() {
 
 void ResizeActiveBackend() {
     switch (g_state.active_backend) {
-    case ED_BACKEND_WEBGPU:
-        if (g_state.device && g_state.wgpu_surface) {
-            ConfigureGraphiteSurface();
-        }
-        return;
     case ED_BACKEND_WEBGL2:
         if (g_state.ganesh_ctx) {
             g_state.gl_surface.reset();
@@ -437,64 +275,6 @@ void ResizeActiveBackend() {
     default:
         return;
     }
-}
-
-void RenderWebGpuFrame(double current_time_ms) {
-    if (!g_state.recorder || !g_state.graphite_ctx || !g_state.wgpu_surface || !g_state.device) {
-        return;
-    }
-
-    WGPUSurfaceTexture surface_texture = {};
-    wgpuSurfaceGetCurrentTexture(g_state.wgpu_surface.Get(), &surface_texture);
-    if (surface_texture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal &&
-        surface_texture.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) {
-        MarkDeviceLost(ED_BACKEND_WEBGPU);
-        return;
-    }
-    if (!surface_texture.texture) {
-        MarkDeviceLost(ED_BACKEND_WEBGPU);
-        return;
-    }
-
-    const SkColorType color_type =
-        g_state.surface_format == WGPUTextureFormat_BGRA8Unorm
-        ? kBGRA_8888_SkColorType
-        : kRGBA_8888_SkColorType;
-    auto backend_texture = skgpu::graphite::BackendTextures::MakeDawn(surface_texture.texture);
-    auto surface = SkSurfaces::WrapBackendTexture(
-        g_state.recorder.get(),
-        backend_texture,
-        color_type,
-        SkColorSpace::MakeSRGB(),
-        nullptr);
-    if (!surface) {
-        wgpuTextureRelease(surface_texture.texture);
-        MarkDeviceLost(ED_BACKEND_WEBGPU);
-        return;
-    }
-
-    g_state.engine.RenderToCanvas(surface->getCanvas(), current_time_ms);
-    auto recording = g_state.recorder->snap();
-    if (!recording) {
-        surface.reset();
-        wgpuTextureRelease(surface_texture.texture);
-        MarkDeviceLost(ED_BACKEND_WEBGPU);
-        return;
-    }
-
-    skgpu::graphite::InsertRecordingInfo info;
-    info.fRecording = recording.get();
-    if (!g_state.graphite_ctx->insertRecording(info)) {
-        surface.reset();
-        wgpuTextureRelease(surface_texture.texture);
-        MarkDeviceLost(ED_BACKEND_WEBGPU);
-        return;
-    }
-
-    g_state.graphite_ctx->submit(skgpu::graphite::SyncToCpu::kNo);
-    surface.reset();
-    wgpuTextureRelease(surface_texture.texture);
-    effindom_v2_frame_presented();
 }
 
 void RenderWebGlFrame(double current_time_ms) {
@@ -533,7 +313,7 @@ extern "C" {
 EMSCRIPTEN_KEEPALIVE
 void ed_init(std::uint32_t physical_w, std::uint32_t physical_h, float dpr) {
     g_state.engine.Init(physical_w, physical_h, dpr);
-    StartWebGpuInit();
+    StartWebGlInit();
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -600,9 +380,6 @@ void ed_render_frame(double current_time_ms) {
     }
 
     switch (g_state.active_backend) {
-    case ED_BACKEND_WEBGPU:
-        RenderWebGpuFrame(current_time_ms);
-        return;
     case ED_BACKEND_WEBGL2:
         RenderWebGlFrame(current_time_ms);
         return;
@@ -620,10 +397,10 @@ void ed_recover_device(void) {
         return;
     }
     switch (g_state.recovery_backend) {
-    case ED_BACKEND_WEBGPU:
-        ed_init(g_state.engine.physical_width(), g_state.engine.physical_height(), g_state.engine.dpr());
-        return;
     case ED_BACKEND_WEBGL2:
+        ed_init_webgl(g_state.engine.physical_width(), g_state.engine.physical_height(), g_state.engine.dpr());
+        return;
+    case ED_BACKEND_WEBGPU:
         ed_init_webgl(g_state.engine.physical_width(), g_state.engine.physical_height(), g_state.engine.dpr());
         return;
     case ED_BACKEND_CPU:

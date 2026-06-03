@@ -1,7 +1,7 @@
 {
   "name": "effindom-runtime-repo",
   "private": true,
-  "version": "0.1.6",
+  "version": "0.1.7",
   "description": "Standalone runtime repository for @effindomv2/runtime",
   "engines": {
     "node": ">=18"
@@ -11,7 +11,7 @@
   ],
   "scripts": {
     "typecheck": "npm --workspace v2/browser-bridge run typecheck",
-    "build": "bash scripts/build_skia_wasm.sh && npm --workspace v2/browser-bridge run typecheck && npm --workspace v2/browser-bridge run build:package && npm --workspace v2/browser-bridge pack --dry-run --ignore-scripts >/dev/null",
+    "build": "bash scripts/build_skia_ganesh_wasm.sh && npm --workspace v2/browser-bridge run typecheck && npm --workspace v2/browser-bridge run build:package && npm --workspace v2/browser-bridge pack --dry-run --ignore-scripts >/dev/null",
     "test": "npm --workspace v2/browser-bridge run test",
     "publish:local": "bash scripts/publish/local/runtime.sh",
     "publish:npm": "bash scripts/publish/npm/runtime.sh"

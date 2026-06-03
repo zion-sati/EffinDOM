@@ -2058,36 +2058,18 @@ void UiRuntime::WalkTree(
         if (clip_children) {
             scene.push_back(SceneInstruction{OP_PUSH_CLIP, handle});
         }
-        if (needs_content_update) {
-            LayoutGrid(
-                handle,
-                *node,
-                abs_x,
-                abs_y,
-                scene_x,
-                scene_y,
-                scroll_dirty,
-                builder,
-                paint_order,
-                scene,
-                deferred_portal_roots);
-        } else {
-            const float child_scene_x = scene_x;
-            const float child_scene_y = scene_y;
-            for (const std::uint64_t child_handle : node->children) {
-                WalkTree(
-                    child_handle,
-                    abs_x,
-                    abs_y,
-                    child_scene_x,
-                    child_scene_y,
-                    scroll_dirty,
-                    builder,
-                    paint_order,
-                    scene,
-                    deferred_portal_roots);
-            }
-        }
+        LayoutGrid(
+            handle,
+            *node,
+            abs_x,
+            abs_y,
+            scene_x,
+            scene_y,
+            scroll_dirty,
+            builder,
+            paint_order,
+            scene,
+            deferred_portal_roots);
         if (clip_children) {
             scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
         }

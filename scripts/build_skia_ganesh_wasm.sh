@@ -7,7 +7,7 @@
 #
 # This produces a lean Skia side module with NO WebGPU/Dawn symbols, making
 # the effindom.ganesh bundle fully self-contained for WebGL2-only deployments
-# (no emdawnwebgpu overhead).
+# (no emdawnwebgpu overhead) while still carrying SVG support.
 #
 # Until this script has been run, build.sh falls back to the shared skia/wasm/
 # (graphite-capable) Skia build, which temporarily includes emdawnwebgpu in
@@ -29,20 +29,44 @@
 #   SKIA_REVISION          Skia git ref         (default: chrome/m136)
 #   DEPOT_TOOLS_COMMIT     depot_tools commit   (default: empty = HEAD)
 #   SKIA_BUILD_WORKDIR     Scratch space        (default: /tmp/effindom-skia-build)
+#   SKIA_SOURCE_MIRROR     Local mirror path    (optional, clone from mirror)
+#   SKIA_DEPOT_TOOLS_DIR   Shared depot_tools   (optional, reuse one clone)
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 WORK_DIR="${SKIA_BUILD_WORKDIR:-/tmp/effindom-skia-build}"
+SKIA_SOURCE_MIRROR="${SKIA_SOURCE_MIRROR:-}"
+SKIA_DEPOT_TOOLS_DIR="${SKIA_DEPOT_TOOLS_DIR:-}"
 
 SKIA_REVISION="${SKIA_REVISION:-chrome/m136}"
 DEPOT_TOOLS_COMMIT="${DEPOT_TOOLS_COMMIT:-}"
 WASM_ARCH="${EFFINDOM_WASM_ARCH:-wasm32}"
 FORCE=false
+GANESH_BUILD_RECIPE_VERSION=2
+SVG_ARCHIVE_RECIPE_VERSION=2
 
 bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
 green() { printf '\033[32m%s\033[0m\n' "$*"; }
 red()   { printf '\033[31m%s\033[0m\n' "$*"; }
+
+# run_with_rate_limit_guard() {
+#   local log_file
+#   log_file="$(mktemp)"
+#   set +e
+#   "$@" 2>&1 | tee "${log_file}"
+#   local status="${PIPESTATUS[0]}"
+#   set -e
+
+#   if grep -Eq '429|RESOURCE_EXHAUSTED|QuotaFailure|rate limit exceeded' "${log_file}"; then
+#     red "ERROR: Skia fetch hit Google rate limiting; stopping build."
+#     rm -f "${log_file}"
+#     exit 1
+#   fi
+
+#   rm -f "${log_file}"
+#   return "${status}"
+# }
 
 case "${WASM_ARCH}" in
   wasm32)
@@ -81,7 +105,20 @@ content_hash() {
 }
 
 # ── Skip if already staged ────────────────────────────────────────────────────
-if [ "$FORCE" = false ] && [ -f "$STAGING/skia.version" ]; then
+if [ "$FORCE" = false ] && \
+   [ -f "$STAGING/.ganesh-build-recipe" ] && \
+   [ "$(cat "$STAGING/.ganesh-build-recipe")" = "$GANESH_BUILD_RECIPE_VERSION" ] && \
+   [ -f "$STAGING/skia.version" ] && \
+   [ -f "$STAGING/libskia.a" ] && \
+   [ -f "$STAGING/libsvg.a" ] && \
+   [ -f "$STAGING/libskshaper.a" ] && \
+   [ -f "$STAGING/modules/svg/include/SkSVGDOM.h" ] && \
+   [ -f "$STAGING/modules/skresources/include/SkResources.h" ] && \
+   [ -f "$STAGING/modules/skshaper/include/SkShaper_factory.h" ] && \
+   [ -f "$STAGING/src/core/SkTHash.h" ] && \
+   [ -f "$STAGING/src/base/SkMathPriv.h" ] && \
+   [ -f "$STAGING/third_party/externals/expat/expat/lib/expat.h" ] && \
+   [ -f "$STAGING/third_party/expat/include/expat_config/expat_config.h" ]; then
   EXISTING_VER=$(cat "$STAGING/skia.version")
   if [ -f "$STAGING/${EXISTING_VER}.wasm" ]; then
     green "=== Skia Ganesh already built at $STAGING (${EXISTING_VER}) — skipping (use --force to rebuild) ==="
@@ -111,7 +148,7 @@ echo
 mkdir -p "$WORK_DIR"
 
 # ── Step 1: depot_tools ───────────────────────────────────────────────────────
-DEPOT_TOOLS_DIR="$WORK_DIR/depot_tools"
+DEPOT_TOOLS_DIR="${SKIA_DEPOT_TOOLS_DIR:-$WORK_DIR/depot_tools}"
 if [ ! -d "$DEPOT_TOOLS_DIR" ]; then
   bold "-- Cloning depot_tools..."
   if [ -n "$DEPOT_TOOLS_COMMIT" ]; then
@@ -133,7 +170,15 @@ bold "-- Using Emscripten: $EMCC_BIN ($(${EMCC_BIN} --version 2>&1 | head -1))"
 SKIA_DIR="$WORK_DIR/skia"
 if [ ! -d "$SKIA_DIR" ]; then
   bold "-- Cloning Skia..."
-  git clone https://skia.googlesource.com/skia.git "$SKIA_DIR"
+  if [ -n "$SKIA_SOURCE_MIRROR" ]; then
+    if [ ! -d "$SKIA_SOURCE_MIRROR" ]; then
+      red "ERROR: SKIA_SOURCE_MIRROR does not exist: $SKIA_SOURCE_MIRROR"
+      exit 1
+    fi
+    git clone "$SKIA_SOURCE_MIRROR" "$SKIA_DIR"
+  else
+    git clone https://skia.googlesource.com/skia.git "$SKIA_DIR"
+  fi
 fi
 cd "$SKIA_DIR"
 
@@ -216,6 +261,8 @@ GN_ARGS="
   skia_enable_skottie=false
   skia_enable_skparagraph=false
   skia_enable_pdf=false
+  skia_enable_skshaper=true
+  skia_enable_svg=true
   skia_emsdk_dir=\"${EMCC_EMSDK_DIR}\"
 ${GN_EXTRA_LDFLAGS}  extra_cflags=[
     \"-fno-rtti\",
@@ -233,7 +280,60 @@ bin/gn gen "$BIN_DIR" --args="$GN_ARGS"
 
 # ── Step 4: Build ──────────────────────────────────────────────────────────────
 bold "-- Building (this takes ~30-60 minutes on first run)..."
-ninja -C "$BIN_DIR" skia
+ninja -C "$BIN_DIR" skia svg skshaper
+
+SVG_ARCHIVE="$BIN_DIR/libsvg.a"
+SVG_ARCHIVE_RECIPE_FILE="$BIN_DIR/.libsvg.recipe"
+SVG_OBJECT_DIR="$BIN_DIR/svg-objects"
+SVG_SOURCES=(modules/svg/src/*.cpp src/xml/*.cpp)
+
+if [ "${SVG_SOURCES[0]}" = "modules/svg/src/*.cpp" ]; then
+  red "ERROR: No SVG sources found under modules/svg/src."
+  exit 1
+fi
+
+if [ "$FORCE" = true ] || \
+   [ ! -f "$SVG_ARCHIVE" ] || \
+   [ ! -f "$SVG_ARCHIVE_RECIPE_FILE" ] || \
+   [ "$(cat "$SVG_ARCHIVE_RECIPE_FILE")" != "$SVG_ARCHIVE_RECIPE_VERSION" ]; then
+  bold "-- Building libsvg.a from modules/svg sources..."
+  rm -rf "$SVG_OBJECT_DIR"
+  mkdir -p "$SVG_OBJECT_DIR"
+
+  SVG_INCLUDE_FLAGS=(
+    -I"$SKIA_DIR"
+    -I"$SKIA_DIR/modules/svg/include"
+    -I"$SKIA_DIR/modules/svg/src"
+    -I"$SKIA_DIR/modules/skresources/include"
+    -I"$SKIA_DIR/modules/skshaper/include"
+    -I"$SKIA_DIR/modules/skcms"
+    -I"$SKIA_DIR/src"
+    -I"$SKIA_DIR/src/core"
+    -I"$SKIA_DIR/src/base"
+    -I"$SKIA_DIR/src/xml"
+    -I"$SKIA_DIR/third_party/externals/expat/expat/lib"
+    -I"$SKIA_DIR/third_party/expat/include/expat_config"
+  )
+
+  SVG_OBJECTS=()
+  for source in "${SVG_SOURCES[@]}"; do
+    object="$SVG_OBJECT_DIR/$(basename "${source%.cpp}").o"
+    emcc \
+      "${EMCC_ARCH_FLAGS[@]}" \
+      -c \
+      -O3 \
+      -fno-rtti \
+      -fno-exceptions \
+      -fPIC \
+      "${SVG_INCLUDE_FLAGS[@]}" \
+      "$source" \
+      -o "$object"
+    SVG_OBJECTS+=("$object")
+  done
+
+  emar rcs "$SVG_ARCHIVE" "${SVG_OBJECTS[@]}"
+  echo "$SVG_ARCHIVE_RECIPE_VERSION" > "$SVG_ARCHIVE_RECIPE_FILE"
+fi
 
 # ── Step 5: Stage ─────────────────────────────────────────────────────────────
 bold "-- Staging output into $STAGING..."
@@ -241,6 +341,8 @@ rm -rf "$STAGING"
 mkdir -p "$STAGING/include"
 
 cp "$BIN_DIR/libskia.a"           "$STAGING/"
+cp "$SVG_ARCHIVE"                 "$STAGING/libsvg.a"
+cp "$BIN_DIR/libskshaper.a"       "$STAGING/"
 
 for subdir in core effects gpu ports private config; do
   if [ -d "include/$subdir" ]; then
@@ -250,6 +352,16 @@ done
 
 mkdir -p "$STAGING/modules"
 cp -r modules/skcms "$STAGING/modules/"
+cp -r modules/skresources "$STAGING/modules/"
+cp -r modules/svg "$STAGING/modules/"
+cp -r modules/skshaper "$STAGING/modules/"
+mkdir -p "$STAGING/src"
+cp -r src/base "$STAGING/src/base"
+cp -r src/core "$STAGING/src/core"
+mkdir -p "$STAGING/third_party/externals/expat/expat"
+cp -r third_party/externals/expat/expat/lib "$STAGING/third_party/externals/expat/expat/"
+mkdir -p "$STAGING/third_party/expat/include"
+cp -r third_party/expat/include/expat_config "$STAGING/third_party/expat/include/"
 
 # ── Step 6: Link WASM side module ─────────────────────────────────────────────
 SIDE_MODULE_TMP="${STAGING}/${SIDE_MODULE_PREFIX}.content-hash.tmp.wasm"
@@ -259,9 +371,12 @@ emcc \
   "${EMCC_ARCH_FLAGS[@]}" \
   -sSIDE_MODULE=1 \
   -sEXPORT_ALL=1 \
-  -O2 \
+  -sGL_SUPPORT_AUTOMATIC_ENABLE_EXTENSIONS=1 \
+  -O3 \
+  --closure 1 \
   -Wl,--whole-archive \
   "${STAGING}/libskia.a" \
+  "${STAGING}/libsvg.a" \
   -Wl,--no-whole-archive \
   -Wl,--export-all \
   -Wl,--no-gc-sections \
@@ -272,6 +387,7 @@ SIDE_MODULE_NAME="${SIDE_MODULE_PREFIX}-${SIDE_MODULE_HASH}"
 mv "${SIDE_MODULE_TMP}" "${STAGING}/${SIDE_MODULE_NAME}.wasm"
 
 echo "${SIDE_MODULE_NAME}" > "${STAGING}/skia.version"
+echo "${GANESH_BUILD_RECIPE_VERSION}" > "${STAGING}/.ganesh-build-recipe"
 
 green ""
 green "=== Skia Ganesh build complete ==="

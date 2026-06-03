@@ -359,6 +359,51 @@ export function createHiddenTextEditor(multiline: boolean): HiddenTextEditor {
   editor.style.pointerEvents = 'none';
   editor.style.font = '16px "Noto Sans Symbols 2", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", monospace';
   editor.style.overflow = 'hidden';
+
+  // Ensure assistive tech can see focus: clear aria-hidden before focusing,
+  // perform the native focus synchronously (so callers relying on immediate focus
+  // observe document.activeElement), and re-hide on blur in a macrotask.
+  const nativeFocus = editor.focus.bind(editor);
+  (editor as any).focus = (...args: any[]) => {
+    try {
+      if (editor.getAttribute('aria-hidden') === 'true') {
+        editor.setAttribute('aria-hidden', 'false');
+      }
+    } catch (e) {
+      // Defensive: ignore if attribute manipulation fails for any reason.
+    }
+    try {
+      nativeFocus(...args);
+    } catch (err) {
+      // swallow errors from native focus
+    }
+    // If the browser doesn't immediately make the editor the activeElement
+    // (some platforms may delay programmatic focus), retry once on the next
+    // macrotask so callers waiting with setTimeout(0) will observe the focus.
+    if (document.activeElement !== editor) {
+      window.setTimeout(() => {
+        try {
+          nativeFocus(...args);
+        } catch (e) {
+          // ignore
+        }
+      }, 0);
+    }
+  };
+
+  editor.addEventListener('blur', () => {
+    // Re-hide in a macrotask so assistive tech has seen the focused state first.
+    window.setTimeout(() => {
+      try {
+        if (document.activeElement !== editor) {
+          editor.setAttribute('aria-hidden', 'true');
+        }
+      } catch (e) {
+        // ignore
+      }
+    }, 1);
+  });
+
   document.body.appendChild(editor);
   return editor;
 }

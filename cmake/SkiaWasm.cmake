@@ -154,6 +154,10 @@ function(effindom_add_skia_target TARGET_NAME SKIA_DIR)
     target_link_libraries(${TARGET_NAME} INTERFACE ${_archives})
 endfunction()
 
-effindom_add_skia_target(effindom_skia_graphite "${SKIA_GRAPHITE_WASM_DIR}")
+if(IS_DIRECTORY "${SKIA_GRAPHITE_WASM_DIR}")
+    effindom_add_skia_target(effindom_skia_graphite "${SKIA_GRAPHITE_WASM_DIR}")
+else()
+    message(STATUS "[SkiaWasm] Graphite Skia not found at ${SKIA_GRAPHITE_WASM_DIR} — skipping effindom_skia_graphite")
+endif()
 
 effindom_add_skia_target(effindom_skia_ganesh "${SKIA_GANESH_WASM_DIR}")
