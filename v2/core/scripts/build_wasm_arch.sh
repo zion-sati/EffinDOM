@@ -89,25 +89,25 @@ BUILD_DIR="${WASM_BUILD_DIR:-$(
   fi
 )}"
 
-default_ganesh_dir() {
+GRAPHITE_DIR="${SKIA_GRAPHITE_WASM_DIR:-$(
   if [ "${WASM_ARCH}" = "wasm64" ]; then
     if [ "${SIMD_ENABLED}" = "ON" ]; then
-      printf '%s/skia/wasm64-ganesh-simd' "${REPO_ROOT}"
+      printf '%s/skia/wasm64-simd' "${REPO_ROOT}"
     else
-      printf '%s/skia/wasm64-ganesh' "${REPO_ROOT}"
+      printf '%s/skia/wasm64' "${REPO_ROOT}"
     fi
   else
     if [ "${SIMD_ENABLED}" = "ON" ]; then
-      printf '%s/skia/wasm-ganesh-simd' "${REPO_ROOT}"
+      printf '%s/skia/wasm-simd' "${REPO_ROOT}"
     else
-      printf '%s/skia/wasm-ganesh' "${REPO_ROOT}"
+      printf '%s/skia/wasm' "${REPO_ROOT}"
     fi
   fi
-}
+)}"
 
-GANESH_DIR="${SKIA_GANESH_WASM_DIR:-${SKIA_GRAPHITE_WASM_DIR:-$(default_ganesh_dir)}}"
-
+GANESH_DIR="${SKIA_GANESH_WASM_DIR:-${GRAPHITE_DIR}}"
 BUILD_DIR="$(resolve_path "${BUILD_DIR}")"
+GRAPHITE_DIR="$(resolve_path "${GRAPHITE_DIR}")"
 GANESH_DIR="$(resolve_path "${GANESH_DIR}")"
 OUTPUT_DIR="$(resolve_path "${EFFINDOM_BROWSER_OUTPUT_DIR:-public/v2/core}")"
 ensure_cmake_build_dir "${BUILD_DIR}"
@@ -136,9 +136,9 @@ if [ "${SIMD_ENABLED}" = "ON" ]; then
 fi
 
 if [ "${REBUILD_SKIA}" = true ]; then
-  SKIA_GANESH_WASM_DIR="${GANESH_DIR}" ./scripts/build_skia_ganesh_wasm.sh --force
+  SKIA_WASM_DIR="${GRAPHITE_DIR}" ./scripts/build_skia_wasm.sh --force
 else
-  SKIA_GANESH_WASM_DIR="${GANESH_DIR}" ./scripts/build_skia_ganesh_wasm.sh
+  SKIA_WASM_DIR="${GRAPHITE_DIR}" ./scripts/build_skia_wasm.sh
 fi
 
 if ! cmake_output="$(
@@ -153,7 +153,7 @@ if ! cmake_output="$(
     "-DEFFINDOM_WASM_ARCH_SUFFIX=${OUTPUT_SUFFIX}" \
     "-DEFFINDOM_SIMD=${SIMD_ENABLED}" \
     "-DEFFINDOM_V2_CORE_BROWSER_OUTPUT_DIR=${OUTPUT_DIR}" \
-    "-DSKIA_GRAPHITE_WASM_DIR=${GANESH_DIR}" \
+    "-DSKIA_GRAPHITE_WASM_DIR=${GRAPHITE_DIR}" \
     "-DSKIA_GANESH_WASM_DIR=${GANESH_DIR}" \
     "${MEMORY64_FLAGS[@]}" 2>&1
 )"; then

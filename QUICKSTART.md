@@ -52,8 +52,8 @@ This script will:
 2. Clone and checkout Skia from the pinned Chrome milestone (3–5 minutes, shows clone progress)
 3. Sync Skia dependencies with `git-sync-deps` (5–10 minutes, will show progress)
 4. Configure the GN build system
-5. Build the ganesh-only Skia libraries with Ninja (30–60 minutes, shows compilation progress)
-6. Stage the built artifacts into `skia/wasm-ganesh/`
+5. Build Skia libraries with Ninja (30–60 minutes, shows compilation progress)
+6. Stage the built artifacts into `skia/wasm/`
 
 The script prints progress for each step, so you can monitor its status.
 
@@ -64,7 +64,7 @@ The built runtime package assets are output to `v2/browser-bridge/dist/` (includ
 To rebuild Skia in the future (e.g., to upgrade versions), use:
 
 ```bash
-bash scripts/build_skia_ganesh_wasm.sh --force
+bash scripts/build_skia_wasm.sh --force
 ```
 
 ## Publish locally (for testing)

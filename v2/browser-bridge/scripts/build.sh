@@ -25,14 +25,6 @@ rm -rf "${OUT_DIR}"
 mkdir -p "${REPO_ROOT}/build"
 STAGE_DIR="$(mktemp -d "${REPO_ROOT}/build/build-v2-browser-bridge-stage-XXXXXX")"
 
-# Publish checks should always start from fresh ganesh staging dirs so stale
-# cross-arch archives cannot leak into a later variant.
-rm -rf \
-  "${REPO_ROOT}/skia/wasm-ganesh" \
-  "${REPO_ROOT}/skia/wasm-ganesh-simd" \
-  "${REPO_ROOT}/skia/wasm64-ganesh" \
-  "${REPO_ROOT}/skia/wasm64-ganesh-simd"
-
 if ! command -v emcmake >/dev/null 2>&1 || ! command -v emcc >/dev/null 2>&1; then
   if [ -f "${HOME}/emsdk/emsdk_env.sh" ]; then
     # shellcheck disable=SC1091
@@ -42,10 +34,16 @@ fi
 
 mkdir -p "${OUT_DIR}"
 
-current_variant_pid=""
 SKIA_WORKDIR_BASE="${SKIA_BUILD_WORKDIR:-${HOME}/.cache/effindom-skia-build}"
-SKIA_SOURCE_MIRROR_DIR="${SKIA_WORKDIR_BASE}/mirror/skia.git"
-SKIA_DEPOT_TOOLS_DIR="${SKIA_WORKDIR_BASE}/depot_tools"
+parallel_variant_pids=()
+parallel_variant_names=()
+parallel_variant_logs=()
+SKIA_SOURCE_SEED_WORKDIR="${SKIA_WORKDIR_BASE}/seed"
+
+bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
+green() { printf '\033[32m%s\033[0m\n' "$*"; }
+yellow(){ printf '\033[33m%s\033[0m\n' "$*"; }
+red()   { printf '\033[31m%s\033[0m\n' "$*"; }
 
 collect_descendant_pids() {
   local frontier=("$@")
@@ -103,41 +101,105 @@ kill_process_tree() {
   done
 }
 
-kill_tracked_pids() {
-  local pid=""
-  for pid in "$@"; do
-    if [ -n "${pid}" ]; then
-      kill_process_tree "${pid}"
-    fi
-  done
-}
-
-wait_for_pids() {
-  local status=0
-  local pid=""
-  for pid in "$@"; do
-    if [ -n "${pid}" ] && ! wait "${pid}"; then
-      status=1
-    fi
-  done
-  return "${status}"
-}
-
 cleanup() {
-  local exit_code=$?
-  trap - EXIT INT TERM HUP
-  kill_process_tree "${current_variant_pid}"
-  wait_for_pids "${current_variant_pid}" >/dev/null 2>&1 || true
   rm -rf "${STAGE_DIR}"
-  exit "${exit_code}"
-}
-
-handle_shutdown_signal() {
-  kill_process_tree "${current_variant_pid}"
 }
 
 trap cleanup EXIT
-trap handle_shutdown_signal INT TERM HUP
+
+cleanup_on_signal() {
+  trap - EXIT INT TERM HUP
+  if [ "${#parallel_variant_pids[@]}" -gt 0 ]; then
+    kill_process_tree "${parallel_variant_pids[@]}"
+  fi
+  exit 130
+}
+
+trap cleanup_on_signal INT TERM HUP
+
+launch_variant_build() {
+  local architecture_name="$1"
+  local wasm_arch="$2"
+  local simd_mode="$3"
+  local log_file
+
+  log_file="$(mktemp "${STAGE_DIR}/${architecture_name}.XXXXXX.log")"
+  (
+    stage_variant "${architecture_name}" "${wasm_arch}" "${simd_mode}"
+  ) >"${log_file}" 2>&1 &
+  parallel_variant_pids+=("$!")
+  parallel_variant_names+=("${architecture_name}")
+  parallel_variant_logs+=("${log_file}")
+}
+
+prepare_skia_seed() {
+  if [ -d "${SKIA_SOURCE_SEED_WORKDIR}/skia" ] && [ -d "${SKIA_SOURCE_SEED_WORKDIR}/depot_tools" ]; then
+    bold "-- Reusing seeded Skia checkout at ${SKIA_SOURCE_SEED_WORKDIR}"
+    return
+  fi
+
+  bold "-- Seeding shared Skia checkout at ${SKIA_SOURCE_SEED_WORKDIR}"
+  rm -rf "${SKIA_SOURCE_SEED_WORKDIR}"
+  mkdir -p "${SKIA_SOURCE_SEED_WORKDIR}"
+  cd "${REPO_ROOT}"
+  SKIA_BUILD_WORKDIR="${SKIA_SOURCE_SEED_WORKDIR}" \
+  EFFINDOM_WASM_ARCH="wasm32" \
+  EFFINDOM_SIMD="off" \
+  SKIA_PREP_ONLY=1 \
+  ./scripts/build_skia_wasm.sh
+}
+
+copy_skia_seed_to_workdir() {
+  local target_workdir="$1"
+  local existing_entries=""
+
+  existing_entries="$(find "${target_workdir}" -mindepth 1 -maxdepth 1 -print -quit 2>/dev/null || true)"
+  if [ -n "${existing_entries}" ] && [ -f "${target_workdir}/depot_tools/python3_bin_reldir.txt" ]; then
+    bold "   Reusing existing workdir ${target_workdir}"
+    return
+  fi
+
+  bold "   Copying Skia seed into ${target_workdir}"
+  mkdir -p "${target_workdir}"
+  mkdir -p "${target_workdir}/skia"
+  tar -cf - -C "${SKIA_SOURCE_SEED_WORKDIR}/skia" . | tar -xf - -C "${target_workdir}/skia"
+  rm -rf "${target_workdir}/depot_tools"
+  ln -s "${SKIA_SOURCE_SEED_WORKDIR}/depot_tools" "${target_workdir}/depot_tools"
+  bold "   Seed copied into ${target_workdir}"
+}
+
+wait_for_variant_builds() {
+  local status=0
+  local index=0
+  local pid=""
+  local name=""
+  local log_file=""
+
+  for index in "${!parallel_variant_pids[@]}"; do
+    pid="${parallel_variant_pids[$index]}"
+    name="${parallel_variant_names[$index]}"
+    log_file="${parallel_variant_logs[$index]}"
+    if wait "${pid}"; then
+      cat "${log_file}"
+      green "=== ${name} variant complete ==="
+    else
+      cat "${log_file}"
+      printf '=== %s variant failed ===\n' "${name}" >&2
+      status=1
+      kill_process_tree "${parallel_variant_pids[@]}"
+      break
+    fi
+    rm -f "${log_file}" >/dev/null 2>&1 || true
+  done
+
+  for log_file in "${parallel_variant_logs[@]}"; do
+    rm -f "${log_file}" >/dev/null 2>&1 || true
+  done
+  parallel_variant_pids=()
+  parallel_variant_names=()
+  parallel_variant_logs=()
+  return "${status}"
+}
 
 icu_config_is_stale() {
   if [ ! -f "${ICU_CONFIG_STATUS}" ]; then
@@ -209,92 +271,48 @@ prepare_icu_data() {
   fi
 }
 
-prepare_shared_deps() {
-  mkdir -p "${SKIA_WORKDIR_BASE}/mirror"
-
-  if [ ! -d "${SKIA_SOURCE_MIRROR_DIR}/objects" ]; then
-    rm -rf "${SKIA_SOURCE_MIRROR_DIR}"
-    git clone --mirror https://skia.googlesource.com/skia.git "${SKIA_SOURCE_MIRROR_DIR}"
-  fi
-
-  if [ ! -d "${SKIA_DEPOT_TOOLS_DIR}" ]; then
-    git clone --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git "${SKIA_DEPOT_TOOLS_DIR}"
-  fi
-}
-
 stage_variant() {
   local architecture_name="$1"
   local wasm_arch="$2"
   local simd_mode="$3"
   local variant_dir="${STAGE_DIR}/${architecture_name}"
-  local core_pid=""
-  local ui_pid=""
-  local exit_code=0
+  local skia_workdir="${SKIA_WORKDIR_BASE}/${architecture_name}"
 
   mkdir -p "${variant_dir}"
 
-  SKIA_WORKDIR="${SKIA_WORKDIR_BASE}/${architecture_name}"
-  mkdir -p "${SKIA_WORKDIR}"
+  cd "${REPO_ROOT}"
+  SKIA_BUILD_WORKDIR="${skia_workdir}" \
+  EFFINDOM_WASM_ARCH="${wasm_arch}" \
+  EFFINDOM_SIMD="${simd_mode}" \
+  SKIA_SKIP_SOURCE_PREP=1 \
+  EFFINDOM_BROWSER_OUTPUT_DIR="${variant_dir}/core-out" \
+  EFFINDOM_TEMP_JS_OUTPUT="${variant_dir}/core.js" \
+  EFFINDOM_TEMP_WASM_OUTPUT="${variant_dir}/core.wasm" \
+  EFFINDOM_TEMP_SYMBOLS_OUTPUT="${variant_dir}/core.js.symbols" \
+  bash v2/core/scripts/build_wasm_arch.sh
 
-  handle_stage_shutdown_signal() {
-   kill_tracked_pids "${core_pid:-}" "${ui_pid:-}"
-  }
-
-  cleanup_stage() {
-   local exit_code=$?
-   trap - EXIT INT TERM HUP
-   kill_tracked_pids "${core_pid:-}" "${ui_pid:-}"
-   wait_for_pids "${core_pid:-}" "${ui_pid:-}" >/dev/null 2>&1 || true
-   exit "${exit_code}"
-  }
-  trap cleanup_stage EXIT
-  trap handle_stage_shutdown_signal INT TERM HUP
-
-  (
-    cd "${REPO_ROOT}"
-    SKIA_BUILD_WORKDIR="${SKIA_WORKDIR}" \
-    SKIA_SOURCE_MIRROR="${SKIA_SOURCE_MIRROR_DIR}" \
-    SKIA_DEPOT_TOOLS_DIR="${SKIA_DEPOT_TOOLS_DIR}" \
-    EFFINDOM_WASM_ARCH="${wasm_arch}" \
-    EFFINDOM_SIMD="${simd_mode}" \
-    EFFINDOM_BROWSER_OUTPUT_DIR="${variant_dir}/core-out" \
-    EFFINDOM_TEMP_JS_OUTPUT="${variant_dir}/core.js" \
-    EFFINDOM_TEMP_WASM_OUTPUT="${variant_dir}/core.wasm" \
-    EFFINDOM_TEMP_SYMBOLS_OUTPUT="${variant_dir}/core.js.symbols" \
-   bash v2/core/scripts/build_wasm_arch.sh
-  ) &
-  core_pid="$!"
-
-  if ! wait "${core_pid}"; then
-   exit_code=1
-   core_pid=""
-   return "${exit_code}"
-  fi
-  core_pid=""
-
-  (
-   cd "${REPO_ROOT}"
-   SKIA_BUILD_WORKDIR="${SKIA_WORKDIR}" \
-   SKIA_SOURCE_MIRROR="${SKIA_SOURCE_MIRROR_DIR}" \
-   SKIA_DEPOT_TOOLS_DIR="${SKIA_DEPOT_TOOLS_DIR}" \
-   EFFINDOM_WASM_ARCH="${wasm_arch}" \
-   EFFINDOM_SIMD="${simd_mode}" \
-   EFFINDOM_BROWSER_OUTPUT_DIR="${variant_dir}/ui-out" \
-   EFFINDOM_SKIP_BRIDGE_HARNESS=1 \
-   EFFINDOM_TEMP_JS_OUTPUT="${variant_dir}/ui.js" \
-   EFFINDOM_TEMP_WASM_OUTPUT="${variant_dir}/ui.wasm" \
-   EFFINDOM_TEMP_SYMBOLS_OUTPUT="${variant_dir}/ui.js.symbols" \
-   bash v2/ui/scripts/build_wasm_arch.sh
-  ) &
-  ui_pid="$!"
-
-  if ! wait "${ui_pid}"; then
-   exit_code=1
-  fi
-  return "${exit_code}"
+  cd "${REPO_ROOT}"
+  SKIA_BUILD_WORKDIR="${skia_workdir}" \
+  EFFINDOM_WASM_ARCH="${wasm_arch}" \
+  EFFINDOM_SIMD="${simd_mode}" \
+  SKIA_SKIP_SOURCE_PREP=1 \
+  EFFINDOM_BROWSER_OUTPUT_DIR="${variant_dir}/ui-out" \
+  EFFINDOM_SKIP_BRIDGE_HARNESS=1 \
+  EFFINDOM_TEMP_JS_OUTPUT="${variant_dir}/ui.js" \
+  EFFINDOM_TEMP_WASM_OUTPUT="${variant_dir}/ui.wasm" \
+  EFFINDOM_TEMP_SYMBOLS_OUTPUT="${variant_dir}/ui.js.symbols" \
+  bash v2/ui/scripts/build_wasm_arch.sh
 }
 
-prepare_shared_deps
+prepare_skia_seed
+
+for variant_workdir in \
+  "${SKIA_WORKDIR_BASE}/wasm32" \
+  "${SKIA_WORKDIR_BASE}/wasm32-simd" \
+  "${SKIA_WORKDIR_BASE}/wasm64" \
+  "${SKIA_WORKDIR_BASE}/wasm64-simd"; do
+  copy_skia_seed_to_workdir "${variant_workdir}"
+done
 
 for variant_args in \
   "wasm32 wasm32 off" \
@@ -302,14 +320,12 @@ for variant_args in \
   "wasm64 wasm64 off" \
   "wasm64-simd wasm64 on"; do
   # shellcheck disable=SC2086
-  ( stage_variant ${variant_args} ) &
-  current_variant_pid="$!"
-  if ! wait "${current_variant_pid}"; then
-    current_variant_pid=""
-    exit 1
-  fi
-  current_variant_pid=""
+  launch_variant_build ${variant_args}
 done
+
+if ! wait_for_variant_builds; then
+  exit 1
+fi
 
 prepare_icu_data
 

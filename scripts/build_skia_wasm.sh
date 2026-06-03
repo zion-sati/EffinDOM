@@ -133,9 +133,12 @@ case "${WASM_ARCH}" in
     ;;
 esac
 
+GN_EXTRA_CFLAGS_LIST+=("-O3")
+GN_EXTRA_LDFLAGS_LIST+=("-O3")
+
 if [ "${SIMD_ENABLED}" = "ON" ]; then
-  GN_EXTRA_CFLAGS_LIST+=("-O3" "-msimd128")
-  GN_EXTRA_LDFLAGS_LIST+=("-O3" "-msimd128")
+  GN_EXTRA_CFLAGS_LIST+=("-msimd128")
+  GN_EXTRA_LDFLAGS_LIST+=("-msimd128")
 fi
 
 WORK_DIR="${SKIA_BUILD_WORKDIR:-${WORK_DIR_BASE_DEFAULT}}"
@@ -220,123 +223,174 @@ cleanup_prepare_lock() {
 
 trap cleanup_prepare_lock EXIT
 
-# ── Step 1: depot_tools ───────────────────────────────────────────────────────
+# ── Step 1-2: source prep / reuse ─────────────────────────────────────────────
 DEPOT_TOOLS_DIR="${SKIA_DEPOT_TOOLS_DIR:-$WORK_DIR/depot_tools}"
-if [ ! -d "$DEPOT_TOOLS_DIR" ]; then
-  bold "-- Cloning depot_tools..."
-  if [ -n "$DEPOT_TOOLS_COMMIT" ]; then
-    # Full clone so we can check out the pinned commit.
-    GIT_TRACE=1 git clone --verbose https://chromium.googlesource.com/chromium/tools/depot_tools.git \
-      "$DEPOT_TOOLS_DIR" 2>&1 | while IFS= read -r line; do echo "   $line"; done
-    git -C "$DEPOT_TOOLS_DIR" checkout "$DEPOT_TOOLS_COMMIT"
-    bold "   Pinned depot_tools to: $DEPOT_TOOLS_COMMIT"
-  else
-    # No pin requested — use a shallow clone of HEAD.
-    GIT_TRACE=1 git clone --verbose --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git \
-      "$DEPOT_TOOLS_DIR" 2>&1 | while IFS= read -r line; do echo "   $line"; done
-  fi
-  bold "   depot_tools cloned successfully"
-fi
-export PATH="$DEPOT_TOOLS_DIR:$PATH"
-
-# ── Capture Emscripten SDK path before git-sync-deps ─────────────────────────
-# git-sync-deps fetches Dawn's bundled emsdk (often pinned to an older version)
-# and activates it, prepending a different emcc to PATH.  We capture the full
-# path to our emsdk ROOT directory NOW — before that happens — and pass it as
-# skia_emsdk_dir in the GN args so the Skia WASM toolchain (gn/toolchain/BUILD.gn)
-# uses our Emscripten version instead of Dawn's bundled one.
-EMCC_BIN="$(command -v emcc)"
-# Derive the emsdk root from the emcc path:
-#   /path/to/emsdk/upstream/emscripten/emcc  →  /path/to/emsdk
-EMCC_EMSDK_DIR="$(dirname "$(dirname "$(dirname "$EMCC_BIN")")")"
-bold "-- Using Emscripten: $EMCC_BIN ($(${EMCC_BIN} --version 2>&1 | head -1))"
-
-# Ensure the emdawnwebgpu port is extracted to the emcc cache so we can pass its
-# include dirs to Skia's GN build.  Skia's Dawn sources include "webgpu/webgpu_cpp.h"
-# which is NOT in emcc 5.x's default sysroot — it lives in the emdawnwebgpu port.
-bold "-- Ensuring emdawnwebgpu port headers are cached..."
-"${EMCC_BIN}" --use-port=emdawnwebgpu -E /dev/null -o /dev/null 2>/dev/null || true
-# Extract the two include paths emcc adds when --use-port=emdawnwebgpu is in effect.
-_EMDAWN_INCLUDES=$("${EMCC_BIN}" --use-port=emdawnwebgpu -E -v /dev/null 2>&1 | \
-  grep -oE -- '-isystem [^ ]+' | grep 'emdawnwebgpu' | awk '{print $2}')
-EMDAWN_WEBGPU_INC=$(echo "$_EMDAWN_INCLUDES"     | grep 'webgpu/include$'     | head -1)
-EMDAWN_WEBGPU_CPP_INC=$(echo "$_EMDAWN_INCLUDES" | grep 'webgpu_cpp/include$' | head -1)
-if [ -z "$EMDAWN_WEBGPU_INC" ] || [ -z "$EMDAWN_WEBGPU_CPP_INC" ]; then
-  red "ERROR: Could not find emdawnwebgpu port include directories."
-  red "  Expected webgpu/include and webgpu_cpp/include in emcc's port cache."
-  red "  Verify that emcc is activated: source ~/emsdk/emsdk_env.sh"
-  exit 1
-fi
-bold "   webgpu     : $EMDAWN_WEBGPU_INC"
-bold "   webgpu_cpp : $EMDAWN_WEBGPU_CPP_INC"
-
-# ── Step 2: Skia source ───────────────────────────────────────────────────────
 SKIA_DIR="$WORK_DIR/skia"
-if [ ! -d "$SKIA_DIR" ]; then
-  bold "-- Cloning Skia (large repo, ~3-5 min on first run)..."
-  if [ -n "$SKIA_SOURCE_MIRROR" ]; then
-    if [ ! -d "$SKIA_SOURCE_MIRROR" ]; then
-      red "ERROR: SKIA_SOURCE_MIRROR does not exist: $SKIA_SOURCE_MIRROR"
-      exit 1
+
+if [ "${SKIA_SKIP_SOURCE_PREP:-0}" != "1" ]; then
+  if [ ! -d "$DEPOT_TOOLS_DIR" ]; then
+    bold "-- Cloning depot_tools..."
+    if [ -n "$DEPOT_TOOLS_COMMIT" ]; then
+      # Full clone so we can check out the pinned commit.
+      GIT_TRACE=1 git clone --verbose https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+        "$DEPOT_TOOLS_DIR" 2>&1 | while IFS= read -r line; do echo "   $line"; done
+      git -C "$DEPOT_TOOLS_DIR" checkout "$DEPOT_TOOLS_COMMIT"
+      bold "   Pinned depot_tools to: $DEPOT_TOOLS_COMMIT"
+    else
+      # No pin requested — use a shallow clone of HEAD.
+      GIT_TRACE=1 git clone --verbose --depth 1 https://chromium.googlesource.com/chromium/tools/depot_tools.git \
+        "$DEPOT_TOOLS_DIR" 2>&1 | while IFS= read -r line; do echo "   $line"; done
     fi
-    git clone --verbose "$SKIA_SOURCE_MIRROR" "$SKIA_DIR"
-  else
-      git clone --verbose https://skia.googlesource.com/skia.git "$SKIA_DIR"
+    bold "   depot_tools cloned successfully"
   fi
-  bold "   Skia cloned successfully"
-fi
-cd "$SKIA_DIR"
 
-bold "-- Checking out revision: $SKIA_REVISION"
-git fetch origin "$SKIA_REVISION"
-git checkout FETCH_HEAD
+  export PATH="$DEPOT_TOOLS_DIR:$PATH"
 
-bold "-- Syncing Skia dependencies (this may take 5-10 minutes)..."
-python3 tools/git-sync-deps
+  bold "-- Bootstrapping depot_tools..."
+  if [ -x "${DEPOT_TOOLS_DIR}/ensure_bootstrap" ]; then
+    "${DEPOT_TOOLS_DIR}/ensure_bootstrap" >/dev/null 2>&1 || true
+  fi
+  if command -v gclient >/dev/null 2>&1; then
+    gclient --version >/dev/null 2>&1 || true
+  fi
 
-# ── Step 2b: Apply compatibility patches ──────────────────────────────────────
-#
-# Skia m136's Dawn backend has #if defined(__EMSCRIPTEN__) blocks that use
-# the old Dawn API (written for emcc 3.1.44).  emcc 5+ ships emdawnwebgpu
-# (Dawn v20251002) which has a completely different API.  The patch updates
-# those blocks to use the new API shapes:
-#   - WGPUBufferMapAsyncStatus → wgpu::MapAsyncStatus
-#   - wgpu::SupportedLimits removed; GetLimits now takes wgpu::Limits*
-#   - RenderPassTimestampWrites/ComputePassTimestampWrites → PassTimestampWrites
-#   - ShaderModuleWGSLDescriptor → ShaderSourceWGSL
-#   - VertexStepMode::VertexBufferNotUsed → VertexStepMode::Undefined
-#   - OnSubmittedWorkDone / PopErrorScope / GetCompilationInfo: new callback sig
-DAWN_PATCH="${REPO_ROOT}/scripts/patches/skia-m136-dawn-emdawnwebgpu-v20251002.patch"
-if [ ! -f "${DAWN_PATCH}" ]; then
-  red "ERROR: Dawn patch not found: ${DAWN_PATCH}"
-  exit 1
-fi
+  # ── Capture Emscripten SDK path before git-sync-deps ───────────────────────
+  EMCC_BIN="$(command -v emcc)"
+  EMCC_EMSDK_DIR="$(dirname "$(dirname "$(dirname "$EMCC_BIN")")")"
+  bold "-- Using Emscripten: $EMCC_BIN ($(${EMCC_BIN} --version 2>&1 | head -1))"
 
-bold "-- Applying Dawn API compatibility patch..."
-# Test if patch is already applied to avoid harmless re-application
-if patch -p1 --dry-run --forward --silent < "${DAWN_PATCH}" 2>/dev/null; then
-  # Patch is not yet applied; apply it for real
-  if ! patch -p1 --no-backup-if-mismatch < "${DAWN_PATCH}"; then
-    red "ERROR: Failed to apply Dawn compatibility patch."
-    red "This is a critical patch required for emcc 5.0.6 compatibility."
+  bold "-- Ensuring emdawnwebgpu port headers are cached..."
+  "${EMCC_BIN}" --use-port=emdawnwebgpu -E /dev/null -o /dev/null 2>/dev/null || true
+  _EMDAWN_INCLUDES=$("${EMCC_BIN}" --use-port=emdawnwebgpu -E -v /dev/null 2>&1 | \
+    grep -oE -- '-isystem [^ ]+' | grep 'emdawnwebgpu' | awk '{print $2}')
+  EMDAWN_WEBGPU_INC=$(echo "$_EMDAWN_INCLUDES"     | grep 'webgpu/include$'     | head -1)
+  EMDAWN_WEBGPU_CPP_INC=$(echo "$_EMDAWN_INCLUDES" | grep 'webgpu_cpp/include$' | head -1)
+  if [ -z "$EMDAWN_WEBGPU_INC" ] || [ -z "$EMDAWN_WEBGPU_CPP_INC" ]; then
+    red "ERROR: Could not find emdawnwebgpu port include directories."
+    red "  Expected webgpu/include and webgpu_cpp/include in emcc's port cache."
+    red "  Verify that emcc is activated: source ~/emsdk/emsdk_env.sh"
     exit 1
   fi
-  bold "   Patch applied successfully."
+  bold "   webgpu     : $EMDAWN_WEBGPU_INC"
+  bold "   webgpu_cpp : $EMDAWN_WEBGPU_CPP_INC"
+
+  if [ ! -d "$SKIA_DIR" ]; then
+    bold "-- Cloning Skia (large repo, ~3-5 min on first run)..."
+    if [ -n "$SKIA_SOURCE_MIRROR" ]; then
+      if [ ! -d "$SKIA_SOURCE_MIRROR" ]; then
+        red "ERROR: SKIA_SOURCE_MIRROR does not exist: $SKIA_SOURCE_MIRROR"
+        exit 1
+      fi
+      git clone --verbose "$SKIA_SOURCE_MIRROR" "$SKIA_DIR"
+    else
+      git clone --verbose https://skia.googlesource.com/skia.git "$SKIA_DIR"
+    fi
+    bold "   Skia cloned successfully"
+  fi
+  cd "$SKIA_DIR"
+
+  bold "-- Checking out revision: $SKIA_REVISION"
+  git fetch origin "$SKIA_REVISION"
+  git checkout FETCH_HEAD
+
+  bold "-- Syncing Skia dependencies (this may take 5-10 minutes)..."
+  python3 tools/git-sync-deps
+
+  # ── Step 2b: Apply compatibility patches ────────────────────────────────────
+  #
+  # Skia m136's Dawn backend has #if defined(__EMSCRIPTEN__) blocks that use
+  # the old Dawn API (written for emcc 3.1.44).  emcc 5+ ships emdawnwebgpu
+  # (Dawn v20251002) which has a completely different API.  The patch updates
+  # those blocks to use the new API shapes:
+  #   - WGPUBufferMapAsyncStatus → wgpu::MapAsyncStatus
+  #   - wgpu::SupportedLimits removed; GetLimits now takes wgpu::Limits*
+  #   - RenderPassTimestampWrites/ComputePassTimestampWrites → PassTimestampWrites
+  #   - ShaderModuleWGSLDescriptor → ShaderSourceWGSL
+  #   - VertexStepMode::VertexBufferNotUsed → VertexStepMode::Undefined
+  #   - OnSubmittedWorkDone / PopErrorScope / GetCompilationInfo: new callback sig
+  DAWN_PATCH="${REPO_ROOT}/scripts/patches/skia-m136-dawn-emdawnwebgpu-v20251002.patch"
+  if [ ! -f "${DAWN_PATCH}" ]; then
+    red "ERROR: Dawn patch not found: ${DAWN_PATCH}"
+    exit 1
+  fi
+
+  bold "-- Applying Dawn API compatibility patch..."
+  # Test if patch is already applied to avoid harmless re-application
+  if patch -p1 --dry-run --forward --silent < "${DAWN_PATCH}" 2>/dev/null; then
+    # Patch is not yet applied; apply it for real
+    if ! patch -p1 --no-backup-if-mismatch < "${DAWN_PATCH}"; then
+      red "ERROR: Failed to apply Dawn compatibility patch."
+      red "This is a critical patch required for emcc 5.0.6 compatibility."
+      exit 1
+    fi
+    bold "   Patch applied successfully."
+  else
+    # Already applied; verify by testing individual hunks
+    bold "   Patch already applied (detected via dry-run test)."
+  fi
+
+  # pnglibconf.h is generated by libpng's build system and is not present in the
+  # raw source checkout.  libpng ships scripts/pnglibconf.h.prebuilt for exactly
+  # this use case: including libpng headers without running the full configure.
+  # Without this, FreeType's pngshim.c (compiled with -I.../libpng) fails at
+  # the #include "pnglibconf.h" line inside png.h.
+  LIBPNG_DIR="${SKIA_DIR}/third_party/externals/libpng"
+  if [ -f "${LIBPNG_DIR}/scripts/pnglibconf.h.prebuilt" ] && \
+     [ ! -f "${LIBPNG_DIR}/pnglibconf.h" ]; then
+    cp "${LIBPNG_DIR}/scripts/pnglibconf.h.prebuilt" "${LIBPNG_DIR}/pnglibconf.h"
+    bold "   Copied pnglibconf.h.prebuilt → third_party/externals/libpng/pnglibconf.h"
+  fi
 else
-  # Already applied; verify by testing individual hunks
-  bold "   Patch already applied (detected via dry-run test)."
+  if [ ! -d "$DEPOT_TOOLS_DIR" ] || [ ! -d "$SKIA_DIR" ]; then
+    red "ERROR: SKIA_SKIP_SOURCE_PREP=1 requires a copied depot_tools/ and skia/ checkout in $WORK_DIR."
+    exit 1
+  fi
+  export PATH="$DEPOT_TOOLS_DIR:$PATH"
+  bold "-- Bootstrapping prepped depot_tools..."
+  if [ -x "${DEPOT_TOOLS_DIR}/ensure_bootstrap" ]; then
+    "${DEPOT_TOOLS_DIR}/ensure_bootstrap" >/dev/null 2>&1 || true
+  fi
+  if command -v gclient >/dev/null 2>&1; then
+    gclient --version >/dev/null 2>&1 || true
+  fi
+  EMCC_BIN="$(command -v emcc)"
+  EMCC_EMSDK_DIR="$(dirname "$(dirname "$(dirname "$EMCC_BIN")")")"
+  cd "$SKIA_DIR"
+  export PATH="$SKIA_DIR/bin:$SKIA_DIR/third_party/gn:$PATH"
+  bold "-- Using prepped Skia checkout from $WORK_DIR"
 fi
 
-# pnglibconf.h is generated by libpng's build system and is not present in the
-# raw source checkout.  libpng ships scripts/pnglibconf.h.prebuilt for exactly
-# this use case: including libpng headers without running the full configure.
-# Without this, FreeType's pngshim.c (compiled with -I.../libpng) fails at
-# the #include "pnglibconf.h" line inside png.h.
-LIBPNG_DIR="${SKIA_DIR}/third_party/externals/libpng"
-if [ -f "${LIBPNG_DIR}/scripts/pnglibconf.h.prebuilt" ] && \
-   [ ! -f "${LIBPNG_DIR}/pnglibconf.h" ]; then
-  cp "${LIBPNG_DIR}/scripts/pnglibconf.h.prebuilt" "${LIBPNG_DIR}/pnglibconf.h"
-  bold "   Copied pnglibconf.h.prebuilt → third_party/externals/libpng/pnglibconf.h"
+if [ -z "${EMDAWN_WEBGPU_INC:-}" ] || [ -z "${EMDAWN_WEBGPU_CPP_INC:-}" ]; then
+  bold "-- Ensuring emdawnwebgpu port headers are cached..."
+  "${EMCC_BIN}" --use-port=emdawnwebgpu -E /dev/null -o /dev/null 2>/dev/null || true
+  _EMDAWN_INCLUDES=$("${EMCC_BIN}" --use-port=emdawnwebgpu -E -v /dev/null 2>&1 | \
+    grep -oE -- '-isystem [^ ]+' | grep 'emdawnwebgpu' | awk '{print $2}')
+  EMDAWN_WEBGPU_INC=$(echo "$_EMDAWN_INCLUDES"     | grep 'webgpu/include$'     | head -1)
+  EMDAWN_WEBGPU_CPP_INC=$(echo "$_EMDAWN_INCLUDES" | grep 'webgpu_cpp/include$' | head -1)
+  if [ -z "$EMDAWN_WEBGPU_INC" ] || [ -z "$EMDAWN_WEBGPU_CPP_INC" ]; then
+    red "ERROR: Could not find emdawnwebgpu port include directories."
+    red "  Expected webgpu/include and webgpu_cpp/include in emcc's port cache."
+    red "  Verify that emcc is activated: source ~/emsdk/emsdk_env.sh"
+    exit 1
+  fi
+  bold "   webgpu     : $EMDAWN_WEBGPU_INC"
+  bold "   webgpu_cpp : $EMDAWN_WEBGPU_CPP_INC"
+fi
+
+if [ "${SKIA_PREP_ONLY:-0}" = "1" ]; then
+  green "=== Skia source prep complete ==="
+  green "  Work dir : $WORK_DIR"
+  exit 0
+fi
+
+if [ -x "${SKIA_DIR}/bin/gn" ]; then
+  GN_BIN="${SKIA_DIR}/bin/gn"
+elif [ -x "${SKIA_DIR}/third_party/gn/gn" ]; then
+  GN_BIN="${SKIA_DIR}/third_party/gn/gn"
+else
+  red "ERROR: Could not find a usable GN binary in ${SKIA_DIR}."
+  red "  Expected ${SKIA_DIR}/bin/gn or ${SKIA_DIR}/third_party/gn/gn."
+  exit 1
 fi
 
 # ── Emscripten 5.x GL sync signature fix ─────────────────────────────────────
@@ -486,15 +540,15 @@ if [ "$FORCE" = true ] && [ -d "$BIN_DIR" ]; then
   rm -rf "$BIN_DIR"
 fi
 bold "   Running GN configure..."
-bin/gn gen "$BIN_DIR" --args="$GN_ARGS" 2>&1 | while IFS= read -r line; do echo "   $line"; done
+"$GN_BIN" gen "$BIN_DIR" --args="$GN_ARGS" 2>&1 | while IFS= read -r line; do echo "   $line"; done
 bold "   GN configure completed"
 
 # ── Step 4: Build ──────────────────────────────────────────────────────────────
 bold "-- Building libskia.a and libsvg.a (this takes 30-60 minutes on first run)..."
 bold "   Building Skia (wasm-graphite)..."
-ninja -C "$BIN_DIR" -v skia 2>&1 | grep -E '(Ninja|error|warning|\[.*\])' | while IFS= read -r line; do echo "   $line"; done
+ninja -C "$BIN_DIR" -v skia 2>&1 | grep -E '(Ninja|error|warning|\[.*\])' || true
 bold "   Building SVG support..."
-ninja -C "$BIN_DIR" -v svg 2>&1 | grep -E '(Ninja|error|warning|\[.*\])' | while IFS= read -r line; do echo "   $line"; done
+ninja -C "$BIN_DIR" -v svg 2>&1 | grep -E '(Ninja|error|warning|\[.*\])' || true
 
 # ── Step 5: Stage into SKIA_WASM_DIR ─────────────────────────────────────────
 bold "-- Staging output into $STAGING..."

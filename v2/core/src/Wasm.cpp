@@ -189,8 +189,9 @@ bool CreateWebGlSurface() {
         kBottomLeft_GrSurfaceOrigin,
         kRGBA_8888_SkColorType,
         SkColorSpace::MakeSRGB(),
-        nullptr        );
-        return static_cast<bool>(g_state.gl_surface);
+        nullptr);
+    
+    return static_cast<bool>(g_state.gl_surface);
 }
 
 void StartWebGlInit() {
@@ -398,9 +399,6 @@ void ed_recover_device(void) {
     }
     switch (g_state.recovery_backend) {
     case ED_BACKEND_WEBGL2:
-        ed_init_webgl(g_state.engine.physical_width(), g_state.engine.physical_height(), g_state.engine.dpr());
-        return;
-    case ED_BACKEND_WEBGPU:
         ed_init_webgl(g_state.engine.physical_width(), g_state.engine.physical_height(), g_state.engine.dpr());
         return;
     case ED_BACKEND_CPU:

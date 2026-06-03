@@ -39,7 +39,7 @@ if(EMSCRIPTEN)
     add_custom_target(effindom_v2_core_browser_assets DEPENDS "${_EFFINDOM_V2_CORE_HTML_OUTPUT}")
 
     target_link_libraries(effindom_v2_core
-        PUBLIC effindom_skia_ganesh
+        PUBLIC effindom_skia_graphite
         PRIVATE effindom_wasm_feature_flags
     )
 
@@ -61,12 +61,16 @@ if(EMSCRIPTEN)
         RUNTIME_OUTPUT_DIRECTORY "${EFFINDOM_V2_CORE_BROWSER_OUTPUT_DIR}"
         SUFFIX ".js"
     )
+    target_compile_options(effindom_v2_core_wasm PRIVATE
+        --use-port=emdawnwebgpu
+    )
     target_link_options(effindom_v2_core_wasm PRIVATE
         -sALLOW_MEMORY_GROWTH=1
         -sEXPORT_ALL=1
         -sOFFSCREENCANVAS_SUPPORT=1
         -sMAX_WEBGL_VERSION=2
         -sSUPPORT_LONGJMP=emscripten
+        --use-port=emdawnwebgpu
         -sENVIRONMENT=web
         "-sEXPORTED_FUNCTIONS=@${CMAKE_CURRENT_SOURCE_DIR}/exports.txt"
         --emit-symbol-map
