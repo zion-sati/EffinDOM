@@ -72,6 +72,10 @@ typedef enum UiAlignSelf {
     UI_ALIGN_SELF_STRETCH = 4
 } UiAlignSelf;
 
+typedef enum UiAlignItems {
+    UI_ALIGN_ITEMS_NONE = 5
+} UiAlignItems;
+
 typedef enum UiVisibility {
     UI_VISIBILITY_NORMAL = 0,
     UI_VISIBILITY_HIDDEN = 1,

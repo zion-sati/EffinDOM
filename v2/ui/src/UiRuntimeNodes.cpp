@@ -1182,6 +1182,11 @@ bool UiRuntime::SetAlignItems(std::uint64_t handle, std::uint32_t align_enum) {
     if (node == nullptr || node->yg_node == nullptr) {
         return false;
     }
+    if (align_enum == UI_ALIGN_ITEMS_NONE) {
+        YGNodeStyleSetAlignItems(node->yg_node, YGAlignStretch);
+        layout_dirty_ = true;
+        return true;
+    }
     if (!ApplyYogaAlign(node->yg_node, align_enum == 0U ? UI_ALIGN_SELF_START : align_enum, false)) {
         return false;
     }
