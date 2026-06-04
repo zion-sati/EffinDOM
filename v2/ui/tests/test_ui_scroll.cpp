@@ -119,6 +119,79 @@ TEST_CASE("v2 ui scroll views accept explicit content size overrides", "[v2][ui]
 }
 
 
+TEST_CASE("v2 ui scroll views preserve intrinsic auto-width rows with auto-width columns", "[v2][ui][unit][layout]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t row = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t left_column = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t spacer = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t right_column = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t left_text = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t right_text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(row != UI_INVALID_HANDLE);
+    REQUIRE(left_column != UI_INVALID_HANDLE);
+    REQUIRE(spacer != UI_INVALID_HANDLE);
+    REQUIRE(right_column != UI_INVALID_HANDLE);
+    REQUIRE(left_text != UI_INVALID_HANDLE);
+    REQUIRE(right_text != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(420.0f, 260.0f);
+    ui_set_width(root, 420.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 260.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 180.0f, UI_SIZE_UNIT_PIXEL);
+
+    ui_set_flex_direction(row, 1U);
+    ui_set_width(row, 0.0f, UI_SIZE_UNIT_AUTO);
+    ui_set_flex_direction(left_column, 0U);
+    ui_set_width(left_column, 0.0f, UI_SIZE_UNIT_AUTO);
+    ui_set_flex_direction(right_column, 0U);
+    ui_set_width(right_column, 0.0f, UI_SIZE_UNIT_AUTO);
+    ui_set_width(spacer, 96.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(spacer, 1.0f, UI_SIZE_UNIT_PIXEL);
+
+    ui_set_font(left_text, 1U, 18.0f);
+    ui_set_text(
+        left_text,
+        reinterpret_cast<const std::uint8_t*>("Always show horizontal scrollbar"),
+        32U);
+    ui_set_font(right_text, 1U, 18.0f);
+    ui_set_text(
+        right_text,
+        reinterpret_cast<const std::uint8_t*>("Visibility: Normal - keep layout reserved and content rendered"),
+        62U);
+
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, row);
+    ui_node_add_child(row, left_column);
+    ui_node_add_child(row, spacer);
+    ui_node_add_child(row, right_column);
+    ui_node_add_child(left_column, left_text);
+    ui_node_add_child(right_column, right_text);
+
+    ui_commit_frame();
+
+    const auto* scroll_node = GetRuntime().Resolve(scroll);
+    REQUIRE(scroll_node != nullptr);
+    CHECK(scroll_node->scroll_content_width > 240.0f);
+
+    const auto bounds = ReadBounds(ReadCommandBuffer());
+    REQUIRE(bounds.find(row) != bounds.end());
+    CHECK(bounds.at(row).width > 240.0f);
+}
+
+
 TEST_CASE("v2 ui scroll apply guard defers reentrant notifications", "[v2][ui][unit]") {
     using effindom::v2::ui::GetRuntime;
     using namespace test_ui_support;
@@ -270,5 +343,4 @@ TEST_CASE("v2 ui pull-to-refresh reports true for non-scroll starts and top-of-s
     runtime.active_touch_scroll_handle_y_ = UI_INVALID_HANDLE;
     CHECK(ui_touch_scroll_allows_pull_to_refresh());
 }
-
 

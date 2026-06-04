@@ -279,6 +279,26 @@ void UiRuntime::ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_han
         const UINode* parent = Resolve(parent_handle);
         if (parent != nullptr && parent->yg_node != nullptr) {
             const bool parent_is_horizontal = IsHorizontalFlexDirection(YGNodeStyleGetFlexDirection(parent->yg_node));
+            const bool auto_sized_width =
+                !node->fill_width &&
+                !node->has_fill_width_percent &&
+                (!node->has_width || node->width_unit == UI_SIZE_UNIT_AUTO);
+            const bool auto_sized_height =
+                !node->fill_height &&
+                !node->has_fill_height_percent &&
+                (!node->has_height || node->height_unit == UI_SIZE_UNIT_AUTO);
+            if (parent->is_scroll_view && !node->has_align_self) {
+                const bool cross_axis_auto_sized = parent_is_horizontal ? auto_sized_height : auto_sized_width;
+                if (cross_axis_auto_sized) {
+                    YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexStart);
+                }
+            }
+            if (!parent->is_scroll_view && !node->has_align_self && !node->children.empty()) {
+                const bool cross_axis_auto_sized = parent_is_horizontal ? auto_sized_height : auto_sized_width;
+                if (cross_axis_auto_sized) {
+                    YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexStart);
+                }
+            }
             if (node->has_fill_width_percent || (node->fill_width && parent_is_horizontal)) {
                 if (node->has_resolved_fill_width) {
                     YGNodeStyleSetWidth(node->yg_node, node->resolved_fill_width);
