@@ -289,13 +289,17 @@ void UiRuntime::ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_han
                 (!node->has_height || node->height_unit == UI_SIZE_UNIT_AUTO);
             if (parent->is_scroll_view && !node->has_align_self) {
                 const bool cross_axis_auto_sized = parent_is_horizontal ? auto_sized_height : auto_sized_width;
-                if (cross_axis_auto_sized) {
+                const bool child_is_horizontal = IsHorizontalFlexDirection(YGNodeStyleGetFlexDirection(node->yg_node));
+                if (cross_axis_auto_sized && child_is_horizontal != parent_is_horizontal) {
                     YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexStart);
                 }
             }
             if (!parent->is_scroll_view && !node->has_align_self && !node->children.empty()) {
-                const bool cross_axis_auto_sized = parent_is_horizontal ? auto_sized_height : auto_sized_width;
-                if (cross_axis_auto_sized) {
+                const bool cross_axis_explicit_auto =
+                    parent_is_horizontal
+                        ? (node->has_height && node->height_unit == UI_SIZE_UNIT_AUTO)
+                        : (node->has_width && node->width_unit == UI_SIZE_UNIT_AUTO);
+                if (cross_axis_explicit_auto) {
                     YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexStart);
                 }
             }

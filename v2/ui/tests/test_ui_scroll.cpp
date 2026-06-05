@@ -192,6 +192,49 @@ TEST_CASE("v2 ui scroll views preserve intrinsic auto-width rows with auto-width
 }
 
 
+TEST_CASE("v2 ui scroll auto-width columns stretch to fill scroll viewport", "[v2][ui][unit][layout]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t panel = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t child = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(panel != UI_INVALID_HANDLE);
+    REQUIRE(child != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(500.0f, 400.0f);
+    ui_set_width(root, 500.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 400.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 400.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 300.0f, UI_SIZE_UNIT_PIXEL);
+
+    // Panel: vertical Column, width auto — should stretch to fill scroll viewport
+    ui_set_flex_direction(panel, 0U);
+    ui_set_width(panel, 0.0f, UI_SIZE_UNIT_AUTO);
+
+    // Child: fillWidth — should fill the panel's stretched width
+    ui_set_fill_width(child, true);
+    ui_set_height(child, 40.0f, UI_SIZE_UNIT_PIXEL);
+
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, panel);
+    ui_node_add_child(panel, child);
+
+    ui_commit_frame();
+
+    const auto bounds = ReadBounds(ReadCommandBuffer());
+    REQUIRE(bounds.find(panel) != bounds.end());
+    REQUIRE(bounds.find(child) != bounds.end());
+    CHECK(bounds.at(panel).width > 380.0f);
+    CHECK(bounds.at(child).width > 380.0f);
+}
+
+
 TEST_CASE("v2 ui scroll apply guard defers reentrant notifications", "[v2][ui][unit]") {
     using effindom::v2::ui::GetRuntime;
     using namespace test_ui_support;
