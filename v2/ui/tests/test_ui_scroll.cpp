@@ -387,3 +387,174 @@ TEST_CASE("v2 ui pull-to-refresh reports true for non-scroll starts and top-of-s
     CHECK(ui_touch_scroll_allows_pull_to_refresh());
 }
 
+
+TEST_CASE("v2 ui scroll content size excludes collapsed children and clamps offset", "[v2][ui][scroll]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t child_a = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t child_b = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t child_c = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(child_a != UI_INVALID_HANDLE);
+    REQUIRE(child_b != UI_INVALID_HANDLE);
+    REQUIRE(child_c != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_flex_direction(scroll, 0U);
+
+    // Three children: 100px, 150px, 100px each → total 350px content
+    ui_set_width(child_a, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(child_a, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(child_b, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(child_b, 150.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(child_c, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(child_c, 100.0f, UI_SIZE_UNIT_PIXEL);
+
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, child_a);
+    ui_node_add_child(scroll, child_b);
+    ui_node_add_child(scroll, child_c);
+
+    ui_commit_frame();
+
+    auto* scroll_node = GetRuntime().ResolveMutable(scroll);
+    REQUIRE(scroll_node != nullptr);
+
+    // All three visible → content height includes all children
+    CHECK(scroll_node->scroll_content_height == Approx(350.0f));
+
+    // Scroll to the bottom (viewport=200, content=350, max offset=150)
+    test_ui_support::g_scroll_changes.clear();
+    ui_set_scroll_offset(scroll, 0.0f, 150.0f);
+    ui_commit_frame();
+    CHECK(scroll_node->scroll_offset_y == Approx(150.0f));
+
+    // Collapse middle child → content height shrinks from 350 to 200
+    test_ui_support::g_scroll_changes.clear();
+    ui_set_visibility(child_b, UI_VISIBILITY_COLLAPSED);
+    ui_commit_frame();
+
+    CHECK(scroll_node->scroll_content_height == Approx(200.0f));
+
+    // Scroll offset should be clamped: was 150, now max is 0 (viewport=200, content=200)
+    CHECK(scroll_node->scroll_offset_y == Approx(0.0f));
+
+    // Verify scroll change notification was emitted with updated metrics
+    REQUIRE(test_ui_support::g_scroll_changes.size() >= 1U);
+    const auto& change = test_ui_support::g_scroll_changes.back();
+    CHECK(change.handle == scroll);
+    CHECK(change.content_height == Approx(200.0f));
+    CHECK(change.offset_y == Approx(0.0f));
+
+    // Restore visibility → content height returns to 350
+    test_ui_support::g_scroll_changes.clear();
+    ui_set_visibility(child_b, UI_VISIBILITY_NORMAL);
+    ui_commit_frame();
+
+    CHECK(scroll_node->scroll_content_height == Approx(350.0f));
+    // Offset stays at 0 (not re-scrolled to old max)
+    CHECK(scroll_node->scroll_offset_y == Approx(0.0f));
+
+    // Verify Hidden visibility still contributes to content size
+    test_ui_support::g_scroll_changes.clear();
+    ui_set_visibility(child_b, UI_VISIBILITY_HIDDEN);
+    ui_commit_frame();
+    // Hidden preserves space in layout, so content height stays 350 (unchanged)
+    CHECK(scroll_node->scroll_content_height == Approx(350.0f));
+}
+
+
+TEST_CASE("v2 ui scroll content size updates on child width and height changes", "[v2][ui][scroll]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_flex_direction(scroll, 0U);
+
+    // Single child starts at viewport size — no scrolling needed
+    ui_set_width(content, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(content, 100.0f, UI_SIZE_UNIT_PIXEL);
+
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, content);
+
+    ui_commit_frame();
+
+    auto* scroll_node = GetRuntime().ResolveMutable(scroll);
+    REQUIRE(scroll_node != nullptr);
+    CHECK(scroll_node->scroll_content_height == Approx(100.0f));
+    CHECK(scroll_node->scroll_content_width == Approx(200.0f));
+
+    // Grow child height → content height updates
+    test_ui_support::g_scroll_changes.clear();
+    ui_set_height(content, 300.0f, UI_SIZE_UNIT_PIXEL);
+    ui_commit_frame();
+
+    CHECK(scroll_node->scroll_content_height == Approx(300.0f));
+    REQUIRE(test_ui_support::g_scroll_changes.size() >= 1U);
+    CHECK(test_ui_support::g_scroll_changes.back().content_height == Approx(300.0f));
+
+    // Shrink child height back
+    test_ui_support::g_scroll_changes.clear();
+    ui_set_height(content, 50.0f, UI_SIZE_UNIT_PIXEL);
+    ui_commit_frame();
+
+    CHECK(scroll_node->scroll_content_height == Approx(50.0f));
+    REQUIRE(test_ui_support::g_scroll_changes.size() >= 1U);
+    CHECK(test_ui_support::g_scroll_changes.back().content_height == Approx(50.0f));
+
+    // Grow child width → content width updates (horizontal scroll)
+    test_ui_support::g_scroll_changes.clear();
+    ui_set_width(content, 400.0f, UI_SIZE_UNIT_PIXEL);
+    ui_commit_frame();
+
+    CHECK(scroll_node->scroll_content_width == Approx(400.0f));
+    REQUIRE(test_ui_support::g_scroll_changes.size() >= 1U);
+    CHECK(test_ui_support::g_scroll_changes.back().content_width == Approx(400.0f));
+
+    // Verify scroll offset clamping after content shrink
+    // Scroll to bottom-right, then shrink content
+    ui_set_height(content, 300.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 400.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_offset(scroll, 200.0f, 100.0f);
+    ui_commit_frame();
+
+    CHECK(scroll_node->scroll_offset_x == Approx(200.0f));
+    CHECK(scroll_node->scroll_offset_y == Approx(100.0f));
+
+    // Shrink so content fits viewport — offset clamps to 0
+    test_ui_support::g_scroll_changes.clear();
+    ui_set_height(content, 150.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 150.0f, UI_SIZE_UNIT_PIXEL);
+    ui_commit_frame();
+
+    CHECK(scroll_node->scroll_offset_x == Approx(0.0f));
+    CHECK(scroll_node->scroll_offset_y == Approx(0.0f));
+    REQUIRE(test_ui_support::g_scroll_changes.size() >= 1U);
+    CHECK(test_ui_support::g_scroll_changes.back().content_width == Approx(150.0f));
+    CHECK(test_ui_support::g_scroll_changes.back().content_height == Approx(150.0f));
+}
+

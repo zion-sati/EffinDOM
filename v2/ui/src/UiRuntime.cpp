@@ -703,6 +703,9 @@ void UiRuntime::UpdateScrollMetrics(std::uint64_t handle, UINode& node) {
         if (child == nullptr || child->yg_node == nullptr) {
             continue;
         }
+        if (child->visibility == UI_VISIBILITY_COLLAPSED) {
+            continue;
+        }
         float child_content_width = YGNodeLayoutGetWidth(child->yg_node);
         if (child->is_text_node && !child->text_wrap) {
             const Rect child_text_bounds = ComputeTextContentBounds(*child);
