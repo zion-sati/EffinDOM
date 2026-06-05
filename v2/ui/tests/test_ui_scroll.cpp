@@ -235,6 +235,88 @@ TEST_CASE("v2 ui scroll auto-width columns stretch to fill scroll viewport", "[v
 }
 
 
+TEST_CASE("v2 ui fill-size accounts for sibling padding and border", "[v2][ui][unit][layout]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    // Simulate HomeView pattern:
+    //   Row (fills parent)
+    //     SiblingA: explicit width + padding 24 + border 1 + margin 12
+    //     Spacer
+    //     MainPanel: fillSize (fillWidth in horizontal parent)
+    // MainPanel must fit without overflow.
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t row = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t fixed_sibling = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t spacer = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t fill_child = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(row != UI_INVALID_HANDLE);
+    REQUIRE(fixed_sibling != UI_INVALID_HANDLE);
+    REQUIRE(spacer != UI_INVALID_HANDLE);
+    REQUIRE(fill_child != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(800.0f, 400.0f);
+    ui_set_width(root, 800.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 400.0f, UI_SIZE_UNIT_PIXEL);
+
+    // Row: horizontal flex, fills parent height.
+    ui_set_flex_direction(row, 1U);
+    ui_set_fill_height(row, true);
+
+    // Fixed sibling: 250px width, with 24px padding, 1px border, 12px margin (like Panel).
+    ui_set_width(fixed_sibling, 250.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_padding(fixed_sibling, 24.0f, 24.0f, 24.0f, 24.0f);
+    ui_set_border_width(fixed_sibling, 1.0f);
+    ui_set_margin(fixed_sibling, 12.0f, 12.0f, 12.0f, 12.0f);
+    ui_set_fill_height(fixed_sibling, true);
+
+    // Spacer: 24px wide.
+    ui_set_width(spacer, 24.0f, UI_SIZE_UNIT_PIXEL);
+
+    // Fill child: fillWidth in Row context (MainPanel equivalent).
+    ui_set_fill_width(fill_child, true);
+    ui_set_fill_height(fill_child, true);
+    ui_set_padding(fill_child, 24.0f, 24.0f, 24.0f, 24.0f);
+    ui_set_border_width(fill_child, 1.0f);
+    ui_set_margin(fill_child, 12.0f, 12.0f, 12.0f, 12.0f);
+
+    ui_node_add_child(root, row);
+    ui_node_add_child(row, fixed_sibling);
+    ui_node_add_child(row, spacer);
+    ui_node_add_child(row, fill_child);
+
+    ui_commit_frame();
+
+    const auto bounds = ReadBounds(ReadCommandBuffer());
+    REQUIRE(bounds.find(row) != bounds.end());
+    REQUIRE(bounds.find(fixed_sibling) != bounds.end());
+    REQUIRE(bounds.find(fill_child) != bounds.end());
+
+    // Fixed sibling: 250 content + 48 padding + 2 border + 24 margin = 324px outer.
+    const float fixed_outer = 250.0f + 48.0f + 2.0f + 24.0f;
+    CHECK(bounds.at(fixed_sibling).width == fixed_outer);
+
+    // Row should contain both children without overflow.
+    const float row_width = bounds.at(row).width;
+
+    // Fill child right edge must not exceed Row right edge.
+    const float fill_right = bounds.at(fill_child).x + bounds.at(fill_child).width;
+    const float row_right = bounds.at(row).x + row_width;
+    CHECK(fill_right <= row_right + 0.5f);
+
+    // Fill child should have meaningful width (not collapsed to 0).
+    CHECK(bounds.at(fill_child).width > 100.0f);
+
+    // Total used: fixed outer + spacer + fill child + fill margins
+    const float fill_outer = bounds.at(fill_child).width + 48.0f + 2.0f + 24.0f;
+    const float total_used = fixed_outer + 24.0f + fill_outer;
+    CHECK(total_used <= row_width + 1.0f);
+}
+
 TEST_CASE("v2 ui scroll apply guard defers reentrant notifications", "[v2][ui][unit]") {
     using effindom::v2::ui::GetRuntime;
     using namespace test_ui_support;

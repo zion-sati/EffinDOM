@@ -375,11 +375,19 @@ float UiRuntime::ComputeFillAxisAvailableSpace(
             if (width_axis) {
                 available -=
                     YGNodeLayoutGetWidth(sibling->yg_node) +
+                    YGNodeLayoutGetPadding(sibling->yg_node, YGEdgeLeft) +
+                    YGNodeLayoutGetPadding(sibling->yg_node, YGEdgeRight) +
+                    YGNodeLayoutGetBorder(sibling->yg_node, YGEdgeLeft) +
+                    YGNodeLayoutGetBorder(sibling->yg_node, YGEdgeRight) +
                     YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeLeft) +
                     YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeRight);
             } else {
                 available -=
                     YGNodeLayoutGetHeight(sibling->yg_node) +
+                    YGNodeLayoutGetPadding(sibling->yg_node, YGEdgeTop) +
+                    YGNodeLayoutGetPadding(sibling->yg_node, YGEdgeBottom) +
+                    YGNodeLayoutGetBorder(sibling->yg_node, YGEdgeTop) +
+                    YGNodeLayoutGetBorder(sibling->yg_node, YGEdgeBottom) +
                     YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeTop) +
                     YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeBottom);
             }
