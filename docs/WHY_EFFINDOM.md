@@ -4,6 +4,8 @@ For 30 years, the software industry has been trapped in a lie.
 
 We took a document viewer designed for reading academic papers in 1995, and we duct-taped it into an application platform. The DOM was never meant to be a UI framework. It accidentally became the "Big Ball of Mud" legacy database of the internet—a global, mutable, untyped contract that every framework, extension, and CSS file reaches into and corrupts. JavaScript was a scripting language that accidentally became our Operating System. 
 
+I first got the idea for EffinDom around 2017/2018. I'd sit in brown-bag talks listening to colleagues evangelize MobX, then Redux — each sold as the fix, each missing the point. Years later Zustand appeared and the same cycle repeated, same scaffolding, same cracked foundation. None of them were addressing the actual problem. And every time I'd walk out feeling the same quiet sadness: we're not fixing anything. We're just building more elaborate scaffolding around a foundation that was never meant to hold weight. The DOM wasn't designed for applications. JavaScript wasn't designed to run for 40 years. And yet here we were, debating which state-management library would paper over the cracks best.
+
 The past three decades of frontend tech—React, Virtual DOMs, CSS-in-JS—are not cures. They are just progressively more complex bandages trying to hide the fact that we are building on the wrong foundation. 
 
 Eight years ago, when WebAssembly was first announced, the escape hatch finally opened. The realization hit: we didn't have to fix the DOM. We could bypass it entirely. 
