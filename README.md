@@ -18,11 +18,6 @@ a display server — we just forgot.**
 
 ---
 
-<p align="center">
-  <img src="demo-dark.png" alt="EffinDom FUI-AS demo" width="48%" />
-  <img src="demo-light.png" alt="EffinDom FUI-AS retained layout" width="48%" />
-</p>
-
 ## The architecture
 
 EffinDom treats the browser as a **display server + syscall surface** — not as
