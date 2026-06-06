@@ -215,6 +215,7 @@ to the web, not built for it.
 - **[FUI-AS quickstart](docs/v2/fui-as/QUICKSTART.md)**
 - **[FUI-AS SDK docs index](docs/v2/fui-as/SDK_INDEX.md)**
 - **[Why EffinDom (detailed)](docs/WHY_EFFINDOM.md)**
+- **[Who is zion-sati?](docs/WHO_IS_ZION_SATI.md)**
 
 ---
 
