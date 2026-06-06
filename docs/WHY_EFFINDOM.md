@@ -2,7 +2,7 @@
 
 For 30 years, the software industry has been trapped in a lie. 
 
-I took a document viewer designed for reading academic papers in 1995, and we duct-taped it into an application platform. The DOM was never meant to be a UI framework. It accidentally became the "Big Ball of Mud" legacy database of the internet—a global, mutable, untyped contract that every framework, extension, and CSS file reaches into and corrupts. JavaScript was a scripting language that accidentally became our Operating System. 
+We took a document viewer designed for reading academic papers in 1995, and we duct-taped it into an application platform. The DOM was never meant to be a UI framework. It accidentally became the "Big Ball of Mud" legacy database of the internet—a global, mutable, untyped contract that every framework, extension, and CSS file reaches into and corrupts. JavaScript was a scripting language that accidentally became our Operating System. 
 
 I first got the idea for EffinDom around 2017/2018. I'd sit in brown-bag talks listening to colleagues evangelize MobX, then Redux — each sold as the fix, each missing the point. Years later Zustand appeared and the same cycle repeated, same scaffolding, same cracked foundation. None of them were addressing the actual problem. And every time I'd walk out feeling the same quiet sadness: we're not fixing anything. We're just building more elaborate scaffolding around a foundation that was never meant to hold weight. The DOM wasn't designed for applications. JavaScript wasn't designed to run for 40 years. And yet here we were, debating which state-management library would paper over the cracks best.
 
@@ -28,7 +28,7 @@ Flutter and Compose can't do this. They're monolithic: every app bundles the eng
 
 ### The Canvas Graveyard: Why Existing Frameworks Fail
 
-When you tell people you are building a "Direct Canvas UI," they immediately put you in one of three buckets. All three of those buckets are fundamentally flawed.
+When you tell people you are building a "Direct Canvas UI," they immediately put you in one of three buckets. All of them are fundamentally flawed — and none of them were built for the web first.
 
 #### 1. The Game Engines (Three.js, PixiJS)
 People build UIs in Three.js all the time, but they always feel like cheap video game menus. Why? Because game engines do not understand **Typography** or **Accessibility**.
@@ -37,17 +37,17 @@ People build UIs in Three.js all the time, but they always feel like cheap video
 
 #### 2. The Monoliths (Flutter Web)
 Flutter Web is the closest thing to EffinDom on the market, but it is fundamentally a **mobile framework shoved into a browser tab**. Flutter was built for iOS and Android first; web support was retrofitted years later. The web is a compile target, not the design target.
-*   **The Flaw:** Flutter forces you to write Dart. Worse, it compiles the Skia engine, the Dart runtime, and your app logic into one massive, multi-megabyte monolithic payload. If a user visits two different Flutter apps, they download the engine twice. You cannot lazy-load routes efficiently. It breaks the URL distribution model of the web.
-*   **The EffinDom Fix:** EffinDom uses a **Web DLL Architecture**. The heavy C++ render engine (`effindom-core.wasm`), the UI framework (`effindom-ui.wasm`), the `.ttf` fonts, and the ICU data are cached globally on a CDN. Once downloaded, they are reused forever across *any* application built with EffinDom. Your actual application payload is just your business logic—typically around 100KB. Furthermore, EffinDom is a **C-ABI Display Server**. You don't have to write Dart. You can write your app in AssemblyScript, Rust, or Kotlin (FUI-KT, coming soon). Every language a first-class citizen.
+*   **The Flaw:** Flutter forces you to write Dart. It compiles the Skia engine, the Dart runtime, and your app into one massive, multi-megabyte monolithic payload. Visit two Flutter apps, download the engine twice. You cannot lazy-load routes efficiently. It breaks the URL distribution model of the web.
+*   **The EffinDom Fix:** The Web DLL split (explained above) means the engine is cached once and shared across every app. Plus, EffinDom is a **C-ABI Display Server** — you're not locked into Dart. Write AssemblyScript, Rust, or Kotlin (FUI-KT, coming soon). Every language a first-class citizen.
 
 #### 3. The Desktop Transplants (Egui, Iced)
 The Rust community hates the DOM, so they often turn to native GUI engines like `egui` or `iced` compiled to WASM.
-*   **The Flaw:** These are desktop frameworks that treat the browser as a dumb glass panel. They statically link their own text shaping and GPU rasterizers, resulting in **5MB to 15MB** app payloads. When deployed to the web, they completely break mobile text input (IME) because they try to manually calculate keystrokes instead of using the OS.
-*   **The EffinDom Fix:** EffinDom treats the browser as a **Hardware Abstraction Layer (HAL)**. Instead of fighting mobile keyboards, its JS Bridge projects a perfectly synced Hidden DOM over the canvas. This tricks iOS and Android into providing their native text selection handles, autocorrect, and IME composition natively. For media, it doesn't decode JPEGs in WASM; it uses the browser's native hardware-accelerated image decoding to pipe pixels directly into VRAM. It doesn't fight the browser; it orchestrates it.
+*   **The Flaw:** These are desktop frameworks that treat the browser as a dumb glass panel. They statically link their own text shaping and GPU rasterizers, producing **5MB to 15MB** app payloads. When deployed to the web, they completely break mobile text input (IME) because they try to manually calculate keystrokes instead of using the OS.
+*   **The EffinDom Fix:** EffinDom treats the browser as a **Hardware Abstraction Layer (HAL)**. Instead of fighting mobile keyboards, its JS Bridge projects a perfectly synced Hidden DOM over the canvas, letting iOS and Android provide native text selection handles, autocorrect, and IME composition. For media, it doesn't decode JPEGs in WASM; it uses the browser's native hardware-accelerated image decoding to pipe pixels directly into VRAM. It doesn't fight the browser; it orchestrates it.
 
 #### 4. Compose Multiplatform / Skiko
 JetBrains built Compose Multiplatform on top of Skiko — their Skia bindings for Kotlin. Skiko was created for Compose Desktop (JVM) first; WASM support came later as a port. It's the most credible Kotlin-to-GPU story out there, but like the others it started somewhere else and arrived on the web as an afterthought.
-*   **The Flaw:** Desktop-first architecture ported to the browser. Compose ties you to the Gradle/JVM ecosystem and a Compose-specific component model. Targeting WASM means shipping the Kotlin/Wasm runtime plus Skiko's Skia bindings, inflating payload sizes and coupling your app to JetBrains' rendering pipeline. The web is not a first-class target — it's a compile target.
+*   **The Flaw:** Desktop-first architecture ported to the browser. Compose ties you to the Gradle/JVM ecosystem and a Compose-specific component model. Targeting WASM means shipping the Kotlin/Wasm runtime plus Skiko's Skia bindings, inflating payload sizes and coupling your app to JetBrains' rendering pipeline.
 *   **The EffinDom Fix:** EffinDom was born on the web. FUI-KT will render Kotlin directly through EffinDom's Tier 1/2 C-ABI — the same pipeline FUI-AS and FUI-RS use, purpose-built for the browser from day one. No Gradle, no Compose component model, no Skiko dependency. Write Kotlin, target the same GPU backend, ship a lean WASM payload. The runtime is already cached. Your app is just your app.
 
 ---

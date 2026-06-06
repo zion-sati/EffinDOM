@@ -8,10 +8,13 @@ us fumble with it for three decades like a bad prophylactic that won't tear.
 
 The DOM was a document viewer. We stretched it over application architecture
 like a latex glove three sizes too small. Every framework since has been a
-different brand of "ultra-thin" — same discomfort, better marketing.
+different brand of "ultra-thin" — same discomfort, better marketing. React
+gave us a virtual one. Svelte promised a thinner one. None of them addressed the
+fundamental problem: you're still wearing one.
 
 **EffinDom is what happens when you stop pretending the DOM is fine and build
-a real runtime instead.**
+a real runtime instead. Go raw. Feel the performance. The browser was always
+a display server — we just forgot.**
 
 ---
 
