@@ -224,5 +224,5 @@ to the web, not built for it.
 | `@effindomv2/create-fui-as-app` | MIT |
 
 The runtime is MIT — use it freely. The SDKs are AGPL because I'm a solo
-maintainer with a young family. If you're building something commercial,
+maintainer with a young family, building this at night. I'm asking for funding to hire a contributor and keep this sustainable. If you're building something commercial,
 there's a license for that. It's how this stays alive.

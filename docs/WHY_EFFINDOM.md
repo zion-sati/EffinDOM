@@ -63,6 +63,12 @@ To achieve 60fps performance, global CDN caching, and multi-language freedom, Ef
 3. **Tier 3: The Userland (Fui SDKs)**
    A strictly-typed, zero-allocation SDK that lets developers build apps in AssemblyScript (`fui-as`), Rust (`fui-rs`), or Kotlin (`fui-kt` — coming soon, rendering directly through Tier 1/2, no Skiko dependency). Developers use beautiful, declarative code powered by fine-grained Signals. No HTML. No CSS. No Virtual DOM diffing.
 
+### Known limitations
+
+EffinDom is early. The first release targets **desktop web apps** —  the architecture is built for the browser, and that's where the polish is going first.
+
+Touch and mobile are not a focus yet. Touch events are handled at the input routing level, but there's no pinch-to-zoom, no mobile-optimized gesture recognition, and the demo layouts aren't designed for small screens. Mobile is on the roadmap, but it's a long way from production-ready. If you're building a desktop web application, you're in the right place.
+
 ### The Endgame
 
 I am not building another JavaScript framework to add to the pile. I am building the infrastructure for the next 20 years of the web. Web-native, not web-ported.

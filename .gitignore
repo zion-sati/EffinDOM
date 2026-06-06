@@ -39,6 +39,7 @@ Testing/
 
 # public/ is a generated staging directory for local serving and test runs.
 public/
+published/
 
 # ─────────────────────────────────────────────
 # Node.js / npm
