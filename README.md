@@ -141,7 +141,7 @@ same cached runtime — no duplicate engine downloads, no framework tax.
 
 ### 🛠️ Multi-Language Evolution & Developer Tooling
 
-- **Universal AST Schema** — The runtime doesn't care what language you used.
+- **C-ABI Command Buffer** — The runtime doesn't care what language you used.
 - **FUI-AS (AssemblyScript)** — Flagship web SDK with TypeScript-style
   architecture. **[→ fui-as repo](https://github.com/zion-sati/fui-as)**
 - **FUI-RS (Rust)** — Zero-cost traits, static dispatch, zero heap allocation
