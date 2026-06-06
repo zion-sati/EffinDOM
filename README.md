@@ -146,7 +146,10 @@ same cached runtime — no duplicate engine downloads, no framework tax.
   architecture. **[→ fui-as repo](https://github.com/zion-sati/fui-as)**
 - **FUI-RS (Rust)** — Zero-cost traits, static dispatch, zero heap allocation
   overhead.
-- **FUI-KT (Kotlin) on roadmap** — Direct architectural translation.
+- **FUI-KT (Kotlin) is coming** — JetBrains' Compose Multiplatform
+  wraps Skiko (their Skia bindings for Kotlin), but FUI-KT will render
+  directly through EffinDom's own Tier 1/2 pipeline. Same Skia GPU
+  backend, none of the JVM baggage. Write Kotlin, ship WASM.
 - **`npx` Scaffolding** — `npm create @effindomv2/fui-as-app` with `simple`
   and `mvc` blueprints.
   **[→ create-fui-as-app repo](https://github.com/zion-sati/create-fui-as-app)**
@@ -167,7 +170,7 @@ the browser bridge — assistive tech works out of the box.
 A mobile framework compiled for the web. Monolithic payload (engine + Dart
 runtime + app). Two Flutter apps = two engine downloads. EffinDom's Web DLL
 architecture shares one cached runtime across every app. Plus you're not locked
-into Dart — write AssemblyScript, Rust, or (soon) Kotlin.
+into Dart — write AssemblyScript, Rust, or Kotlin (FUI-KT, coming soon).
 
 ### egui / Iced
 
@@ -179,7 +182,15 @@ composition.
 
 > *Three.js is a game engine. Flutter is a mobile framework compiled for the
 > web. egui is a desktop GUI ported to WASM. EffinDom is a POSIX-style display
-> server for WebAssembly UI.*
+> server for WebAssembly UI — web-native, not web-ported.*
+
+**Web-native** means the architecture was designed for the browser's actual
+physics. The Tier 1 and Tier 2 runtimes are immutable, content-hashed WASM
+modules served from a CDN. Once cached locally, they're shared across every
+EffinDom app — no duplicate engine downloads, no monolithic blobs. The ICU
+data, the fonts, the HarfBuzz shaper, all cached forever. Your app is just your business logic
+(the hello-world scaffold is ~128 KB; real apps land in the low hundreds). Flutter, Compose, and egui can't do this — they were ported
+to the web, not built for it.
 
 ---
 
