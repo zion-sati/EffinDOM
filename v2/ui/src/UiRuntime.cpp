@@ -157,6 +157,9 @@ std::string BuildSemanticLabel(const UINode& node) {
         return node.semantic_label;
     }
     if (node.is_text_node && !node.text_content.empty()) {
+        if (node.is_obscured) {
+            return "\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2";
+        }
         if (node.semantic_role == UI_SEMANTIC_TEXTBOX) {
             const std::size_t prefix_length =
                 Utf8PrefixLengthForCodepoints(node.text_content, kDefaultTextboxSemanticLabelMaxCodepoints);
