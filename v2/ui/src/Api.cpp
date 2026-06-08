@@ -746,4 +746,15 @@ bool ui_get_bounds(
     return true;
 }
 
+// Unmanaged buffer API for non-linear-memory callers (Kotlin/Wasm GC, etc.).
+// Allocates from the frame arena; freed automatically on next ResetFrameArena().
+std::uintptr_t ui_alloc_unmanaged_buffer(std::uint32_t byte_length) {
+    return effindom::v2::ui::GetRuntime().ArenaAlloc(byte_length);
+}
+
+void ui_free_unmanaged_buffer(std::uintptr_t ptr) {
+    (void)ptr;
+    // Frame arena resets automatically; explicit free is a no-op for now.
+}
+
 } // extern "C"

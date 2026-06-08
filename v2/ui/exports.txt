@@ -2,6 +2,8 @@ _malloc
 _free
 _ui_reset
 _ui_arena_alloc
+_ui_alloc_unmanaged_buffer
+_ui_free_unmanaged_buffer
 _ui_create_node
 _ui_delete_node
 _ui_set_node_id

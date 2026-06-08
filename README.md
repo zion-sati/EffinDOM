@@ -32,7 +32,7 @@ than anything the web has seen before:
    layout, HarfBuzz + ICU text shaping, input routing, semantics projection,
    focus management. Runs isolated from the GPU.
 
-3. **Tier 3 — SDK (FUI-AS, FUI-RS):** Typed, zero-allocation app-facing APIs.
+3. **Tier 3 — SDK (FUI-AS, FUI-RS, FUI-KT):** Typed, zero-allocation app-facing APIs.
    Declarative fluent syntax. Fine-grained reactivity. No HTML. No CSS. No
    virtual DOM diffing.
 
@@ -142,12 +142,10 @@ same cached runtime — no duplicate engine downloads, no framework tax.
 - **C-ABI Command Buffer** — The runtime doesn't care what language you used.
 - **FUI-AS (AssemblyScript)** — Flagship web SDK with TypeScript-style
   architecture. **[→ fui-as repo](https://github.com/zion-sati/fui-as)**
-- **FUI-RS (Rust)** — Zero-cost traits, static dispatch, zero heap allocation
-  overhead.
-- **FUI-KT (Kotlin) is coming** — JetBrains' Compose Multiplatform
-  wraps Skiko (their Skia bindings for Kotlin), but FUI-KT will render
-  directly through EffinDom's own Tier 1/2 pipeline. Same Skia GPU
-  backend, none of the JVM baggage. Write Kotlin, ship WASM.
+- **FUI-RS (Rust)** — On the roadmap. Basic smoke test renders.
+  [→ fui-rs repo](https://github.com/zion-sati/fui-rs)
+- **FUI-KT (Kotlin/Wasm)** — On the roadmap. Basic smoke test renders.
+  **[→ fui-kt repo](https://github.com/zion-sati/fui-kt)**
 - **`npx` Scaffolding** — `npm create @effindomv2/fui-as-app` with `simple`
   and `mvc` blueprints.
   **[→ create-fui-as-app repo](https://github.com/zion-sati/create-fui-as-app)**
@@ -168,7 +166,7 @@ the browser bridge — assistive tech works out of the box.
 A mobile framework compiled for the web. Monolithic payload (engine + Dart
 runtime + app). Two Flutter apps = two engine downloads. EffinDom's Web DLL
 architecture shares one cached runtime across every app. Plus you're not locked
-into Dart — write AssemblyScript, Rust, or Kotlin (FUI-KT, coming soon).
+into Dart — write AssemblyScript, Rust, or Kotlin.
 
 ### egui / Iced
 
@@ -198,6 +196,8 @@ to the web, not built for it.
 |---|---|
 | **[EffinDOM](https://github.com/zion-sati/EffinDOM)** | Monorepo — runtime, browser bridge, core engine, docs |
 | **[fui-as](https://github.com/zion-sati/fui-as)** | AssemblyScript SDK + controls + app surface |
+| **[fui-rs](https://github.com/zion-sati/fui-rs)** | Rust SDK — on the roadmap, smoke test renders |
+| **[fui-kt](https://github.com/zion-sati/fui-kt)** | Kotlin/Wasm SDK — on the roadmap, smoke test renders |
 | **[create-fui-as-app](https://github.com/zion-sati/create-fui-as-app)** | `npx` scaffolder CLI |
 
 ---
@@ -207,6 +207,8 @@ to the web, not built for it.
 - **[Top-level quickstart](docs/QUICKSTART.md)** — prerequisites, full build
 - **[Browser bridge quickstart](docs/v2/browser-bridge/QUICKSTART.md)**
 - **[Core quickstart](docs/v2/core/QUICKSTART.md)**
+- **[FUI-RS quickstart](docs/v2/fui-rs/QUICKSTART.md)**
+- **[FUI-KT quickstart](docs/v2/fui-kt/QUICKSTART.md)**
 - **[FUI-AS quickstart](docs/v2/fui-as/QUICKSTART.md)**
 - **[FUI-AS SDK docs index](docs/v2/fui-as/SDK_INDEX.md)**
 - **[Why EffinDom (detailed)](docs/WHY_EFFINDOM.md)**
@@ -221,6 +223,7 @@ to the web, not built for it.
 | `@effindomv2/runtime` | MIT |
 | `@effindomv2/fui-as` | AGPL-3.0-only or commercial |
 | `@effindomv2/fui-rs` | AGPL-3.0-only or commercial |
+| `@effindomv2/fui-kt` | AGPL-3.0-only or commercial |
 | `@effindomv2/create-fui-as-app` | MIT |
 
 The runtime is MIT — use it freely. The SDKs are AGPL because I'm a solo

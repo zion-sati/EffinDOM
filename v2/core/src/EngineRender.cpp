@@ -563,6 +563,8 @@ sk_sp<SkTextBlob> BuildGlyphBlob(
 
         const auto font_it = fonts.find(run_font_id);
         SkFont font(font_it != fonts.end() ? font_it->second : sk_sp<SkTypeface>(), node.font_size);
+        font.setSubpixel(true);
+        font.setHinting(SkFontHinting::kSlight);
         auto& run = builder.allocRunPos(font, static_cast<int>(run_end - run_start));
         for (std::size_t index = run_start; index < run_end; index += 1U) {
             const std::size_t run_index = index - run_start;
