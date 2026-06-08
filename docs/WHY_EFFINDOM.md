@@ -22,7 +22,7 @@ EffinDom is the only one that was born on the web, and that changes everything.
 
 **Web-native means the architecture exploits the browser's actual physics instead of fighting them.** The Tier 1 and Tier 2 runtimes are immutable WebAssembly modules, content-hashed and served from a CDN. Once a browser downloads `effindom-core.wasm` and `effindom-ui.wasm`, they're cached locally forever — the same engine DLLs power every EffinDom app the user visits. The ICU data, the fonts, the HarfBuzz shaper — all cached, all shared.
 
-Flutter and Compose can't do this. They're monolithic: every app bundles the engine. Visit two Flutter apps, download Skia twice. EffinDom's Web DLL split means the multi-megabyte engine lives on the CDN and in the browser cache, while your app payload is just your business logic (the hello-world scaffold is ~228 KB; real apps land in the low hundreds). That's web-native architecture — designed for the URL distribution model, the CDN, and the browser cache from the start.
+Flutter and Compose can't do this. They're monolithic: every app bundles the engine. Visit two Flutter apps, download Skia twice. EffinDom's Web DLL split means the multi-megabyte engine lives on the CDN and in the browser cache, while your app payload is just your business logic (the hello-world scaffold is under 100 KB over the wire; real apps land in the low hundreds). That's web-native architecture — designed for the URL distribution model, the CDN, and the browser cache from the start.
 
 ---
 
