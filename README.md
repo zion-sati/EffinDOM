@@ -37,7 +37,7 @@ than anything the web has seen before:
    virtual DOM diffing.
 
 Once the Tier 1 + Tier 2 engine DLLs are cached in your browser (CDN, forever),
-your actual app payload is tiny — the hello-world scaffold is **~128 KB**, and
+your actual app payload is tiny — the hello-world scaffold is **~228 KB**, and
 real apps typically land in the low hundreds. Every app built on EffinDom shares the
 same cached runtime — no duplicate engine downloads, no framework tax.
 
@@ -50,7 +50,7 @@ same cached runtime — no duplicate engine downloads, no framework tax.
 - **Web DLL Split Architecture** — Core runtimes are separate, immutable
   WebAssembly modules, cached globally and shared across all apps.
 - **Tiny App Footprint** — The runtime engine is cached once globally. Your
-  app payload is just your business logic (hello-world scaffold: ~128 KB).
+  app payload is just your business logic (hello-world scaffold: ~228 KB).
   Sub-second
   Time-To-Interactive.
 - **Zero-Cost Edge Delivery** — Entire compilation and rendering loop runs
@@ -185,7 +185,7 @@ physics. The Tier 1 and Tier 2 runtimes are immutable, content-hashed WASM
 modules served from a CDN. Once cached locally, they're shared across every
 EffinDom app — no duplicate engine downloads, no monolithic blobs. The ICU
 data, the fonts, the HarfBuzz shaper, all cached forever. Your app is just your business logic
-(the hello-world scaffold is ~128 KB; real apps land in the low hundreds). Flutter, Compose, and egui can't do this — they were ported
+(the hello-world scaffold is ~228 KB; real apps land in the low hundreds). Flutter, Compose, and egui can't do this — they were ported
 to the web, not built for it.
 
 ---
