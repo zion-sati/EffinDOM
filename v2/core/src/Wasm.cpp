@@ -1,4 +1,5 @@
 #include "Engine.h"
+#include "EngineInternal.h"
 
 #include <emscripten.h>
 #include <emscripten/html5.h>
@@ -440,10 +441,173 @@ void ed_notify_webgl_context_lost(void) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void effindom_v2_custom_draw(std::uint32_t handle_lo, std::uint32_t handle_hi, std::uint32_t canvas_ptr) {
+    EM_ASM({
+        if (typeof window !== 'undefined' && typeof window['__effindomV2CustomDraw'] === 'function') {
+            window['__effindomV2CustomDraw']($0, $1, $2 >>> 0);
+        }
+    }, handle_lo, handle_hi, canvas_ptr);
+}
+
+EMSCRIPTEN_KEEPALIVE
 void ed_debug_simulate_device_lost(void) {
     if (g_state.active_backend != ED_BACKEND_NONE) {
         MarkDeviceLost(g_state.active_backend);
     }
+}
+
+/* ── Canvas drawing API ─────────────────────────────────────── */
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_save(void* canvas) {
+    effindom::v2::EdCanvasSave(static_cast<SkCanvas*>(canvas));
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_restore(void* canvas) {
+    effindom::v2::EdCanvasRestore(static_cast<SkCanvas*>(canvas));
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_translate(void* canvas, float x, float y) {
+    effindom::v2::EdCanvasTranslate(static_cast<SkCanvas*>(canvas), x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_scale(void* canvas, float sx, float sy) {
+    effindom::v2::EdCanvasScale(static_cast<SkCanvas*>(canvas), sx, sy);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_rotate(void* canvas, float degrees) {
+    effindom::v2::EdCanvasRotate(static_cast<SkCanvas*>(canvas), degrees);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_clip_rect(void* canvas, float x, float y, float w, float h) {
+    effindom::v2::EdCanvasClipRect(static_cast<SkCanvas*>(canvas), x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_draw_rect(void* canvas, float x, float y, float w, float h,
+                         uint32_t fill_color, uint32_t stroke_color, float stroke_width) {
+    effindom::v2::EdCanvasDrawRect(
+        static_cast<SkCanvas*>(canvas), x, y, w, h, fill_color, stroke_color, stroke_width);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_draw_circle(void* canvas, float cx, float cy, float radius,
+                           uint32_t fill_color, uint32_t stroke_color, float stroke_width) {
+    effindom::v2::EdCanvasDrawCircle(
+        static_cast<SkCanvas*>(canvas), cx, cy, radius, fill_color, stroke_color, stroke_width);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_draw_line(void* canvas, float x1, float y1, float x2, float y2,
+                         uint32_t color, float stroke_width) {
+    effindom::v2::EdCanvasDrawLine(
+        static_cast<SkCanvas*>(canvas), x1, y1, x2, y2, color, stroke_width);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_draw_round_rect(void* canvas, float x, float y, float w, float h,
+                               float rx, float ry,
+                               uint32_t fill_color, uint32_t stroke_color, float stroke_width) {
+    effindom::v2::EdCanvasDrawRoundRect(
+        static_cast<SkCanvas*>(canvas), x, y, w, h, rx, ry, fill_color, stroke_color, stroke_width);
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint32_t ed_path_create(void) {
+    return g_state.engine.CreatePath();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_path_destroy(uint32_t path_id) {
+    g_state.engine.DestroyPath(path_id);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_path_move_to(uint32_t path_id, float x, float y) {
+    g_state.engine.PathMoveTo(path_id, x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_path_line_to(uint32_t path_id, float x, float y) {
+    g_state.engine.PathLineTo(path_id, x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_path_quad_to(uint32_t path_id, float cx, float cy, float x, float y) {
+    g_state.engine.PathQuadTo(path_id, cx, cy, x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_path_cubic_to(uint32_t path_id, float cx1, float cy1, float cx2, float cy2, float x, float y) {
+    g_state.engine.PathCubicTo(path_id, cx1, cy1, cx2, cy2, x, y);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_path_close(uint32_t path_id) {
+    g_state.engine.PathClose(path_id);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_path_add_rect(uint32_t path_id, float x, float y, float w, float h) {
+    g_state.engine.PathAddRect(path_id, x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_path_add_circle(uint32_t path_id, float cx, float cy, float r) {
+    g_state.engine.PathAddCircle(path_id, cx, cy, r);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_draw_path(void* canvas, uint32_t path_id,
+                         uint32_t fill_color, uint32_t stroke_color, float stroke_width) {
+    g_state.engine.CanvasDrawPath(
+        static_cast<SkCanvas*>(canvas), path_id, fill_color, stroke_color, stroke_width);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_draw_text(void* canvas, const uint8_t* utf8, uint32_t len,
+                         float x, float y, uint32_t font_id, float font_size, uint32_t color) {
+    g_state.engine.CanvasDrawText(
+        static_cast<SkCanvas*>(canvas), utf8, len, x, y, font_id, font_size, color);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_draw_image(void* canvas, uint32_t texture_id,
+                          float x, float y, float w, float h) {
+    g_state.engine.CanvasDrawImage(
+        static_cast<SkCanvas*>(canvas), texture_id, x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_draw_svg(void* canvas, uint32_t svg_id,
+                        float x, float y, float w, float h) {
+    g_state.engine.CanvasDrawSvg(
+        static_cast<SkCanvas*>(canvas), svg_id, x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint32_t ed_canvas_create_offscreen(uint32_t width, uint32_t height) {
+    return g_state.engine.CreateOffscreenSurface(width, height);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void* ed_canvas_get_offscreen_canvas(uint32_t offscreen_id) {
+    return g_state.engine.GetOffscreenCanvas(offscreen_id);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_read_offscreen_pixels(uint32_t offscreen_id, uint8_t* out_rgba) {
+    g_state.engine.ReadOffscreenPixels(offscreen_id, out_rgba);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_destroy_offscreen(uint32_t offscreen_id) {
+    g_state.engine.DestroyOffscreenSurface(offscreen_id);
 }
 
 } // extern "C"

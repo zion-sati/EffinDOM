@@ -605,6 +605,19 @@ bool UiRuntime::SetIsSharedSizeScope(std::uint64_t handle, bool is_scope) {
     return true;
 }
 
+bool UiRuntime::SetCustomDrawable(std::uint64_t handle, bool is_custom_drawable) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr) {
+        return false;
+    }
+    if (node->is_custom_drawable == is_custom_drawable) {
+        return true;
+    }
+    node->is_custom_drawable = is_custom_drawable;
+    node->is_dirty = true;
+    return true;
+}
+
 bool UiRuntime::SetGridColumns(
     std::uint64_t handle,
     std::uint32_t count,
@@ -1137,6 +1150,21 @@ bool UiRuntime::SetFlexDirection(std::uint64_t handle, std::uint32_t dir_enum) {
         break;
     default:
         return false;
+    }
+    layout_dirty_ = true;
+    return true;
+}
+
+bool UiRuntime::SetFlexWrap(std::uint64_t handle, std::uint32_t wrap_enum) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || node->yg_node == nullptr) {
+        return false;
+    }
+    switch (wrap_enum) {
+    case 0U: YGNodeStyleSetFlexWrap(node->yg_node, YGWrapNoWrap); break;
+    case 1U: YGNodeStyleSetFlexWrap(node->yg_node, YGWrapWrap); break;
+    case 2U: YGNodeStyleSetFlexWrap(node->yg_node, YGWrapWrapReverse); break;
+    default: return false;
     }
     layout_dirty_ = true;
     return true;

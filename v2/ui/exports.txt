@@ -50,6 +50,8 @@ _ui_set_margin
 _ui_set_position_type
 _ui_set_position
 _ui_set_is_shared_size_scope
+_ui_set_custom_drawable
+_ui_set_flex_wrap
 _ui_set_clip_to_bounds
 _ui_grid_set_columns
 _ui_grid_set_rows

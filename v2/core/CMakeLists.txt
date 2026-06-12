@@ -1,5 +1,6 @@
 set(EFFINDOM_V2_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Engine.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/EngineCanvas.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/EngineCommand.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/EngineRender.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/EngineShared.cpp"
@@ -84,6 +85,7 @@ else()
 
     add_executable(effindom_v2_core_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_engine.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_canvas.cpp"
     )
     target_include_directories(effindom_v2_core_tests PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}/include"

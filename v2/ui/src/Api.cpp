@@ -91,6 +91,14 @@ void ui_set_is_shared_size_scope(ui_handle_t handle, bool is_scope) {
     (void)effindom::v2::ui::GetRuntime().SetIsSharedSizeScope(handle, is_scope);
 }
 
+void ui_set_custom_drawable(ui_handle_t handle, bool is_custom_drawable) {
+    (void)effindom::v2::ui::GetRuntime().SetCustomDrawable(handle, is_custom_drawable);
+}
+
+void ui_set_flex_wrap(ui_handle_t handle, uint32_t wrap_enum) {
+    (void)effindom::v2::ui::GetRuntime().SetFlexWrap(handle, wrap_enum);
+}
+
 void ui_grid_set_columns(ui_handle_t handle, uint32_t count, const float* values, const uint8_t* types) {
     (void)effindom::v2::ui::GetRuntime().SetGridColumns(handle, count, values, types);
 }

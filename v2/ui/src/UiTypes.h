@@ -149,6 +149,7 @@ struct UINode {
     bool is_grid = false;
     bool is_selection_area = false;
     bool is_selection_area_barrier = false;
+    bool is_custom_drawable = false;
     bool clip_to_bounds = false;
     UiVisibility visibility = UI_VISIBILITY_NORMAL;
  

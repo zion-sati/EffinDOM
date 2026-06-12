@@ -904,6 +904,12 @@ void Engine::RenderToCanvas(SkCanvas* canvas, double current_time_ms) const {
             canvas->translate(instruction.arg0, instruction.arg1);
             save_depth += 1;
             break;
+        case OP_DRAW_CUSTOM:
+            effindom_v2_custom_draw(
+                static_cast<std::uint32_t>(instruction.handle & 0xFFFFFFFFULL),
+                static_cast<std::uint32_t>(instruction.handle >> 32U),
+                reinterpret_cast<std::uintptr_t>(canvas));
+            break;
         case OP_POP:
             if (save_depth > 1) {
                 canvas->restore();

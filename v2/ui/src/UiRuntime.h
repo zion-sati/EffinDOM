@@ -100,6 +100,8 @@ public:
     bool SetSelectionArea(std::uint64_t handle, bool is_selection_area);
     bool SetSelectionAreaBarrier(std::uint64_t handle, bool is_barrier);
     bool SetIsSharedSizeScope(std::uint64_t handle, bool is_scope);
+    bool SetCustomDrawable(std::uint64_t handle, bool is_custom_drawable);
+    bool SetFlexWrap(std::uint64_t handle, std::uint32_t wrap_enum);
     bool SetGridColumns(std::uint64_t handle, std::uint32_t count, const float* values, const std::uint8_t* types);
     bool SetGridRows(std::uint64_t handle, std::uint32_t count, const float* values, const std::uint8_t* types);
     bool SetGridColumnSharedSizeGroup(

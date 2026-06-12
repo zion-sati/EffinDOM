@@ -88,6 +88,44 @@ export interface CoreModule {
   _ed_get_device_state(): number;
   _ed_notify_webgl_context_lost?(): void;
   _ed_debug_simulate_device_lost?(): void;
+
+  /* Canvas drawing API */
+  _ed_canvas_save(canvasPtr: number): void;
+  _ed_canvas_restore(canvasPtr: number): void;
+  _ed_canvas_translate(canvasPtr: number, x: number, y: number): void;
+  _ed_canvas_scale(canvasPtr: number, sx: number, sy: number): void;
+  _ed_canvas_rotate(canvasPtr: number, degrees: number): void;
+  _ed_canvas_clip_rect(canvasPtr: number, x: number, y: number, w: number, h: number): void;
+  _ed_canvas_draw_rect(canvasPtr: number, x: number, y: number, w: number, h: number,
+    fillColor: number, strokeColor: number, strokeWidth: number): void;
+  _ed_canvas_draw_circle(canvasPtr: number, cx: number, cy: number, radius: number,
+    fillColor: number, strokeColor: number, strokeWidth: number): void;
+  _ed_canvas_draw_line(canvasPtr: number, x1: number, y1: number, x2: number, y2: number,
+    color: number, strokeWidth: number): void;
+  _ed_canvas_draw_round_rect(canvasPtr: number, x: number, y: number, w: number, h: number,
+    rx: number, ry: number, fillColor: number, strokeColor: number, strokeWidth: number): void;
+  _ed_path_create(): number;
+  _ed_path_destroy(pathId: number): void;
+  _ed_path_move_to(pathId: number, x: number, y: number): void;
+  _ed_path_line_to(pathId: number, x: number, y: number): void;
+  _ed_path_quad_to(pathId: number, cx: number, cy: number, x: number, y: number): void;
+  _ed_path_cubic_to(pathId: number, cx1: number, cy1: number, cx2: number, cy2: number,
+    x: number, y: number): void;
+  _ed_path_close(pathId: number): void;
+  _ed_path_add_rect(pathId: number, x: number, y: number, w: number, h: number): void;
+  _ed_path_add_circle(pathId: number, cx: number, cy: number, r: number): void;
+  _ed_canvas_draw_path(canvasPtr: number, pathId: number,
+    fillColor: number, strokeColor: number, strokeWidth: number): void;
+  _ed_canvas_draw_text(canvasPtr: number, utf8Ptr: number, utf8Len: number,
+    x: number, y: number, fontId: number, fontSize: number, color: number): void;
+  _ed_canvas_draw_image(canvasPtr: number, textureId: number,
+    x: number, y: number, w: number, h: number): void;
+  _ed_canvas_draw_svg(canvasPtr: number, svgId: number,
+    x: number, y: number, w: number, h: number): void;
+  _ed_canvas_create_offscreen(width: number, height: number): number;
+  _ed_canvas_get_offscreen_canvas(offscreenId: number): number;
+  _ed_canvas_read_offscreen_pixels(offscreenId: number, outRgbaPtr: number): void;
+  _ed_canvas_destroy_offscreen(offscreenId: number): void;
 }
 
 export const EdBackendType = {
@@ -163,6 +201,8 @@ export interface UiModule {
   _ui_node_remove_child(parent: WasmHandleLike, child: WasmHandleLike): void;
   _ui_set_is_portal(handle: WasmHandleLike, portal: number): void;
   _ui_set_is_shared_size_scope(handle: WasmHandleLike, isScope: number): void;
+  _ui_set_custom_drawable(handle: WasmHandleLike, flag: number): void;
+  _ui_set_flex_wrap(handle: WasmHandleLike, wrap: number): void;
   _ui_grid_set_columns(handle: WasmHandleLike, count: number, valuesPtr: WasmHandleLike, typesPtr: WasmHandleLike): void;
   _ui_grid_set_rows(handle: WasmHandleLike, count: number, valuesPtr: WasmHandleLike, typesPtr: WasmHandleLike): void;
   _ui_grid_set_column_shared_size_group(handle: WasmHandleLike, index: number, strPtr: WasmHandleLike, len: number): void;

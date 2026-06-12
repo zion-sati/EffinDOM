@@ -9,14 +9,32 @@
 #include <vector>
 
 #include <include/core/SkImage.h>
-#include <include/core/SkPicture.h>
 #include <include/core/SkPath.h>
+#include <include/core/SkPicture.h>
 #include <include/core/SkRRect.h>
+#include <include/core/SkSurface.h>
 #include <include/core/SkTextBlob.h>
 #include <include/core/SkTypeface.h>
 #include <modules/svg/include/SkSVGDOM.h>
 
 class SkCanvas;
+class SkFont;
+
+/* EM_JS callback — defined in Wasm.cpp for wasm builds, stubbed for native.
+   Must use C linkage to match the EM_JS-generated symbol. */
+#ifdef __cplusplus
+extern "C" {
+#endif
+
+void effindom_v2_custom_draw(std::uint32_t handle_lo, std::uint32_t handle_hi, std::uint32_t canvas_ptr);
+
+#ifdef __cplusplus
+}
+#endif
+
+#ifndef __EMSCRIPTEN__
+inline void effindom_v2_custom_draw(std::uint32_t, std::uint32_t, std::uint32_t) {}
+#endif
 
 namespace effindom::v2::detail {
 
@@ -169,6 +187,16 @@ struct Engine::Impl {
     std::unordered_map<std::uint32_t, sk_sp<SkTypeface>> fonts{};
     std::unordered_map<std::uint32_t, detail::SvgRecord> svgs{};
     std::unordered_map<std::uint32_t, detail::TextureRecord> textures{};
+    std::unordered_map<std::uint32_t, SkPath> paths{};
+
+    struct OffscreenSurface {
+        sk_sp<SkSurface> surface;
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+    };
+    std::unordered_map<std::uint32_t, OffscreenSurface> offscreen_surfaces{};
+    std::uint32_t next_path_id = 1;
+    std::uint32_t next_offscreen_id = 1;
 
     detail::DisplayNode* ResolveMutable(std::uint64_t handle);
     const detail::DisplayNode* Resolve(std::uint64_t handle) const;
@@ -180,5 +208,27 @@ struct Engine::Impl {
     void EvictGlyphBlobCaches();
     void DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, double current_time_ms);
 };
+
+} // namespace effindom::v2
+
+/* Standalone canvas drawing functions (no engine state needed). */
+namespace effindom::v2 {
+
+void EdCanvasSave(SkCanvas* canvas);
+void EdCanvasRestore(SkCanvas* canvas);
+void EdCanvasTranslate(SkCanvas* canvas, float x, float y);
+void EdCanvasScale(SkCanvas* canvas, float sx, float sy);
+void EdCanvasRotate(SkCanvas* canvas, float degrees);
+void EdCanvasClipRect(SkCanvas* canvas, float x, float y, float w, float h);
+
+void EdCanvasDrawRect(SkCanvas* canvas, float x, float y, float w, float h,
+                      std::uint32_t fill_color, std::uint32_t stroke_color, float stroke_width);
+void EdCanvasDrawCircle(SkCanvas* canvas, float cx, float cy, float radius,
+                        std::uint32_t fill_color, std::uint32_t stroke_color, float stroke_width);
+void EdCanvasDrawLine(SkCanvas* canvas, float x1, float y1, float x2, float y2,
+                      std::uint32_t color, float stroke_width);
+void EdCanvasDrawRoundRect(SkCanvas* canvas, float x, float y, float w, float h,
+                           float rx, float ry,
+                           std::uint32_t fill_color, std::uint32_t stroke_color, float stroke_width);
 
 } // namespace effindom::v2

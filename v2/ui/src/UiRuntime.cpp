@@ -2076,7 +2076,19 @@ void UiRuntime::WalkTree(
     }
 
     paint_order.push_back(handle);
-    scene.push_back(SceneInstruction{OP_DRAW_NODE, handle});
+    if (node->is_custom_drawable) {
+        if (node->has_layer_effect) {
+            scene.push_back(SceneInstruction{OP_PUSH_LAYER, handle});
+        }
+        scene.push_back(SceneInstruction{OP_PUSH_TRANSLATE, handle, scene_x, scene_y});
+        scene.push_back(SceneInstruction{OP_DRAW_CUSTOM, handle});
+        scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
+        if (node->has_layer_effect) {
+            scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
+        }
+    } else {
+        scene.push_back(SceneInstruction{OP_DRAW_NODE, handle});
+    }
     const bool clip_children = node->clip_to_bounds || node->is_scroll_view;
 
     if (node->is_portal) {

@@ -629,6 +629,7 @@ TEST_CASE("v2 command parsing covers success ignored truncated and unknown paths
         SceneInstructionDebugView{OP_DRAW_NODE, text_node},
         SceneInstructionDebugView{OP_PUSH_CLIP, stale},
         SceneInstructionDebugView{OP_PUSH_LAYER, valid},
+        SceneInstructionDebugView{OP_DRAW_CUSTOM, valid},
         SceneInstructionDebugView{OP_POP, ED_INVALID_HANDLE},
     });
 
@@ -690,7 +691,7 @@ TEST_CASE("v2 command parsing covers success ignored truncated and unknown paths
     REQUIRE(paint_order.size() == 5U);
     CHECK(paint_order[0] == valid);
     CHECK(paint_order[4] == text_node);
-    REQUIRE(engine.GetSceneInstructionsForTesting().size() == 5U);
+    REQUIRE(engine.GetSceneInstructionsForTesting().size() == 6U);
 
     const auto truncated = [&](const std::vector<std::uint32_t>& words) {
         return engine.ExecuteCommandBuffer(words.data(), static_cast<std::uint32_t>(words.size()));

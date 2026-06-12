@@ -46,7 +46,8 @@ typedef enum SceneOpcode {
     OP_PUSH_CLIP = 2,
     OP_PUSH_LAYER = 3,
     OP_POP = 4,
-    OP_PUSH_TRANSLATE = 5
+    OP_PUSH_TRANSLATE = 5,
+    OP_DRAW_CUSTOM = 6
 } SceneOpcode;
 
 typedef enum EdClipMode {
@@ -138,6 +139,77 @@ EdDeviceState ed_get_device_state(void);
 
 /* Debug / test only – simulates a device loss without destroying the GPU context. */
 void ed_debug_simulate_device_lost(void);
+
+/*
+ * Immediate-mode canvas drawing API.
+ *
+ * These functions operate on an opaque canvas pointer obtained during
+ * the render pass (OP_DRAW_CUSTOM callback) or from an offscreen surface.
+ * The canvas pointer must NOT be dereferenced outside of these functions.
+ *
+ * Color values are 0xRRGGBBAA packed into uint32_t (matching the Tier 3 Color type).
+ * A fill_color or stroke_color of 0 means “no fill” / “no stroke.”
+ */
+
+/* ── Canvas state ─────────────────────────────────────────────── */
+
+void ed_canvas_save(void* canvas);
+void ed_canvas_restore(void* canvas);
+void ed_canvas_translate(void* canvas, float x, float y);
+void ed_canvas_scale(void* canvas, float sx, float sy);
+void ed_canvas_rotate(void* canvas, float degrees);
+void ed_canvas_clip_rect(void* canvas, float x, float y, float w, float h);
+
+/* ── Drawing primitives ───────────────────────────────────────── */
+
+void ed_canvas_draw_rect(void* canvas, float x, float y, float w, float h,
+                         uint32_t fill_color, uint32_t stroke_color, float stroke_width);
+
+void ed_canvas_draw_circle(void* canvas, float cx, float cy, float radius,
+                           uint32_t fill_color, uint32_t stroke_color, float stroke_width);
+
+void ed_canvas_draw_line(void* canvas, float x1, float y1, float x2, float y2,
+                         uint32_t color, float stroke_width);
+
+void ed_canvas_draw_round_rect(void* canvas, float x, float y, float w, float h,
+                               float rx, float ry,
+                               uint32_t fill_color, uint32_t stroke_color, float stroke_width);
+
+/* ── Path API ──────────────────────────────────────────────────── */
+
+uint32_t ed_path_create(void);
+void ed_path_destroy(uint32_t path_id);
+
+void ed_path_move_to(uint32_t path_id, float x, float y);
+void ed_path_line_to(uint32_t path_id, float x, float y);
+void ed_path_quad_to(uint32_t path_id, float cx, float cy, float x, float y);
+void ed_path_cubic_to(uint32_t path_id, float cx1, float cy1, float cx2, float cy2, float x, float y);
+void ed_path_close(uint32_t path_id);
+void ed_path_add_rect(uint32_t path_id, float x, float y, float w, float h);
+void ed_path_add_circle(uint32_t path_id, float cx, float cy, float r);
+
+void ed_canvas_draw_path(void* canvas, uint32_t path_id,
+                         uint32_t fill_color, uint32_t stroke_color, float stroke_width);
+
+/* ── Text ──────────────────────────────────────────────────────── */
+
+void ed_canvas_draw_text(void* canvas, const uint8_t* utf8, uint32_t len,
+                         float x, float y, uint32_t font_id, float font_size, uint32_t color);
+
+/* ── Image / SVG ───────────────────────────────────────────────── */
+
+void ed_canvas_draw_image(void* canvas, uint32_t texture_id,
+                          float x, float y, float w, float h);
+
+void ed_canvas_draw_svg(void* canvas, uint32_t svg_id,
+                        float x, float y, float w, float h);
+
+/* ── Offscreen surfaces ────────────────────────────────────────── */
+
+uint32_t ed_canvas_create_offscreen(uint32_t width, uint32_t height);
+void*    ed_canvas_get_offscreen_canvas(uint32_t offscreen_id);
+void     ed_canvas_read_offscreen_pixels(uint32_t offscreen_id, uint8_t* out_rgba);
+void     ed_canvas_destroy_offscreen(uint32_t offscreen_id);
 
 #ifdef __cplusplus
 }

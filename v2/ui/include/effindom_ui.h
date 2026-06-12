@@ -168,6 +168,8 @@ void ui_set_margin(ui_handle_t handle, float left, float top, float right, float
 void ui_set_position_type(ui_handle_t handle, uint32_t pos_enum);
 void ui_set_position(ui_handle_t handle, float left, float top, float right, float bottom);
 void ui_set_is_shared_size_scope(ui_handle_t handle, bool is_scope);
+void ui_set_custom_drawable(ui_handle_t handle, bool is_custom_drawable);
+void ui_set_flex_wrap(ui_handle_t handle, uint32_t wrap_enum);
 
 void ui_grid_set_columns(ui_handle_t handle, uint32_t count, const float* values, const uint8_t* types);
 void ui_grid_set_rows(ui_handle_t handle, uint32_t count, const float* values, const uint8_t* types);

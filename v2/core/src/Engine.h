@@ -167,6 +167,33 @@ public:
     std::uint64_t HitTest(float logical_x, float logical_y) const;
     void RenderToCanvas(SkCanvas* canvas, double current_time_ms = 0.0) const;
 
+    /* Immediate-mode path management. */
+    std::uint32_t CreatePath();
+    void DestroyPath(std::uint32_t path_id);
+    void PathMoveTo(std::uint32_t path_id, float x, float y);
+    void PathLineTo(std::uint32_t path_id, float x, float y);
+    void PathQuadTo(std::uint32_t path_id, float cx, float cy, float x, float y);
+    void PathCubicTo(std::uint32_t path_id, float cx1, float cy1, float cx2, float cy2, float x, float y);
+    void PathClose(std::uint32_t path_id);
+    void PathAddRect(std::uint32_t path_id, float x, float y, float w, float h);
+    void PathAddCircle(std::uint32_t path_id, float cx, float cy, float r);
+
+    /* Stateful canvas drawing (accesses engine resources like textures, fonts, paths). */
+    void CanvasDrawPath(SkCanvas* canvas, std::uint32_t path_id,
+                        std::uint32_t fill_color, std::uint32_t stroke_color, float stroke_width) const;
+    void CanvasDrawText(SkCanvas* canvas, const std::uint8_t* utf8, std::uint32_t len,
+                        float x, float y, std::uint32_t font_id, float font_size, std::uint32_t color) const;
+    void CanvasDrawImage(SkCanvas* canvas, std::uint32_t texture_id,
+                         float x, float y, float w, float h) const;
+    void CanvasDrawSvg(SkCanvas* canvas, std::uint32_t svg_id,
+                       float x, float y, float w, float h) const;
+
+    /* Offscreen raster surfaces. */
+    std::uint32_t CreateOffscreenSurface(std::uint32_t width, std::uint32_t height);
+    void* GetOffscreenCanvas(std::uint32_t offscreen_id) const;
+    void ReadOffscreenPixels(std::uint32_t offscreen_id, std::uint8_t* out_rgba) const;
+    void DestroyOffscreenSurface(std::uint32_t offscreen_id);
+
     std::optional<NodeDebugView> GetNodeForTesting(std::uint64_t handle) const;
     std::vector<SceneInstructionDebugView> GetSceneInstructionsForTesting() const;
     std::vector<std::uint64_t> GetPaintOrderForTesting() const;
