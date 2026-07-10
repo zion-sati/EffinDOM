@@ -10,7 +10,8 @@ typedef uint64_t ed_handle_t;
 typedef uintptr_t ed_ptr_t;
 
 enum {
-    ED_INVALID_HANDLE = 0
+    ED_INVALID_HANDLE = 0,
+    ED_ABI_VERSION = 2
 };
 
 typedef enum EdCommand {
@@ -36,6 +37,7 @@ typedef enum EdCommand {
     CMD_SET_HIGHLIGHTS = 43,
     CMD_SET_GLYPH_RUN_COLORED = 44,
     CMD_SET_HIGHLIGHTS_COLORED = 45,
+    CMD_SET_GLYPH_RUN_STYLED = 46,
 
     CMD_COMMIT_PAINT_ORDER = 98,
     CMD_COMMIT_SCENE = 99
@@ -74,6 +76,16 @@ typedef enum EdObjectFit {
     ED_OBJECT_FIT_NONE = 3,
     ED_OBJECT_FIT_SCALE_DOWN = 4
 } EdObjectFit;
+
+typedef enum EdImageSampling {
+    ED_IMAGE_SAMPLING_LINEAR = 0,
+    ED_IMAGE_SAMPLING_NEAREST = 1,
+    ED_IMAGE_SAMPLING_LINEAR_MIPMAP_NEAREST = 2,
+    ED_IMAGE_SAMPLING_LINEAR_MIPMAP_LINEAR = 3,
+    ED_IMAGE_SAMPLING_CUBIC_MITCHELL = 4,
+    ED_IMAGE_SAMPLING_CUBIC_CATMULL_ROM = 5,
+    ED_IMAGE_SAMPLING_ANISOTROPIC = 6
+} EdImageSampling;
 
 typedef enum EdBlendMode {
     ED_BLEND_SRC_OVER = 0,
@@ -117,15 +129,30 @@ typedef enum EdDeviceState {
     ED_DEVICE_RECOVERING = 2
 } EdDeviceState;
 
+uint32_t ed_get_abi_version(void);
+
 void ed_init(uint32_t physical_w, uint32_t physical_h, float dpr);
 void ed_init_webgl(uint32_t physical_w, uint32_t physical_h, float dpr);
 void ed_init_sw(uint32_t physical_w, uint32_t physical_h, float dpr);
 void ed_resize(uint32_t physical_w, uint32_t physical_h, float dpr);
+void ed_set_viewport_size(float logical_w, float logical_h);
+void ed_set_viewport_transform(float scale, float offset_x, float offset_y);
+float ed_get_viewport_scale(void);
+float ed_get_viewport_offset_x(void);
+float ed_get_viewport_offset_y(void);
+void ed_set_viewport_zoom_from_scene_anchor(float scale, float anchor_scene_x, float anchor_scene_y, float screen_x, float screen_y);
+void ed_pan_viewport_by(float delta_x, float delta_y);
+void ed_begin_viewport_pan(double timestamp_ms);
+void ed_update_viewport_pan(float delta_x, float delta_y, double timestamp_ms);
+void ed_end_viewport_pan(double timestamp_ms);
+bool ed_tick_viewport_pan_momentum(double timestamp_ms);
+void ed_clear_viewport_pan_momentum(void);
 
 void ed_register_font(uint32_t font_id, const uint8_t* bytes, uint32_t len);
 void ed_unregister_font(uint32_t font_id);
 void ed_register_svg(uint32_t svg_id, const uint8_t* bytes, uint32_t len);
 void ed_register_texture_rgba(uint32_t texture_id, const uint8_t* rgba, uint32_t w, uint32_t h, uint32_t byte_length);
+void ed_register_texture_sub_rgba(uint32_t texture_id, const uint8_t* sub_rgba, uint32_t sub_x, uint32_t sub_y, uint32_t sub_w, uint32_t sub_h, uint32_t full_w, uint32_t full_h);
 void ed_unregister_texture(uint32_t texture_id);
 
 void ed_execute_command_buffer(const uint32_t* buffer, uint32_t length);
@@ -159,6 +186,8 @@ void ed_canvas_translate(void* canvas, float x, float y);
 void ed_canvas_scale(void* canvas, float sx, float sy);
 void ed_canvas_rotate(void* canvas, float degrees);
 void ed_canvas_clip_rect(void* canvas, float x, float y, float w, float h);
+void ed_canvas_clip_round_rect(void* canvas, float x, float y, float w, float h,
+                               float top_left, float top_right, float bottom_right, float bottom_left);
 
 /* ── Drawing primitives ───────────────────────────────────────── */
 
@@ -193,16 +222,18 @@ void ed_canvas_draw_path(void* canvas, uint32_t path_id,
 
 /* ── Text ──────────────────────────────────────────────────────── */
 
-void ed_canvas_draw_text(void* canvas, const uint8_t* utf8, uint32_t len,
-                         float x, float y, uint32_t font_id, float font_size, uint32_t color);
+void ed_canvas_draw_text_node(void* canvas, uint32_t handle_lo, uint32_t handle_hi, float x, float y);
 
 /* ── Image / SVG ───────────────────────────────────────────────── */
 
 void ed_canvas_draw_image(void* canvas, uint32_t texture_id,
-                          float x, float y, float w, float h);
+                          float x, float y, float w, float h,
+                          uint32_t sampling_kind, uint32_t max_aniso);
 
 void ed_canvas_draw_svg(void* canvas, uint32_t svg_id,
                         float x, float y, float w, float h);
+
+void ed_canvas_draw_batch(void* canvas, const uint32_t* words, uint32_t word_count);
 
 /* ── Offscreen surfaces ────────────────────────────────────────── */
 

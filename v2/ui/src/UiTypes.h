@@ -36,6 +36,7 @@ struct GlyphPlacement {
     std::uint32_t cluster = 0;
     std::uint32_t font_id = 0;
     std::uint32_t color = 0;
+    float font_size = 0.0f;
 };
 
 struct TextStyleRun {
@@ -54,6 +55,7 @@ struct TextClusterStop {
 };
 
 struct CachedNonWrapGeometrySlice {
+    std::uint32_t fragment_generation = 0U;
     std::size_t line_index = 0U;
     std::uint32_t line_start = 0U;
     std::uint32_t line_end = 0U;
@@ -68,6 +70,16 @@ struct CachedNonWrapGeometrySlice {
     float shaped_descent = 0.0f;
     std::vector<GlyphPlacement> glyphs{};
     std::vector<TextClusterStop> cluster_stops{};
+};
+
+struct DynamicTextGlyphCacheEntry {
+    std::uint32_t codepoint = 0U;
+    float width = 0.0f;
+    float height = 0.0f;
+    float baseline = 0.0f;
+    float ascent = 0.0f;
+    float descent = 0.0f;
+    std::vector<GlyphPlacement> glyphs{};
 };
 
 struct CachedLogicalLineShape {
@@ -85,6 +97,7 @@ struct CachedLogicalLineShape {
     float height = 0.0f;
     float baseline = 0.0f;
     bool ascii_only = false;
+    bool has_tabs = false;
     bool break_candidate_cache_valid = false;
     std::vector<std::int32_t> break_candidates{};
     std::vector<float> break_candidate_x_offsets{};
@@ -135,6 +148,7 @@ struct UINode {
     static constexpr std::uint64_t kUndoDebounceMs = 300U;
 
     std::uint32_t generation = 0;
+    std::uint32_t node_type = UI_NODE_FLEX_BOX;
     bool is_active = false;
     bool needs_creation = false;
     bool is_dirty = false;
@@ -144,11 +158,15 @@ struct UINode {
     bool is_focusable = false;
     bool is_selectable = false;
     bool is_editable = false;
+    bool is_text_editor = false;
     bool is_portal = false;
     bool is_scroll_view = false;
     bool is_grid = false;
     bool is_selection_area = false;
     bool is_selection_area_barrier = false;
+    bool preserves_selection_on_pointer_down = false;
+    bool uses_editor_command_keys = false;
+    bool accepts_tab = false;
     bool is_custom_drawable = false;
     bool clip_to_bounds = false;
     UiVisibility visibility = UI_VISIBILITY_NORMAL;
@@ -219,6 +237,10 @@ struct UINode {
     bool has_reported_scroll_state = false;
     float scroll_velocity_x = 0.0f;
     float scroll_velocity_y = 0.0f;
+    float smooth_scroll_target_x = 0.0f;
+    float smooth_scroll_target_y = 0.0f;
+    bool smooth_scrolling = true;
+    bool smooth_scroll_active = false;
     bool scroll_enabled_x = true;
     bool scroll_enabled_y = true;
     bool show_scrollbars = true;
@@ -268,15 +290,21 @@ struct UINode {
     bool has_image = false;
     std::uint32_t texture_id = 0U;
     std::uint32_t object_fit = ED_OBJECT_FIT_FILL;
+    std::uint32_t image_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    std::uint32_t image_max_aniso = 0U;
     bool has_image_nine = false;
     std::uint32_t image_nine_texture_id = 0U;
     float image_nine_inset_left = 0.0f;
     float image_nine_inset_top = 0.0f;
     float image_nine_inset_right = 0.0f;
     float image_nine_inset_bottom = 0.0f;
+    std::uint32_t image_nine_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    std::uint32_t image_nine_max_aniso = 0U;
     bool has_svg = false;
     std::uint32_t svg_id = 0U;
     std::uint32_t svg_tint_color = 0U;
+    std::uint32_t svg_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    std::uint32_t svg_max_aniso = 0U;
     std::string node_id{};
     UiSemanticRole semantic_role = UI_SEMANTIC_NONE;
     std::string semantic_label{};
@@ -339,9 +367,13 @@ struct UINode {
     bool text_render_window_valid = false;
     std::size_t text_render_line_start = 0U;
     std::size_t text_render_line_end = 0U;
+    bool dynamic_text_fast_path_enabled = false;
+    std::string dynamic_text_charset{};
+    std::vector<DynamicTextGlyphCacheEntry> dynamic_text_glyph_cache{};
     mutable float textbox_viewport_offset_x = 0.0f;
     std::uint32_t selection_start = 0;
     std::uint32_t selection_end = 0;
+    bool caret_trailing_edge = false;
     bool text_selection_visuals_dirty = false;
     std::uint32_t caret_color = EF_RGB(0x00U, 0x00U, 0x00U);
     std::uint32_t selection_color = EF_RGBA(0x00U, 0x7AU, 0xFFU, 0x40U);
@@ -379,24 +411,6 @@ struct ColoredRect {
     std::uint32_t color = 0U;
 };
 
-enum UiTextAlign : std::uint32_t {
-    ALIGN_LEFT = 0,
-    ALIGN_CENTER = 1,
-    ALIGN_RIGHT = 2,
-};
-
-enum UiTextVerticalAlign : std::uint32_t {
-    VERTICAL_ALIGN_TOP = 0,
-    VERTICAL_ALIGN_CENTER = 1,
-    VERTICAL_ALIGN_BOTTOM = 2,
-};
-
-enum UiTextOverflow : std::uint32_t {
-    OVERFLOW_CLIP = 0,
-    OVERFLOW_ELLIPSIS = 1,
-    OVERFLOW_FADE = 2,
-};
-
 inline std::uint64_t PackHandle(std::uint32_t index, std::uint32_t generation) {
     return (static_cast<std::uint64_t>(generation) << 32U) | static_cast<std::uint64_t>(index);
 }
@@ -406,6 +420,18 @@ inline HandleParts DecodeHandle(std::uint64_t handle) {
         static_cast<std::uint32_t>(handle & 0xFFFFFFFFULL),
         static_cast<std::uint32_t>(handle >> 32U),
     };
+}
+
+inline bool IsEditorTextNode(const UINode& node) {
+    return node.is_text_node && node.is_text_editor;
+}
+
+inline bool IsSingleLineEditorTextNode(const UINode& node) {
+    return IsEditorTextNode(node) && node.max_lines == 1;
+}
+
+inline bool IsMultilineEditorTextNode(const UINode& node) {
+    return IsEditorTextNode(node) && node.max_lines != 1;
 }
 
 } // namespace effindom::v2::ui

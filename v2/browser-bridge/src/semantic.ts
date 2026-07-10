@@ -1,4 +1,5 @@
-import type { SemanticBounds, SemanticNode } from './core-types';
+import type { SemanticBounds,SemanticNode } from './core-types';
+import { createHiddenTextEditor, type HiddenTextEditor } from './bridge/interaction/editor-model';
 
 const ROLE_NONE = 0;
 const ROLE_BUTTON = 1;
@@ -43,10 +44,10 @@ const textDecoder = new TextDecoder();
 const floatWordView = new DataView(new ArrayBuffer(4));
 const textRunFitCache = new WeakMap<HTMLSpanElement, {
   readonly key: string;
-  readonly scaleX: number;
-  readonly scaleY: number;
-  readonly translateX: number;
-  readonly translateY: number;
+  readonly measuredWidth: number;
+  readonly measuredHeight: number;
+  readonly localX: number;
+  readonly localY: number;
 }>();
 
 interface SemanticRoleDescriptor {
@@ -330,14 +331,23 @@ function applyTextRunLayout(
   const fitKey = [
     textValue,
     textLayout.bounds.width.toFixed(3),
-    textLayout.bounds.height.toFixed(3),
   ].join('\u001f');
   const cachedFit = textRunFitCache.get(textRun);
   if (cachedFit?.key === fitKey) {
-    textContent.style.transform = `matrix(${String(cachedFit.scaleX)}, 0, 0, ${String(cachedFit.scaleY)}, ${String(cachedFit.translateX)}, ${String(cachedFit.translateY)})`;
+    const scaleX = cachedFit.measuredWidth > 0 ? textLayout.bounds.width / cachedFit.measuredWidth : 1;
+    const scaleY = cachedFit.measuredHeight > 0 ? textLayout.bounds.height / cachedFit.measuredHeight : 1;
+    const safeScaleX = Number.isFinite(scaleX) && scaleX > 0 ? scaleX : 1;
+    const safeScaleY = Number.isFinite(scaleY) && scaleY > 0 ? scaleY : 1;
+    const translateX = Number.isFinite(cachedFit.localX) ? -(cachedFit.localX * safeScaleX) : 0;
+    const translateY = Number.isFinite(cachedFit.localY) ? -(cachedFit.localY * safeScaleY) : 0;
+    textContent.style.transform = `matrix(${String(safeScaleX)}, 0, 0, ${String(safeScaleY)}, ${String(translateX)}, ${String(translateY)})`;
     return;
   }
   const measuredChild = textContent.firstChild;
+  let measuredWidth = 0;
+  let measuredHeight = 0;
+  let localX = 0;
+  let localY = 0;
   let scaleX = 1;
   let scaleY = 1;
   let translateX = 0;
@@ -347,22 +357,24 @@ function applyTextRunLayout(
     range.selectNodeContents(measuredChild);
     const measured = range.getBoundingClientRect();
     const contentRect = textContent.getBoundingClientRect();
-    const nextScaleX = measured.width > 0 ? textLayout.bounds.width / measured.width : 1;
-    const nextScaleY = measured.height > 0 ? textLayout.bounds.height / measured.height : 1;
+    measuredWidth = measured.width;
+    measuredHeight = measured.height;
+    localX = measured.x - contentRect.x;
+    localY = measured.y - contentRect.y;
+    const nextScaleX = measuredWidth > 0 ? textLayout.bounds.width / measuredWidth : 1;
+    const nextScaleY = measuredHeight > 0 ? textLayout.bounds.height / measuredHeight : 1;
     scaleX = Number.isFinite(nextScaleX) && nextScaleX > 0 ? nextScaleX : 1;
     scaleY = Number.isFinite(nextScaleY) && nextScaleY > 0 ? nextScaleY : 1;
-    const localX = measured.x - contentRect.x;
-    const localY = measured.y - contentRect.y;
     translateX = Number.isFinite(localX) ? -(localX * scaleX) : 0;
     translateY = Number.isFinite(localY) ? -(localY * scaleY) : 0;
   }
   textContent.style.transform = `matrix(${String(scaleX)}, 0, 0, ${String(scaleY)}, ${String(translateX)}, ${String(translateY)})`;
   textRunFitCache.set(textRun, {
     key: fitKey,
-    scaleX,
-    scaleY,
-    translateX,
-    translateY,
+    measuredWidth,
+    measuredHeight,
+    localX,
+    localY,
   });
 }
 
@@ -403,6 +415,7 @@ function ensureProjectedElement(
 
   const created = document.createElement(tagName);
   created.setAttribute('data-handle', node.handle);
+  created.setAttribute('data-effindom-semantic-node', 'true');
   created.style.position = 'absolute';
   created.style.pointerEvents = 'none';
   created.style.margin = '0';
@@ -412,7 +425,6 @@ function ensureProjectedElement(
   created.style.border = '0';
   created.style.outline = 'none';
   created.style.appearance = 'none';
-  created.style.webkitAppearance = 'none';
   created.style.color = 'transparent';
   created.style.webkitTextFillColor = 'transparent';
   created.style.caretColor = 'transparent';
@@ -584,7 +596,6 @@ class LiveAnnouncer {
     element.style.padding = '0';
     element.style.border = '0';
     element.style.overflow = 'hidden';
-    element.style.clip = 'rect(0 0 0 0)';
     element.style.clipPath = 'inset(50%)';
     element.style.whiteSpace = 'nowrap';
     element.style.opacity = '0';
@@ -645,8 +656,12 @@ export class HiddenDomProjector {
   private readonly shell: HTMLDivElement;
   private readonly layer: HTMLDivElement;
   private readonly content: HTMLDivElement;
+  private readonly semanticLightDomLayer: HTMLDivElement;
+  private readonly semanticLightDomContent: HTMLDivElement;
   private readonly announcer: LiveAnnouncer;
   private readonly elementsByHandle = new Map<string, HTMLElement>();
+  private readonly semanticLightDomFormsByHandle = new Map<string, HTMLFormElement>();
+  private readonly semanticLightDomEditorsByHandle = new Map<string, HiddenTextEditor>();
 
   public constructor(canvas: HTMLCanvasElement) {
     const parent = canvas.parentElement;
@@ -686,11 +701,34 @@ export class HiddenDomProjector {
     content.style.color = 'transparent';
     content.style.webkitTextFillColor = 'transparent';
     content.style.lineHeight = 'normal';
+    content.style.transformOrigin = '0 0';
     shadowRoot.appendChild(content);
     const announcer = new LiveAnnouncer(shadowRoot);
 
+    const semanticLightDomLayer = document.createElement('div');
+    semanticLightDomLayer.id = 'semantic-light-dom-layer';
+    semanticLightDomLayer.dataset.effindomSemanticLightDom = 'true';
+    semanticLightDomLayer.style.position = 'absolute';
+    semanticLightDomLayer.style.left = '0';
+    semanticLightDomLayer.style.top = '0';
+    semanticLightDomLayer.style.pointerEvents = 'none';
+    semanticLightDomLayer.style.overflow = 'hidden';
+    semanticLightDomLayer.style.lineHeight = 'normal';
+    semanticLightDomLayer.style.zIndex = '2147483647';
+
+    const semanticLightDomContent = document.createElement('div');
+    semanticLightDomContent.id = 'semantic-light-dom-content';
+    semanticLightDomContent.style.position = 'absolute';
+    semanticLightDomContent.style.left = '0';
+    semanticLightDomContent.style.top = '0';
+    semanticLightDomContent.style.width = '100%';
+    semanticLightDomContent.style.height = '100%';
+    semanticLightDomContent.style.transformOrigin = '0 0';
+    semanticLightDomLayer.appendChild(semanticLightDomContent);
+
     shell.appendChild(canvas);
     shell.appendChild(layer);
+    shell.appendChild(semanticLightDomLayer);
 
     canvas.setAttribute('role', 'application');
     canvas.setAttribute('aria-label', 'EffinDom application');
@@ -699,6 +737,8 @@ export class HiddenDomProjector {
     this.shell = shell;
     this.layer = layer;
     this.content = content;
+    this.semanticLightDomLayer = semanticLightDomLayer;
+    this.semanticLightDomContent = semanticLightDomContent;
     this.announcer = announcer;
   }
 
@@ -709,17 +749,32 @@ export class HiddenDomProjector {
     this.shell.style.height = height;
     this.layer.style.width = width;
     this.layer.style.height = height;
+    this.semanticLightDomLayer.style.width = width;
+    this.semanticLightDomLayer.style.height = height;
+  }
+
+  public syncViewportTransform(scale: number, offsetX: number, offsetY: number): void {
+    this.content.style.transform = scale === 1.0 && offsetX === 0.0 && offsetY === 0.0
+      ? ''
+      : `translate(${String(offsetX)}px, ${String(offsetY)}px) scale(${String(scale)})`;
+    this.semanticLightDomContent.style.transform = scale === 1.0 && offsetX === 0.0 && offsetY === 0.0
+      ? ''
+      : `translate(${String(offsetX)}px, ${String(offsetY)}px) scale(${String(scale)})`;
   }
 
   public update(
     nodes: readonly SemanticNode[],
     textByHandle: Readonly<Record<string, string>>,
     textLayoutsByHandle: Readonly<Record<string, SemanticTextLayout | undefined>>,
+    omittedHandles: ReadonlySet<string> = new Set<string>(),
   ): void {
     const seenHandles = new Set<string>();
     const orderedElements: HTMLElement[] = [];
 
     for (const node of nodes) {
+      if (omittedHandles.has(node.handle)) {
+        continue;
+      }
       seenHandles.add(node.handle);
       const descriptor = describeRole(node.role);
       const element = ensureProjectedElement(this.content, this.elementsByHandle, node);
@@ -829,6 +884,9 @@ export class HiddenDomProjector {
     }
 
     for (const node of nodes) {
+      if (omittedHandles.has(node.handle)) {
+        continue;
+      }
       if (node.role !== ROLE_DIALOG) {
         continue;
       }
@@ -872,6 +930,167 @@ export class HiddenDomProjector {
     syncOrderedChildren(this.content, orderedElements);
   }
 
+  public updateLightDomSemanticForms(
+    fields: readonly {
+      readonly handle: string;
+      readonly formHandle: string;
+      readonly bounds: SemanticBounds;
+      readonly multiline: boolean;
+      readonly readOnly: boolean;
+      readonly disabled: boolean;
+      readonly kind: 'text' | 'password' | 'email';
+      readonly autofillHint: string;
+      readonly semanticLabel: string;
+      readonly stableFieldName: string | null;
+      readonly text: string;
+    }[],
+    registerSemanticTextEditor: (handle: string, editor: HiddenTextEditor | null) => void,
+  ): void {
+    const seenHandles = new Set<string>();
+    const seenFormHandles = new Set<string>();
+    const orderedForms: HTMLFormElement[] = [];
+    const editorsByFormHandle = new Map<string, HiddenTextEditor[]>();
+    const editorsToRegister = new Map<string, HiddenTextEditor>();
+    for (const field of fields) {
+      seenHandles.add(field.handle);
+      seenFormHandles.add(field.formHandle);
+      let form = this.semanticLightDomFormsByHandle.get(field.formHandle);
+      if (form === undefined) {
+        form = document.createElement('form');
+        form.dataset.effindomProjectedForm = 'true';
+        form.dataset.effindomHandle = field.formHandle;
+        form.dataset.effindomSemanticNode = 'true';
+        form.dataset.effindomSemanticKind = 'host-autofill-form';
+        form.setAttribute('data-role', 'form');
+        form.style.position = 'absolute';
+        form.style.left = '0';
+        form.style.top = '0';
+        form.style.width = '100%';
+        form.style.height = '100%';
+        form.style.pointerEvents = 'none';
+        form.style.margin = '0';
+        form.style.padding = '0';
+        form.style.border = '0';
+        form.style.background = 'transparent';
+        form.setAttribute('autocomplete', 'on');
+        this.semanticLightDomContent.appendChild(form);
+        this.semanticLightDomFormsByHandle.set(field.formHandle, form);
+      }
+      let editor = this.semanticLightDomEditorsByHandle.get(field.handle);
+      if (editor === undefined || ((editor instanceof HTMLTextAreaElement) !== field.multiline)) {
+        if (editor !== undefined) {
+          editor.remove();
+          registerSemanticTextEditor(field.handle, null);
+        }
+        editor = createHiddenTextEditor(field.multiline);
+        editor.dataset.effindomSemanticLightDomField = 'true';
+        editor.dataset.effindomHandle = field.handle;
+        editor.dataset.effindomSemanticNode = 'true';
+        editor.dataset.effindomSemanticKind = 'host-autofill-textbox';
+        editor.setAttribute('data-role', 'textbox');
+        editor.setAttribute('data-handle', field.handle);
+        editor.style.position = 'absolute';
+        editor.style.pointerEvents = 'none';
+        editor.style.opacity = '0.001';
+        editor.style.background = 'transparent';
+        editor.style.border = '0';
+        editor.style.outline = 'none';
+        editor.style.boxShadow = 'none';
+        editor.style.color = 'transparent';
+        editor.style.caretColor = 'transparent';
+        editor.style.padding = '0';
+        editor.style.margin = '0';
+        editor.style.overflow = 'hidden';
+        editor.style.scrollbarWidth = 'none';
+        editor.style.font = '16px "Noto Sans Symbols 2", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", monospace';
+        if (editor instanceof HTMLInputElement) {
+          editor.type = 'text';
+        } else {
+          editor.rows = 1;
+          editor.wrap = 'off';
+        }
+        this.semanticLightDomEditorsByHandle.set(field.handle, editor);
+        editorsToRegister.set(field.handle, editor);
+      }
+      form.style.pointerEvents = 'none';
+      form.style.background = 'transparent';
+      editor.style.left = `${String(field.bounds.x)}px`;
+      editor.style.top = `${String(field.bounds.y)}px`;
+      editor.style.width = `${String(Math.max(1, field.bounds.width))}px`;
+      editor.style.height = `${String(Math.max(1, field.bounds.height))}px`;
+      editor.style.pointerEvents = 'none';
+      editor.style.opacity = '0.001';
+      editor.style.background = 'transparent';
+      editor.style.border = '0';
+      editor.style.outline = 'none';
+      editor.style.boxShadow = 'none';
+      editor.style.color = 'transparent';
+      editor.style.caretColor = 'transparent';
+      editor.tabIndex = -1;
+      editor.removeAttribute('aria-hidden');
+      if (editor instanceof HTMLInputElement) {
+        editor.type = field.kind === 'password' ? 'password' : (field.kind === 'email' ? 'email' : 'text');
+      }
+      if (field.semanticLabel.length > 0) {
+        editor.setAttribute('aria-label', field.semanticLabel);
+      } else {
+        editor.removeAttribute('aria-label');
+      }
+      editor.setAttribute('aria-readonly', field.readOnly ? 'true' : 'false');
+      editor.setAttribute('aria-disabled', field.disabled ? 'true' : 'false');
+      if (field.multiline) {
+        editor.setAttribute('aria-multiline', 'true');
+      } else {
+        editor.removeAttribute('aria-multiline');
+      }
+      editor.setAttribute('autocomplete', field.autofillHint);
+      if (field.stableFieldName !== null) {
+        editor.setAttribute('name', field.stableFieldName);
+        editor.setAttribute('id', field.stableFieldName);
+      } else {
+        editor.removeAttribute('name');
+        editor.removeAttribute('id');
+      }
+      editor.readOnly = field.readOnly;
+      editor.disabled = field.disabled;
+      if (document.activeElement !== editor && editor.value !== field.text) {
+        editor.value = field.text;
+      }
+      const formEditors = editorsByFormHandle.get(field.formHandle);
+      if (formEditors === undefined) {
+        editorsByFormHandle.set(field.formHandle, [editor]);
+      } else {
+        formEditors.push(editor);
+      }
+    }
+    for (const [formHandle, form] of this.semanticLightDomFormsByHandle.entries()) {
+      if (!seenFormHandles.has(formHandle)) {
+        continue;
+      }
+      syncOrderedChildren(form, editorsByFormHandle.get(formHandle) ?? []);
+      orderedForms.push(form);
+    }
+    for (const [handle, editor] of editorsToRegister.entries()) {
+      registerSemanticTextEditor(handle, editor);
+    }
+    for (const [handle, editor] of this.semanticLightDomEditorsByHandle.entries()) {
+      if (seenHandles.has(handle)) {
+        continue;
+      }
+      editor.remove();
+      this.semanticLightDomEditorsByHandle.delete(handle);
+      registerSemanticTextEditor(handle, null);
+    }
+    for (const [formHandle, form] of this.semanticLightDomFormsByHandle.entries()) {
+      if (seenFormHandles.has(formHandle)) {
+        continue;
+      }
+      form.remove();
+      this.semanticLightDomFormsByHandle.delete(formHandle);
+    }
+    syncOrderedChildren(this.semanticLightDomContent, orderedForms);
+  }
+
   public announceNode(
     handle: string,
     nodes: readonly SemanticNode[],
@@ -890,7 +1109,12 @@ export class HiddenDomProjector {
       element.remove();
     }
     this.elementsByHandle.clear();
+    for (const [handle, editor] of this.semanticLightDomEditorsByHandle.entries()) {
+      editor.remove();
+      this.semanticLightDomEditorsByHandle.delete(handle);
+    }
     this.layer.remove();
+    this.semanticLightDomLayer.remove();
     const parent = this.shell.parentElement;
     if (parent !== null) {
       parent.replaceChild(this.canvas, this.shell);

@@ -237,6 +237,46 @@ std::array<std::uint8_t, 4> MaxPixelInBox(
     return best;
 }
 
+bool HasPartialAlphaPixelInBox(
+    const std::vector<std::uint8_t>& pixels,
+    int width,
+    int min_x,
+    int min_y,
+    int max_x,
+    int max_y) {
+    for (int y = min_y; y <= max_y; y += 1) {
+        for (int x = min_x; x <= max_x; x += 1) {
+            const auto pixel = PixelAt(pixels, width, x, y);
+            if (pixel[3] > 0U && pixel[3] < 255U) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+bool HasOpaquePixelDifferentFrom(
+    const std::vector<std::uint8_t>& pixels,
+    int width,
+    int min_x,
+    int min_y,
+    int max_x,
+    int max_y,
+    const std::vector<std::array<std::uint8_t, 4>>& colors) {
+    for (int y = min_y; y <= max_y; y += 1) {
+        for (int x = min_x; x <= max_x; x += 1) {
+            const auto pixel = PixelAt(pixels, width, x, y);
+            if (pixel[3] != 255U) {
+                continue;
+            }
+            if (std::find(colors.begin(), colors.end(), pixel) == colors.end()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 void CheckSnapshotAgainstGolden(
     const std::vector<std::uint8_t>& actual,
     int width,
@@ -404,6 +444,110 @@ TEST_CASE("v2 render scales logical fills to physical pixels exactly once", "[v2
     CHECK(top_band[3] < 32U);
     CHECK(right_band[3] < 32U);
     CHECK(bottom_band[3] < 32U);
+}
+
+TEST_CASE("v2 render applies viewport transform after DPR scaling", "[v2][unit]") {
+    Engine engine;
+    engine.Init(8, 8, 1.0f);
+    engine.SetViewportTransform(2.0f, 0.0f, 0.0f);
+
+    const std::uint64_t filled = Handle(3111);
+
+    CommandBuilder builder;
+    builder.CreateNode(filled);
+    builder.SetBounds(filled, 1.0f, 1.0f, 1.0f, 1.0f, false);
+    builder.SetBoxStyle(filled, 0x00ff00ffU, 0.0f, 0.0f, 0.0f, 0.0f);
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_DRAW_NODE, filled},
+    });
+
+    const CommandBufferStats stats = engine.ExecuteCommandBuffer(
+        builder.words().data(),
+        static_cast<std::uint32_t>(builder.words().size()));
+    CHECK(stats.parsed_commands == 4U);
+
+    const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(8, 8));
+    REQUIRE(surface);
+    engine.RenderToCanvas(surface->getCanvas());
+
+    const auto pixels = SnapshotRgba(surface, 8, 8);
+    const auto fill_band = MaxPixelInBox(pixels, 8, 2, 2, 3, 3);
+    const auto untransformed_band = MaxPixelInBox(pixels, 8, 1, 1, 1, 1);
+    CHECK(fill_band[1] > 200U);
+    CHECK(fill_band[3] > 200U);
+    CHECK(untransformed_band[3] < 32U);
+}
+
+TEST_CASE("v2 viewport transform clamps scale and offsets", "[v2][unit]") {
+    Engine engine;
+    engine.Init(100, 80, 1.0f);
+    engine.SetViewportSize(100.0f, 80.0f);
+
+    engine.SetViewportTransform(0.5f, -20.0f, -20.0f);
+    CHECK(engine.ViewportScale() == Approx(1.0f));
+    CHECK(engine.ViewportOffsetX() == Approx(0.0f));
+    CHECK(engine.ViewportOffsetY() == Approx(0.0f));
+
+    engine.SetViewportTransform(2.0f, -500.0f, 50.0f);
+    CHECK(engine.ViewportScale() == Approx(2.0f));
+    CHECK(engine.ViewportOffsetX() == Approx(-100.0f));
+    CHECK(engine.ViewportOffsetY() == Approx(0.0f));
+}
+
+TEST_CASE("v2 viewport zoom keeps the scene anchor under the screen point", "[v2][unit]") {
+    Engine engine;
+    engine.Init(100, 100, 1.0f);
+    engine.SetViewportSize(100.0f, 100.0f);
+
+    engine.SetViewportZoomFromSceneAnchor(2.0f, 75.0f, 30.0f, 50.0f, 60.0f);
+
+    CHECK(engine.ViewportScale() == Approx(2.0f));
+    CHECK(engine.ViewportOffsetX() == Approx(-100.0f));
+    CHECK(engine.ViewportOffsetY() == Approx(0.0f));
+}
+
+TEST_CASE("v2 viewport pan clamps to zoomed bounds", "[v2][unit]") {
+    Engine engine;
+    engine.Init(100, 100, 1.0f);
+    engine.SetViewportSize(100.0f, 100.0f);
+    engine.SetViewportTransform(2.0f, 0.0f, 0.0f);
+
+    engine.PanViewportBy(30.0f, 20.0f);
+    CHECK(engine.ViewportOffsetX() == Approx(-30.0f));
+    CHECK(engine.ViewportOffsetY() == Approx(-20.0f));
+
+    engine.PanViewportBy(1000.0f, 1000.0f);
+    CHECK(engine.ViewportOffsetX() == Approx(-100.0f));
+    CHECK(engine.ViewportOffsetY() == Approx(-100.0f));
+}
+
+TEST_CASE("v2 viewport touch pan momentum continues after release", "[v2][unit]") {
+    Engine engine;
+    engine.Init(100, 100, 1.0f);
+    engine.SetViewportSize(100.0f, 100.0f);
+    engine.SetViewportTransform(2.0f, 0.0f, 0.0f);
+
+    engine.BeginViewportPan(0.0);
+    engine.UpdateViewportPan(20.0f, 0.0f, 16.0);
+    engine.EndViewportPan(16.0);
+
+    const float after_release = engine.ViewportOffsetX();
+    CHECK(engine.TickViewportPanMomentum(32.0));
+    CHECK(engine.ViewportOffsetX() < after_release);
+}
+
+TEST_CASE("v2 viewport touch pan momentum stops at clamp boundary", "[v2][unit]") {
+    Engine engine;
+    engine.Init(100, 100, 1.0f);
+    engine.SetViewportSize(100.0f, 100.0f);
+    engine.SetViewportTransform(2.0f, -100.0f, 0.0f);
+
+    engine.BeginViewportPan(0.0);
+    engine.UpdateViewportPan(80.0f, 0.0f, 16.0);
+    engine.EndViewportPan(16.0);
+
+    CHECK_FALSE(engine.TickViewportPanMomentum(32.0));
+    CHECK(engine.ViewportOffsetX() == Approx(-100.0f));
 }
 
 TEST_CASE("v2 command parsing stores node state", "[v2][unit]") {
@@ -707,7 +851,7 @@ TEST_CASE("v2 command parsing covers success ignored truncated and unknown paths
     CHECK(truncated({CMD_SET_LINEAR_GRADIENT, 1U, 1U, 0U, 0U, 0U, 0U, 1U}).truncated_buffers == 1U);
     CHECK(truncated({CMD_SET_LAYER_EFFECT, 1U, 1U, 0U, 0U}).truncated_buffers == 1U);
     CHECK(truncated({CMD_SET_IMAGE, 1U, 1U, 9U}).truncated_buffers == 1U);
-    CHECK(truncated({CMD_SET_IMAGE_NINE, 1U, 1U, 9U, 0U, 0U, 0U}).truncated_buffers == 1U);
+    CHECK(truncated({CMD_SET_IMAGE_NINE, 1U, 1U, 9U, 0U, 0U, 0U, 0U, ED_IMAGE_SAMPLING_LINEAR}).truncated_buffers == 1U);
     CHECK(truncated({CMD_SET_PATH, 1U, 1U, 0U, 0U, 0U}).truncated_buffers == 1U);
     CHECK(truncated({CMD_SET_PATH, 1U, 1U, 0U, 0U, 0U, 1U}).truncated_buffers == 1U);
     CHECK(truncated({CMD_SET_PATH, 1U, 1U, 0U, 0U, 0U, 1U, ED_PATH_LINE_TO}).truncated_buffers == 1U);
@@ -718,6 +862,9 @@ TEST_CASE("v2 command parsing covers success ignored truncated and unknown paths
     CHECK(truncated({CMD_SET_GLYPH_RUN_COLORED, 1U, 1U, 7U, 0U}).truncated_buffers == 1U);
     CHECK(truncated({CMD_SET_GLYPH_RUN_COLORED, 1U, 1U, 7U, 0U, 1U}).truncated_buffers == 1U);
     CHECK(truncated({CMD_SET_GLYPH_RUN_COLORED, 1U, 1U, 7U, 0U, 1U, 0U, 0U, 0U, 7U}).truncated_buffers == 1U);
+    CHECK(truncated({CMD_SET_GLYPH_RUN_STYLED, 1U, 1U, 7U, 0U}).truncated_buffers == 1U);
+    CHECK(truncated({CMD_SET_GLYPH_RUN_STYLED, 1U, 1U, 7U, 0U, 1U}).truncated_buffers == 1U);
+    CHECK(truncated({CMD_SET_GLYPH_RUN_STYLED, 1U, 1U, 7U, 0U, 1U, 0U, 0U, 0U, 7U, 0U}).truncated_buffers == 1U);
     CHECK(truncated({CMD_SET_TEXT_FADE, 1U, 1U}).truncated_buffers == 1U);
     CHECK(truncated({CMD_SET_CARET, 1U, 1U, 0U, 0U, 0U, 0U}).truncated_buffers == 1U);
     CHECK(truncated({CMD_SET_HIGHLIGHTS, 1U, 1U, 0U}).truncated_buffers == 1U);
@@ -826,6 +973,137 @@ TEST_CASE("v2 core parses and renders colored glyph runs without glyph-blob cach
     const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(96, 64));
     REQUIRE(surface);
     engine.RenderToCanvas(surface->getCanvas());
+
+    node = engine.GetNodeForTesting(text);
+    REQUIRE(node.has_value());
+    CHECK_FALSE(node->glyph_blob_cached);
+    CHECK(node->glyph_blob_build_count == 0U);
+}
+
+TEST_CASE("v2 core renders colored glyph runs through RenderNodeToRgba", "[v2][unit][text]") {
+    Engine engine;
+    engine.Init(96, 64, 1.0f);
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    engine.RegisterFont(7U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t text = Handle(4111);
+    CommandBuilder builder;
+    builder.CreateNode(text);
+    builder.SetBounds(text, 6.0f, 8.0f, 72.0f, 28.0f, false);
+    builder.SetGlyphRunColored(text, 7U, 18.0f, {
+        GlyphPlacement{36U, 0.0f, 15.0f, 7U, 0xff0000ffU},
+        GlyphPlacement{37U, 12.0f, 15.0f, 7U, 0x00ff00ffU},
+    });
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_DRAW_NODE, text},
+    });
+    CHECK(engine.ExecuteCommandBuffer(
+              builder.words().data(),
+              static_cast<std::uint32_t>(builder.words().size()))
+          .parsed_commands == 4U);
+
+    std::vector<std::uint8_t> pixels(96U * 64U * 4U);
+    REQUIRE(engine.RenderNodeToRgba(text, 96U, 64U, pixels.data(), static_cast<std::uint32_t>(pixels.size()), 1.0f, 0.0f, 0.0f)
+        == pixels.size());
+
+    auto is_red = [](const std::array<std::uint8_t, 4>& pixel) {
+        return pixel[3] > 80U && pixel[0] > pixel[1] + 15U && pixel[0] > pixel[2] + 15U;
+    };
+    auto is_green = [](const std::array<std::uint8_t, 4>& pixel) {
+        return pixel[3] > 80U && pixel[1] > pixel[0] + 15U && pixel[1] > pixel[2] + 10U;
+    };
+
+    std::size_t red_pixels = 0U;
+    std::size_t green_pixels = 0U;
+    for (int y = 0; y < 64; y += 1) {
+        for (int x = 0; x < 96; x += 1) {
+            const auto pixel = PixelAt(pixels, 96, x, y);
+            red_pixels += is_red(pixel) ? 1U : 0U;
+            green_pixels += is_green(pixel) ? 1U : 0U;
+        }
+    }
+
+    CHECK(red_pixels > 0U);
+    CHECK(green_pixels > 0U);
+
+    std::vector<std::uint8_t> scaled_pixels(192U * 128U * 4U);
+    REQUIRE(engine.RenderNodeToRgba(text, 192U, 128U, scaled_pixels.data(), static_cast<std::uint32_t>(scaled_pixels.size()), 2.0f, 0.0f, 0.0f)
+        == scaled_pixels.size());
+    std::size_t scaled_visible_pixels = 0U;
+    for (std::size_t offset = 3U; offset < scaled_pixels.size(); offset += 4U) {
+        if (scaled_pixels[offset] > 0U) {
+            scaled_visible_pixels += 1U;
+        }
+    }
+    CHECK(scaled_visible_pixels > (red_pixels + green_pixels) * 2U);
+
+    std::vector<std::uint8_t> placed_pixels(128U * 96U * 4U);
+    REQUIRE(engine.RenderNodeToRgba(text, 128U, 96U, placed_pixels.data(), static_cast<std::uint32_t>(placed_pixels.size()), 1.0f, 24.0f, 20.0f)
+        == placed_pixels.size());
+    std::size_t placed_top_left_pixels = 0U;
+    std::size_t placed_offset_pixels = 0U;
+    for (int y = 0; y < 24; y += 1) {
+        for (int x = 0; x < 24; x += 1) {
+            placed_top_left_pixels += PixelAt(placed_pixels, 128, x, y)[3] > 0U ? 1U : 0U;
+        }
+    }
+    for (int y = 20; y < 48; y += 1) {
+        for (int x = 24; x < 80; x += 1) {
+            placed_offset_pixels += PixelAt(placed_pixels, 128, x, y)[3] > 0U ? 1U : 0U;
+        }
+    }
+    CHECK(placed_top_left_pixels == 0U);
+    CHECK(placed_offset_pixels > 0U);
+}
+
+TEST_CASE("v2 core parses and renders styled glyph runs with per-glyph font sizes", "[v2][unit][text]") {
+    Engine engine;
+    engine.Init(128, 72, 1.0f);
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    engine.RegisterFont(7U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t text = Handle(4112);
+    CommandBuilder builder;
+    builder.CreateNode(text);
+    builder.SetBounds(text, 6.0f, 8.0f, 112.0f, 48.0f, false);
+    builder.SetGlyphRunStyled(text, 7U, 18.0f, {
+        GlyphPlacement{36U, 0.0f, 18.0f, 7U, 0xff0000ffU, 18.0f},
+        GlyphPlacement{37U, 18.0f, 34.0f, 7U, 0x00ff00ffU, 34.0f},
+    });
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_DRAW_NODE, text},
+    });
+    CHECK(engine.ExecuteCommandBuffer(
+              builder.words().data(),
+              static_cast<std::uint32_t>(builder.words().size()))
+          .parsed_commands == 4U);
+
+    auto node = engine.GetNodeForTesting(text);
+    REQUIRE(node.has_value());
+    CHECK(node->has_glyph_run);
+    CHECK(node->glyphs_have_per_color);
+    CHECK(node->glyphs_have_per_style);
+    REQUIRE(node->glyphs.size() == 2U);
+    CHECK(node->glyphs[0].font_size == Approx(18.0f));
+    CHECK(node->glyphs[1].font_size == Approx(34.0f));
+    CHECK(node->glyphs[0].color == 0xff0000ffU);
+    CHECK(node->glyphs[1].color == 0x00ff00ffU);
+
+    std::vector<std::uint8_t> pixels(128U * 72U * 4U);
+    REQUIRE(engine.RenderNodeToRgba(text, 128U, 72U, pixels.data(), static_cast<std::uint32_t>(pixels.size()), 1.0f, 0.0f, 0.0f)
+        == pixels.size());
+
+    std::size_t visible_pixels = 0U;
+    for (std::size_t offset = 3U; offset < pixels.size(); offset += 4U) {
+        if (pixels[offset] > 0U) {
+            visible_pixels += 1U;
+        }
+    }
+    CHECK(visible_pixels > 20U);
 
     node = engine.GetNodeForTesting(text);
     REQUIRE(node.has_value());
@@ -1466,6 +1744,82 @@ TEST_CASE("v2 push clip uses clip bounds instead of outer visual bounds", "[v2][
     CHECK(PixelAt(pixels, 48, 40, 40)[3] == 0U);
 }
 
+TEST_CASE("v2 retained rounded fills antialias their corner edges", "[v2][unit]") {
+    Engine engine;
+    engine.Init(64, 64, 1.0f);
+
+    const std::uint64_t rounded = Handle(3090);
+
+    CommandBuilder builder;
+    builder.CreateNode(rounded);
+    builder.SetBounds(rounded, 10.0f, 10.0f, 40.0f, 40.0f, false);
+    builder.SetBoxStyle(rounded, 0x00ff00ffU, 12.0f, 12.0f, 12.0f, 12.0f);
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_DRAW_NODE, rounded},
+    });
+
+    const CommandBufferStats stats = engine.ExecuteCommandBuffer(
+        builder.words().data(),
+        static_cast<std::uint32_t>(builder.words().size()));
+    CHECK(stats.parsed_commands == 4U);
+
+    const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(64, 64));
+    REQUIRE(surface);
+    surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+    engine.RenderToCanvas(surface->getCanvas());
+
+    const auto pixels = SnapshotRgba(surface, 64, 64);
+    CHECK(PixelAt(pixels, 64, 30, 30)[3] == 255U);
+    CHECK(PixelAt(pixels, 64, 10, 10)[3] == 0U);
+    CHECK(HasPartialAlphaPixelInBox(pixels, 64, 10, 10, 24, 24));
+}
+
+TEST_CASE("v2 retained paths antialias diagonal edges", "[v2][unit]") {
+    Engine engine;
+    engine.Init(56, 56, 1.0f);
+
+    const std::uint64_t path_node = Handle(3091);
+
+    PathVerbRecord move{};
+    move.verb = ED_PATH_MOVE_TO;
+    move.arg_count = 2;
+    move.args = {8.0f, 8.0f, 0, 0, 0, 0};
+    PathVerbRecord line_one{};
+    line_one.verb = ED_PATH_LINE_TO;
+    line_one.arg_count = 2;
+    line_one.args = {44.0f, 8.0f, 0, 0, 0, 0};
+    PathVerbRecord line_two{};
+    line_two.verb = ED_PATH_LINE_TO;
+    line_two.arg_count = 2;
+    line_two.args = {8.0f, 44.0f, 0, 0, 0, 0};
+    PathVerbRecord close{};
+    close.verb = ED_PATH_CLOSE;
+    close.arg_count = 0;
+
+    CommandBuilder builder;
+    builder.CreateNode(path_node);
+    builder.SetBounds(path_node, 0.0f, 0.0f, 56.0f, 56.0f, false);
+    builder.SetPath(path_node, 0x00ff00ffU, 0U, 0.0f, {move, line_one, line_two, close});
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_DRAW_NODE, path_node},
+    });
+
+    const CommandBufferStats stats = engine.ExecuteCommandBuffer(
+        builder.words().data(),
+        static_cast<std::uint32_t>(builder.words().size()));
+    CHECK(stats.parsed_commands == 4U);
+
+    const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(56, 56));
+    REQUIRE(surface);
+    surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+    engine.RenderToCanvas(surface->getCanvas());
+
+    const auto pixels = SnapshotRgba(surface, 56, 56);
+    CHECK(PixelAt(pixels, 56, 14, 14)[3] == 255U);
+    CHECK(PixelAt(pixels, 56, 44, 44)[3] == 0U);
+    CHECK(HasPartialAlphaPixelInBox(pixels, 56, 8, 8, 44, 44));
+}
+
 TEST_CASE("v2 rounded box borders stay visible on the top and bottom centerlines without spilling outside bounds", "[v2][unit]") {
     Engine engine;
     engine.Init(24, 24, 1.0f);
@@ -1868,6 +2222,145 @@ TEST_CASE("v2 renders images with object-fit into a golden snapshot", "[v2][snap
         180,
         GoldensDir() / "image-scene.png",
         0.999);
+}
+
+TEST_CASE("v2 retained image scaling uses blended sampling", "[v2][unit]") {
+    Engine engine;
+    engine.Init(8, 8, 1.0f);
+
+    const std::uint64_t image = Handle(219);
+    const std::array<std::uint8_t, 4 * 2 * 2> pixels = {
+        255, 0, 0, 255, 0, 255, 0, 255,
+        0, 0, 255, 255, 255, 255, 255, 255,
+    };
+    engine.RegisterTextureRgba(9U, pixels.data(), 2U, 2U, pixels.size());
+
+    CommandBuilder builder;
+    builder.CreateNode(image);
+    builder.SetBounds(image, 0.0f, 0.0f, 8.0f, 8.0f, false);
+    builder.SetImage(image, 9U, ED_OBJECT_FIT_FILL);
+    builder.CommitPaintOrder({});
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_DRAW_NODE, image},
+    });
+
+    const CommandBufferStats stats = engine.ExecuteCommandBuffer(
+        builder.words().data(),
+        static_cast<std::uint32_t>(builder.words().size()));
+    CHECK(stats.parsed_commands == 5U);
+
+    const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(8, 8));
+    REQUIRE(surface);
+    surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+    engine.RenderToCanvas(surface->getCanvas());
+
+    const auto rendered = SnapshotRgba(surface, 8, 8);
+    CHECK(HasOpaquePixelDifferentFrom(
+        rendered,
+        8,
+        0,
+        0,
+        7,
+        7,
+        {
+            {255, 0, 0, 255},
+            {0, 255, 0, 255},
+            {0, 0, 255, 255},
+            {255, 255, 255, 255},
+        }));
+}
+
+TEST_CASE("v2 retained image nearest sampling preserves source texels", "[v2][unit]") {
+    Engine engine;
+    engine.Init(8, 8, 1.0f);
+
+    const std::uint64_t image = Handle(221);
+    const std::array<std::uint8_t, 4 * 2 * 2> pixels = {
+        255, 0, 0, 255, 0, 255, 0, 255,
+        0, 0, 255, 255, 255, 255, 255, 255,
+    };
+    engine.RegisterTextureRgba(9U, pixels.data(), 2U, 2U, pixels.size());
+
+    CommandBuilder builder;
+    builder.CreateNode(image);
+    builder.SetBounds(image, 0.0f, 0.0f, 8.0f, 8.0f, false);
+    builder.SetImage(image, 9U, ED_OBJECT_FIT_FILL, ED_IMAGE_SAMPLING_NEAREST);
+    builder.CommitPaintOrder({});
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_DRAW_NODE, image},
+    });
+
+    const CommandBufferStats stats = engine.ExecuteCommandBuffer(
+        builder.words().data(),
+        static_cast<std::uint32_t>(builder.words().size()));
+    CHECK(stats.parsed_commands == 5U);
+
+    const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(8, 8));
+    REQUIRE(surface);
+    surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+    engine.RenderToCanvas(surface->getCanvas());
+
+    const auto rendered = SnapshotRgba(surface, 8, 8);
+    CHECK_FALSE(HasOpaquePixelDifferentFrom(
+        rendered,
+        8,
+        0,
+        0,
+        7,
+        7,
+        {
+            {255, 0, 0, 255},
+            {0, 255, 0, 255},
+            {0, 0, 255, 255},
+            {255, 255, 255, 255},
+        }));
+}
+
+TEST_CASE("v2 immediate image sampling is carried through batched draws", "[v2][unit]") {
+    Engine engine;
+    engine.Init(8, 8, 1.0f);
+
+    const std::array<std::uint8_t, 4 * 2 * 2> pixels = {
+        255, 0, 0, 255, 0, 255, 0, 255,
+        0, 0, 255, 255, 255, 255, 255, 255,
+    };
+    engine.RegisterTextureRgba(9U, pixels.data(), 2U, 2U, pixels.size());
+
+    const std::uint32_t offscreen = engine.CreateOffscreenSurface(8U, 8U);
+    REQUIRE(offscreen != 0U);
+    SkCanvas* canvas = static_cast<SkCanvas*>(engine.GetOffscreenCanvas(offscreen));
+    REQUIRE(canvas != nullptr);
+    canvas->clear(SK_ColorTRANSPARENT);
+
+    const std::array<std::uint32_t, 8> words = {
+        31U,
+        9U,
+        effindom::v2::test::FloatBits(0.0f),
+        effindom::v2::test::FloatBits(0.0f),
+        effindom::v2::test::FloatBits(8.0f),
+        effindom::v2::test::FloatBits(8.0f),
+        ED_IMAGE_SAMPLING_LINEAR,
+        0U,
+    };
+    engine.CanvasDrawBatch(canvas, words.data(), static_cast<std::uint32_t>(words.size()));
+
+    std::vector<std::uint8_t> rendered(8U * 8U * 4U);
+    engine.ReadOffscreenPixels(offscreen, rendered.data());
+    engine.DestroyOffscreenSurface(offscreen);
+
+    CHECK(HasOpaquePixelDifferentFrom(
+        rendered,
+        8,
+        0,
+        0,
+        7,
+        7,
+        {
+            {255, 0, 0, 255},
+            {0, 255, 0, 255},
+            {0, 0, 255, 255},
+            {255, 255, 255, 255},
+        }));
 }
 
 TEST_CASE("v2 unregisters textures from the image registry", "[v2][unit]") {

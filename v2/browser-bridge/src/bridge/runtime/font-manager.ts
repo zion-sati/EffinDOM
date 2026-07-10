@@ -1,21 +1,21 @@
 import type {
-  BridgeFontRegistration,
-  BridgeFontStackRegistration,
-  BridgeLogs,
-  CoreModule,
-  IncrementalFontAutoGrowBlockReason,
-  IncrementalFontCacheState,
-  IncrementalFontPolicy,
-  IncrementalFontRuntimeState,
-  UiModule,
+BridgeFontRegistration,
+BridgeFontStackRegistration,
+BridgeLogs,
+CoreModule,
+IncrementalFontAutoGrowBlockReason,
+IncrementalFontCacheState,
+IncrementalFontPolicy,
+IncrementalFontRuntimeState,
+UiModule,
 } from '../../core-types';
-import { getBridgeAssetUrl, getBuiltInBridgeFont } from '../font-catalog';
+import { getBridgeAssetUrl,getBuiltInBridgeFont } from '../font-catalog';
 import { fetchGoogleFontShardBytes } from '../google-fonts';
 import {
-  resolveIncrementalFontPackageRequests,
-  type ResolvedIncrementalFontShardRequest,
+resolveIncrementalFontPackageRequests,
+type ResolvedIncrementalFontShardRequest,
 } from '../incremental-font-packages';
-import { writeBytesToHeap } from '../utils/heap';
+import { copyBytesFromHeap, withHeapAllocation, writeBytesToHeap } from '../utils/heap';
 
 type InternalFontLoadState = 'known' | 'loading' | 'loaded' | 'failed';
 
@@ -108,6 +108,7 @@ export class IncrementalFontManager {
         throw new Error(`Ui rejected font ${String(fontId)}.`);
       }
       this.ui._ui_font_loaded(fontId);
+      window.__effindomCallbacks?.onFontLoaded?.(fontId);
     } finally {
       coreBytes.dispose();
       uiBytes.dispose();
@@ -145,8 +146,7 @@ export class IncrementalFontManager {
     }
     if (
       packageId !== null
-      && this.normalizedIncrementalFontPolicy.blockedPackageIds !== null
-      && this.normalizedIncrementalFontPolicy.blockedPackageIds.has(packageId)
+      && this.normalizedIncrementalFontPolicy.blockedPackageIds?.has(packageId) === true
     ) {
       return 'package-blocked';
     }
@@ -161,7 +161,7 @@ export class IncrementalFontManager {
 
     const trackedShardKeys = this.shardKeysByPrimaryFont.get(primaryFontId);
     trackedShardKeys?.delete(shardKey);
-    if (trackedShardKeys !== undefined && trackedShardKeys.size === 0) {
+    if (trackedShardKeys?.size === 0) {
       this.shardKeysByPrimaryFont.delete(primaryFontId);
     }
 
@@ -174,6 +174,87 @@ export class IncrementalFontManager {
     }
     this.ui._ui_unregister_font_fallback(primaryFontId, shardFontId);
     this.ui._ui_font_loaded(primaryFontId);
+    window.__effindomCallbacks?.onFontLoaded?.(primaryFontId);
+  }
+
+  private detachPrimaryFontShardReference(primaryFontId: number, shardFontId: number): void {
+    const fallbacks = this.fontFallbacks.get(primaryFontId);
+    if (fallbacks?.includes(shardFontId) === true) {
+      this.fontFallbacks.set(
+        primaryFontId,
+        fallbacks.filter((fallbackId) => fallbackId !== shardFontId),
+      );
+    }
+    this.ui._ui_unregister_font_fallback(primaryFontId, shardFontId);
+    this.ui._ui_font_loaded(primaryFontId);
+  }
+
+  private deactivateSupersededPrimaryShards(primaryFontId: number, familyKey: string, activeShardKey: string): void {
+    const activeText = activeShardKey.startsWith(`${familyKey}:`)
+      ? activeShardKey.slice(familyKey.length + 1)
+      : '';
+    if (activeText.length === 0) {
+      return;
+    }
+    const primaryShardKeys = this.shardKeysByPrimaryFont.get(primaryFontId);
+    if (primaryShardKeys === undefined) {
+      return;
+    }
+    for (const shardKey of primaryShardKeys) {
+      if (shardKey === activeShardKey || !shardKey.startsWith(`${familyKey}:`)) {
+        continue;
+      }
+      const shardText = shardKey.slice(familyKey.length + 1);
+      if (shardText.length === 0 || !Array.from(shardText).every((character) => activeText.includes(character))) {
+        continue;
+      }
+      const shard = this.incrementalShardCache.get(shardKey);
+      if (shard !== undefined) {
+        this.detachPrimaryFontShardReference(primaryFontId, shard.fontId);
+      }
+    }
+  }
+
+  private hasActivePrimaryShardCovering(primaryFontId: number, familyKey: string, shardKey: string): boolean {
+    const shardText = shardKey.startsWith(`${familyKey}:`)
+      ? shardKey.slice(familyKey.length + 1)
+      : '';
+    if (shardText.length === 0) {
+      return false;
+    }
+    const primaryShardKeys = this.shardKeysByPrimaryFont.get(primaryFontId);
+    if (primaryShardKeys === undefined) {
+      return false;
+    }
+    const activeFallbacks = this.fontFallbacks.get(primaryFontId) ?? [];
+    for (const activeShardKey of primaryShardKeys) {
+      if (activeShardKey === shardKey || !activeShardKey.startsWith(`${familyKey}:`)) {
+        continue;
+      }
+      const activeShard = this.incrementalShardCache.get(activeShardKey);
+      if (activeShard === undefined || !activeFallbacks.includes(activeShard.fontId)) {
+        continue;
+      }
+      const activeText = activeShardKey.slice(familyKey.length + 1);
+      if (Array.from(shardText).every((character) => activeText.includes(character))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  private readLiveFallbackFontIds(): Set<number> {
+    return withHeapAllocation(this.ui, 4, (allocation) => {
+      const ptr = this.ui._ui_get_live_fallback_font_buffer(allocation.ptr);
+      const lengthBytes = copyBytesFromHeap(this.ui, allocation.ptr, 4);
+      const length = new DataView(lengthBytes.buffer, lengthBytes.byteOffset, lengthBytes.byteLength).getUint32(0, true);
+      if (length === 0) {
+        return new Set<number>();
+      }
+      const bytes = copyBytesFromHeap(this.ui, ptr, length * 4);
+      const words = new Uint32Array(bytes.buffer, bytes.byteOffset, length);
+      return new Set<number>(words);
+    });
   }
 
   private evictIncrementalShard(shardKey: string): void {
@@ -193,25 +274,14 @@ export class IncrementalFontManager {
     this.onCommitFrame();
   }
 
-  private ensureShardCacheCapacityForNewEntry(): void {
-    while (this.incrementalShardCache.size >= this.normalizedIncrementalFontPolicy.maxCachedShardFonts) {
-      let leastRecentlyUsed: InternalIncrementalShardCacheEntry | null = null;
-      for (const shard of this.incrementalShardCache.values()) {
-        if (leastRecentlyUsed === null || shard.lastAccessTick < leastRecentlyUsed.lastAccessTick) {
-          leastRecentlyUsed = shard;
-        }
-      }
-      if (leastRecentlyUsed === null) {
-        return;
-      }
-      this.evictIncrementalShard(leastRecentlyUsed.shardKey);
-    }
-  }
-
-  private trimShardCacheToPolicyLimit(): void {
+  private trimShardCacheToPolicyLimit(protectedFontIds: ReadonlySet<number> = new Set<number>()): void {
+    const liveFallbackFontIds = this.readLiveFallbackFontIds();
     while (this.incrementalShardCache.size > this.normalizedIncrementalFontPolicy.maxCachedShardFonts) {
       let leastRecentlyUsed: InternalIncrementalShardCacheEntry | null = null;
       for (const shard of this.incrementalShardCache.values()) {
+        if (protectedFontIds.has(shard.fontId) || liveFallbackFontIds.has(shard.fontId)) {
+          continue;
+        }
         if (leastRecentlyUsed === null || shard.lastAccessTick < leastRecentlyUsed.lastAccessTick) {
           leastRecentlyUsed = shard;
         }
@@ -246,7 +316,7 @@ export class IncrementalFontManager {
 
   private rememberFontSource(fontId: number, url: string): void {
     const current = this.fontLoadStates.get(fontId);
-    if (current !== undefined && current.url === url && (current.state === 'loading' || current.state === 'loaded')) {
+    if (current?.url === url && (current.state === 'loading' || current.state === 'loaded')) {
       return;
     }
     this.fontLoadStates.set(fontId, { url, state: 'known' });
@@ -281,8 +351,7 @@ export class IncrementalFontManager {
 
   public isFontLoaded(fontId: number, url?: string): boolean {
     const current = this.fontLoadStates.get(fontId);
-    return current !== undefined
-      && current.state === 'loaded'
+    return current?.state === 'loaded'
       && (url === undefined || current.url === url);
   }
 
@@ -305,6 +374,8 @@ export class IncrementalFontManager {
     for (const fallbackId of fallbackIds) {
       this.ui._ui_register_font_fallback(fontId, fallbackId);
     }
+    this.ui._ui_font_loaded(fontId);
+    window.__effindomCallbacks?.onFontLoaded?.(fontId);
   }
 
   private async ensureRegisteredFont(
@@ -360,12 +431,16 @@ export class IncrementalFontManager {
     await Promise.all(fallbackIds.map((fallbackId) => this.ensureFontWithFallbacks(fallbackId, visited)));
   }
 
-  private registerSingleFontFallback(fontId: number, fallbackFontId: number): void {
+  private registerSingleFontFallback(fontId: number, fallbackFontId: number, notifyApp = true): void {
     const existingFallbacks = this.fontFallbacks.get(fontId) ?? [];
     if (!existingFallbacks.includes(fallbackFontId)) {
       this.fontFallbacks.set(fontId, [...existingFallbacks, fallbackFontId]);
     }
     this.ui._ui_register_font_fallback(fontId, fallbackFontId);
+    this.ui._ui_font_loaded(fontId);
+    if (notifyApp) {
+      window.__effindomCallbacks?.onFontLoaded?.(fontId);
+    }
   }
 
   private async ensureIncrementalShardFont(
@@ -381,7 +456,6 @@ export class IncrementalFontManager {
       return await existing;
     }
     const pending = (async () => {
-      this.ensureShardCacheCapacityForNewEntry();
       const fontId = this.nextIncrementalFontId;
       this.nextIncrementalFontId += 1;
       const shard = await fetchGoogleFontShardBytes(request.googleFamily, request.text);
@@ -414,7 +488,8 @@ export class IncrementalFontManager {
     this.pendingIncrementalFamilyRequests.delete(pendingKey);
 
     const fontState = this.ensureIncrementalFontState(primaryFontId);
-    const text = Array.from(pendingRequest.characters.values()).join('');
+    const requestedCharacters = fontState.requestedCharactersByFamily.get(pendingRequest.familyKey);
+    const text = Array.from((requestedCharacters ?? pendingRequest.characters).values()).join('');
     if (text.length === 0) {
       return;
     }
@@ -438,7 +513,12 @@ export class IncrementalFontManager {
         text,
         shardKey,
       });
-      this.registerSingleFontFallback(primaryFontId, shardFontId);
+      if (this.hasActivePrimaryShardCovering(primaryFontId, pendingRequest.familyKey, shardKey)) {
+        fontState.pendingSegmentIds.delete(shardKey);
+        this.trimShardCacheToPolicyLimit();
+        return;
+      }
+      this.registerSingleFontFallback(primaryFontId, shardFontId, false);
       const shard = this.incrementalShardCache.get(shardKey);
       if (shard !== undefined) {
         shard.primaryFontIds.add(primaryFontId);
@@ -450,13 +530,15 @@ export class IncrementalFontManager {
         this.shardKeysByPrimaryFont.set(primaryFontId, primaryShardKeys);
       }
       primaryShardKeys.add(shardKey);
+      this.deactivateSupersededPrimaryShards(primaryFontId, pendingRequest.familyKey, shardKey);
       if (!fontState.appliedSegmentIds.has(shardKey)) {
         fontState.appliedSegmentIds.add(shardKey);
         fontState.revision += 1;
       }
       fontState.pendingSegmentIds.delete(shardKey);
       fontState.evictedSegmentIds.delete(shardKey);
-      this.ui._ui_font_loaded(primaryFontId);
+      window.__effindomCallbacks?.onFontLoaded?.(primaryFontId);
+      this.trimShardCacheToPolicyLimit(new Set<number>([shardFontId]));
       this.onCommitFrame();
     } catch (error: unknown) {
       fontState.requestedSegmentIds.delete(shardKey);

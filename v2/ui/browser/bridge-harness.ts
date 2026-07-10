@@ -37,7 +37,7 @@ interface UiModule {
   _ui_set_padding(handle: number | bigint, left: number, top: number, right: number, bottom: number): void;
   _ui_set_clip_to_bounds(handle: number | bigint, clip: boolean): void;
   _ui_set_bg_color(handle: number | bigint, color: number): void;
-  _ui_commit_frame(): void;
+  _ui_commit_frame(timestampMs?: number): void;
   _ui_get_command_buffer(outLengthPtr: number): number;
 }
 
@@ -151,7 +151,7 @@ async function loadUiModule(scriptUrl: string): Promise<UiModule> {
       ui.HEAPU32 = HEAPU32;
     }
   };
-  ui.refreshHeapViews?.();
+  ui.refreshHeapViews();
   return ui;
 }
 
@@ -371,4 +371,4 @@ void initialize().catch((error: unknown) => {
   throw error;
 });
 
-export {};
+export { };

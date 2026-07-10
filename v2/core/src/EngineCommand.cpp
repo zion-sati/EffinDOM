@@ -135,6 +135,8 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
                 return HandleSetGlyphRunColored();
             case CMD_SET_HIGHLIGHTS_COLORED:
                 return HandleSetHighlightsColored();
+            case CMD_SET_GLYPH_RUN_STYLED:
+                return HandleSetGlyphRunStyled();
             case CMD_COMMIT_PAINT_ORDER:
                 return HandleCommitPaintOrder();
             case CMD_COMMIT_SCENE:
@@ -334,32 +336,39 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
         }
 
         bool HandleSetImage() {
-            if (!reader_.Require(4, stats_)) {
+            if (!reader_.Require(6, stats_)) {
                 return false;
             }
             detail::DisplayNode* node = impl_.ResolveMutable(reader_.ReadHandle());
             if (node == nullptr) {
-                reader_.Skip(2);
+                reader_.Skip(4);
                 stats_.ignored_commands += 1;
                 return true;
             }
 
+            const std::uint32_t texture_id = reader_.ReadWord();
+            const std::uint32_t object_fit = reader_.ReadWord();
+            const std::uint32_t sampling = reader_.ReadWord();
+            const std::uint32_t max_aniso = reader_.ReadWord();
+
             node->has_image = true;
             node->has_image_nine = false;
             node->has_svg = false;
-            node->texture_id = reader_.ReadWord();
-            node->object_fit = reader_.ReadWord();
+            node->texture_id = texture_id;
+            node->object_fit = object_fit;
+            node->image_sampling = detail::IsValidImageSampling(sampling) ? sampling : ED_IMAGE_SAMPLING_LINEAR;
+            node->image_max_aniso = detail::NormalizeImageMaxAniso(max_aniso);
             stats_.parsed_commands += 1;
             return true;
         }
 
         bool HandleSetImageNine() {
-            if (!reader_.Require(7, stats_)) {
+            if (!reader_.Require(9, stats_)) {
                 return false;
             }
             detail::DisplayNode* node = impl_.ResolveMutable(reader_.ReadHandle());
             if (node == nullptr) {
-                reader_.Skip(5);
+                reader_.Skip(7);
                 stats_.ignored_commands += 1;
                 return true;
             }
@@ -374,6 +383,10 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
                 detail::ClampNonNegative(reader_.ReadFloatWord()),
                 detail::ClampNonNegative(reader_.ReadFloatWord()),
             };
+            const std::uint32_t sampling = reader_.ReadWord();
+            const std::uint32_t max_aniso = reader_.ReadWord();
+            node->image_nine_sampling = detail::IsValidImageSampling(sampling) ? sampling : ED_IMAGE_SAMPLING_LINEAR;
+            node->image_nine_max_aniso = detail::NormalizeImageMaxAniso(max_aniso);
             stats_.parsed_commands += 1;
             return true;
         }
@@ -433,12 +446,12 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
         }
 
         bool HandleSetSvg() {
-            if (!reader_.Require(4, stats_)) {
+            if (!reader_.Require(6, stats_)) {
                 return false;
             }
             detail::DisplayNode* node = impl_.ResolveMutable(reader_.ReadHandle());
             if (node == nullptr) {
-                reader_.Skip(2);
+                reader_.Skip(4);
                 stats_.ignored_commands += 1;
                 return true;
             }
@@ -448,6 +461,9 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
             node->has_image_nine = false;
             node->svg_id = reader_.ReadWord();
             node->svg_tint_color = reader_.ReadWord();
+            const std::uint32_t sampling = reader_.ReadWord();
+            node->svg_sampling = detail::IsValidImageSampling(sampling) ? sampling : ED_IMAGE_SAMPLING_LINEAR;
+            node->svg_max_aniso = detail::NormalizeImageMaxAniso(reader_.ReadWord());
             stats_.parsed_commands += 1;
             return true;
         }
@@ -474,6 +490,7 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
 
             node->has_glyph_run = true;
             node->glyphs_have_per_color = false;
+            node->glyphs_have_per_style = false;
             node->font_id = reader_.ReadWord();
             node->font_size = std::max(reader_.ReadFloatWord(), 1.0f);
             node->glyph_color = reader_.ReadWord();
@@ -515,6 +532,7 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
 
             node->has_glyph_run = true;
             node->glyphs_have_per_color = true;
+            node->glyphs_have_per_style = false;
             node->font_id = reader_.ReadWord();
             node->font_size = std::max(reader_.ReadFloatWord(), 1.0f);
             const std::uint32_t decoded_glyph_count = reader_.ReadWord();
@@ -527,6 +545,55 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
                     reader_.ReadFloatWord(),
                     reader_.ReadWord(),
                     reader_.ReadWord(),
+                });
+            }
+            impl_.ReleaseGlyphBlobCache(*node);
+            node->glyph_blob_version += 1U;
+            stats_.parsed_commands += 1;
+            return true;
+        }
+
+        bool HandleSetGlyphRunStyled() {
+            if (!reader_.Require(5, stats_)) {
+                return false;
+            }
+            const std::uint32_t command_start = reader_.cursor();
+            const std::uint64_t handle = detail::DecodeHandleWords(reader_.data()[command_start], reader_.data()[command_start + 1]);
+            detail::DisplayNode* node = impl_.ResolveMutable(handle);
+            const std::uint32_t glyph_count = reader_.data()[command_start + 4];
+            if (!reader_.Require(5 + (glyph_count * 6U), stats_)) {
+                return false;
+            }
+            reader_.ReadHandle();
+            if (node == nullptr) {
+                reader_.Skip(3 + (glyph_count * 6U));
+                stats_.ignored_commands += 1;
+                return true;
+            }
+
+            node->has_glyph_run = true;
+            node->glyphs_have_per_color = true;
+            node->glyphs_have_per_style = true;
+            node->font_id = reader_.ReadWord();
+            node->font_size = std::max(reader_.ReadFloatWord(), 1.0f);
+            node->glyph_color = 0U;
+            const std::uint32_t decoded_glyph_count = reader_.ReadWord();
+            node->glyphs.clear();
+            node->glyphs.reserve(decoded_glyph_count);
+            for (std::uint32_t index = 0; index < decoded_glyph_count; index += 1U) {
+                const std::uint32_t glyph_id = reader_.ReadWord();
+                const float x = reader_.ReadFloatWord();
+                const float y = reader_.ReadFloatWord();
+                const std::uint32_t font_id = reader_.ReadWord();
+                const std::uint32_t color = reader_.ReadWord();
+                const float font_size = std::max(reader_.ReadFloatWord(), 1.0f);
+                node->glyphs.push_back(GlyphPlacement{
+                    glyph_id,
+                    x,
+                    y,
+                    font_id,
+                    color,
+                    font_size,
                 });
             }
             impl_.ReleaseGlyphBlobCache(*node);

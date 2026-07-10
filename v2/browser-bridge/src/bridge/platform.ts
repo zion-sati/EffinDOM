@@ -17,7 +17,7 @@ export function isMobileBrowser(): boolean {
   if (/Android|iPhone|iPad|iPod|Mobile/i.test(navigator.userAgent)) {
     return true;
   }
-  return navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1;
+  return /Macintosh/i.test(navigator.userAgent) && navigator.maxTouchPoints > 1;
 }
 
 export function detectPlatformFamily(): PlatformFamily {
@@ -26,11 +26,7 @@ export function detectPlatformFamily(): PlatformFamily {
       platform?: string;
     };
   };
-  const platform = (
-    navigatorWithUserAgentData.userAgentData?.platform ??
-    navigator.platform ??
-    navigator.userAgent
-  ).toLowerCase();
+  const platform = (navigatorWithUserAgentData.userAgentData?.platform ?? navigator.userAgent).toLowerCase();
   if (
     platform.includes('mac') ||
     platform.includes('iphone') ||

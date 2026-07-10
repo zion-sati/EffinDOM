@@ -68,6 +68,21 @@ const bridgeState: BridgeState = {
   get ready(): Promise<BridgeRuntime> {
     return bridgeReadyPromise ?? Promise.reject(new Error('Bridge runtime is not booting.'));
   },
+  devTools: {
+    enableDomMirror: () => currentRuntime?.devTools.enableDomMirror() ?? false,
+    disableDomMirror: () => currentRuntime?.devTools.disableDomMirror() ?? false,
+    toggleDomMirror: () => currentRuntime?.devTools.toggleDomMirror() ?? false,
+    isDomMirrorEnabled: () => currentRuntime?.devTools.isDomMirrorEnabled() ?? false,
+    selectHandle: (handle) => currentRuntime?.devTools.selectHandle(handle) ?? false,
+    clearSelection: () => {
+      currentRuntime?.devTools.clearSelection();
+    },
+    getSelectedHandle: () => currentRuntime?.devTools.getSelectedHandle() ?? null,
+    openDebugDialog: () => currentRuntime?.devTools.openDebugDialog() ?? false,
+    closeDebugDialog: () => currentRuntime?.devTools.closeDebugDialog() ?? false,
+    toggleDebugDialog: () => currentRuntime?.devTools.toggleDebugDialog() ?? false,
+    isDebugDialogOpen: () => currentRuntime?.devTools.isDebugDialogOpen() ?? false,
+  },
   getRuntime: () => currentRuntime,
   recreateRuntime: async () => {
     bridgeReadyPromise = queueRuntimeBoot();
@@ -77,6 +92,13 @@ const bridgeState: BridgeState = {
     if (currentRuntime !== null) {
       currentRuntime.resetLogs();
     }
+  },
+  getPageZoom: () => currentRuntime?.getPageZoom() ?? { scale: 1.0, offsetX: 0.0, offsetY: 0.0 },
+  setPageZoom: (scale, offsetX = 0.0, offsetY = 0.0) => {
+    currentRuntime?.setPageZoom(scale, offsetX, offsetY);
+  },
+  resetPageZoom: () => {
+    currentRuntime?.resetPageZoom();
   },
   handleToBigInt,
   handleToString,

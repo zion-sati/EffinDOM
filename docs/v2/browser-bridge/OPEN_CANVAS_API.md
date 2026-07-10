@@ -135,6 +135,28 @@ export interface OpenCanvasTextDocument {
   readonly text: string;
 }
 
+export type OpenCanvasAutofillHint =
+  | 'none'
+  | 'username'
+  | 'current-password'
+  | 'new-password'
+  | 'email'
+  | 'one-time-code';
+
+export type OpenCanvasEditableTextKind = 'text' | 'password' | 'email';
+
+export interface OpenCanvasEditableTextDocument extends OpenCanvasTextDocument {
+  readonly selectionStart: number;
+  readonly selectionEnd: number;
+  readonly multiline: boolean;
+  readonly readOnly: boolean;
+  readonly disabled: boolean;
+  readonly kind: OpenCanvasEditableTextKind;
+  readonly autofillHint: OpenCanvasAutofillHint;
+  readonly stableFieldName: string | null;
+  readonly formHandle: OpenCanvasHandle | null;
+}
+
 export interface OpenCanvasFindMatch {
   readonly handle: OpenCanvasHandle;
   readonly start: number;
@@ -167,9 +189,14 @@ export interface OpenCanvasFindState extends OpenCanvasFindResults {
 
 export interface OpenCanvasApi {
   getSemanticTree(): SemanticNode[];
+  getForms(): OpenCanvasForm[];
+  getForm(handle: OpenCanvasHandle): OpenCanvasForm | null;
   getBoundingBox(handle: OpenCanvasHandle): SemanticBounds | null;
   getTextVisibleBounds(handle: OpenCanvasHandle): SemanticBounds | null;
+  getFocusedHandle(): OpenCanvasHandle | null;
+  getActiveTextHandle(): OpenCanvasHandle | null;
   getTextDocument(handle: OpenCanvasHandle): OpenCanvasTextDocument | null;
+  getEditableTextDocument(handle: OpenCanvasHandle): OpenCanvasEditableTextDocument | null;
   getRangeRects(handle: OpenCanvasHandle, start: number, end: number): readonly SemanticBounds[];
   findText(query: string, options?: OpenCanvasFindOptions): OpenCanvasFindResults;
   setFindState(state: OpenCanvasFindState | null, revealActive?: boolean): boolean;
@@ -184,9 +211,14 @@ export interface OpenCanvasApi {
 | Surface | Status | Notes |
 |---|---|---|
 | `getSemanticTree()` | **Shipped** | Cached semantic snapshot |
+| `getForms()` | **Shipped** | Cached semantic form snapshot |
+| `getForm(handle)` | **Shipped** | Specific semantic form snapshot |
 | `getBoundingBox(handle)` | **Shipped** | Logical bounds snapshot |
 | `getTextVisibleBounds(handle)` | **Shipped** | Realized visible bounds for non-editable `Text` |
 | `getTextDocument(handle)` | **Shipped** | Realized non-editable `Text` only |
+| `getFocusedHandle()` | **Shipped** | Current focused retained node handle |
+| `getActiveTextHandle()` | **Shipped** | Current active text-editing handle |
+| `getEditableTextDocument(handle)` | **Shipped** | Editable textbox/textarea snapshot including selection and autofill metadata |
 | `getRangeRects(handle, start, end)` | **Shipped** | Realized range geometry |
 | `findText(query, options)` | **Shipped** | Query-only Find read model |
 | `setFindState(state, revealActive)` | **Shipped** | Retained Find session command |
@@ -197,9 +229,25 @@ export interface OpenCanvasApi {
 ### Current scope limits
 
 - text/find is currently **realized `Text` only**
-- editable `TextInput` / `TextArea` documents are **not** part of the shipped contract yet
+- editable `TextInput` / `TextArea` documents are part of the shipped contract through `getEditableTextDocument(handle)`
 - virtualized/unrealized content is **not** part of the shipped contract yet
 - current text indices are **UTF-8 byte offsets**
+
+### Current editable text scope
+
+The shipped editable-text contract is intentionally narrow:
+
+- `kind` is currently limited to `'text' | 'password' | 'email'`
+- `autofillHint` is currently a string token or `null`
+- `stableFieldName` is the retained field identity exposed for host integrations such as password managers
+- `formHandle` identifies the semantic `Form` that the editable field belongs to, when one exists
+
+In the current bridge implementation:
+
+- `stableFieldName` maps to projected/hidden host editor DOM `name` / `id`
+- FUI `nodeId` is the intended source for that identity
+- projected host-autofill form fields are kept `aria-hidden` so they do not
+  replace the retained semantic accessibility layer
 
 ---
 
@@ -236,7 +284,7 @@ Keep it as the host discovery layer for:
 
 Hosts need to know what currently owns primary interaction or text editing.
 
-Recommended addition:
+Shipped:
 
 ```ts
 interface OpenCanvasApi {
@@ -253,9 +301,9 @@ Why it matters:
 
 ## 3. Text-document read model
 
-Current `getTextDocument(handle)` is intentionally narrow.
+Current `getTextDocument(handle)` is intentionally narrow for non-editable retained text.
 
-The broader durable contract should eventually describe editable text documents too:
+Editable text is now shipped through a separate contract:
 
 ```ts
 export interface OpenCanvasEditableTextDocument {
@@ -263,17 +311,20 @@ export interface OpenCanvasEditableTextDocument {
   readonly text: string;
   readonly selectionStart: number;
   readonly selectionEnd: number;
-  readonly composingStart: number | null;
-  readonly composingEnd: number | null;
   readonly multiline: boolean;
   readonly readOnly: boolean;
   readonly disabled: boolean;
-  readonly kind: 'text' | 'email' | 'search' | 'url' | 'tel' | 'password' | 'number';
-  readonly placeholder?: string;
-  readonly inputMode?: string;
-  readonly autocomplete?: string;
+  readonly kind: 'text' | 'password' | 'email';
+  readonly autofillHint: 'none' | 'username' | 'current-password' | 'new-password' | 'email' | 'one-time-code';
+  readonly stableFieldName: string | null;
 }
 ```
+
+This split is deliberate:
+
+- `getTextDocument(handle)` remains the generic non-editable text read model
+- `getEditableTextDocument(handle)` carries editing-specific state and host metadata
+- browser-private DOM details stay out of the API surface
 
 ## 4. Selection read model
 

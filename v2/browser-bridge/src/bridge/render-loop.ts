@@ -1,9 +1,9 @@
-import { EdBackendType, EdDeviceState } from '../core-types';
-import type { BridgeLoaderInfo, BridgeRuntime, EdBackendType as EdBackendTypeValue, CoreModule } from '../core-types';
+import type { BridgeLoaderInfo,BridgeRuntime,CoreModule,EdBackendType as EdBackendTypeValue } from '../core-types';
+import { EdBackendType,EdDeviceState } from '../core-types';
 import type { SoftwarePresenter } from './local-types';
-import { normalizeBackendType, normalizeDeviceState, normalizePointerForWasm, pointerToHeapOffset } from './utils/encoding';
-import { backendLabel, DEFAULT_BACKEND_LADDER, setActiveRenderer, tryReviveBackend } from './utils/backends';
 import { delay } from './utils/assets';
+import { backendLabel,DEFAULT_BACKEND_LADDER,setActiveRenderer,tryReviveBackend } from './utils/backends';
+import { normalizeBackendType,normalizeDeviceState,normalizePointerForWasm,pointerToHeapOffset } from './utils/encoding';
 
 const DEVICE_LOST_RETRY_DELAYS_MS = [500, 1_000, 2_000, 4_000] as const;
 
@@ -123,8 +123,7 @@ export function installRenderLoop(
     // All retries exhausted — permanently fall to the next available backend.
     recoveryExhausted = true;
     const nextIndex = fallbackLadder.indexOf(lastAttemptedBackend) + 1;
-    for (let i = nextIndex; i < fallbackLadder.length; i += 1) {
-      const fallback = fallbackLadder[i]!;
+    for (const fallback of fallbackLadder.slice(nextIndex)) {
       if (await tryReviveBackend(core, canvas, dpr, fallback)) {
         activeBackend = fallback;
         loaderInfo.deviceRecoveryCount += 1;
@@ -229,7 +228,7 @@ export function installRenderLoop(
     runtime.ui.refreshHeapViews?.();
     runtime.runAppFrameHandler(now);
     if (!runtime.hasPendingCommit() && runtime.uiNeedsAnimationFrame() && runtime.uiHasPendingVisualWork()) {
-      runtime.commitFrame();
+      runtime.commitFrame(now);
     }
     runtime.flushPendingCommit();
     core._ed_render_frame(now);

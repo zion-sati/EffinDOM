@@ -1,46 +1,18 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect,test } from '@playwright/test';
 
 import {
-  setupServer,
-  teardownServer,
-  type EditableSceneState,
-  type EditableSceneOptions,
-  type SelectionAreaSceneState,
-  type BoxSceneState,
-  type ScrollSceneState,
-  type NestedProxyScrollSceneState,
-  type SemanticSceneState,
-  PUBLIC_DIR,
-  SCREENSHOT_DIR,
-  screenshotPath,
-  readWrappedTextFixture,
-  getWrappedTextFixtureTargets,
-  readScenePixel,
-  decodeFloat32,
-  parseGlyphRuns,
-  parseColoredHighlightRects,
-  parseHighlightRects,
-  getWrappedTextIndexPoint,
-  getWrappedSelectionDragPoints,
-  gotoBridgePage,
-  readActiveRenderer,
-  buildEditableTextScene,
-  buildStaticTextScene,
-  buildMultiStaticTextScene,
-  buildScrollableStaticTextScene,
-  buildSelectionAreaScene,
-  buildSemanticScene,
-  buildClippedSemanticScene,
-  buildScrollableSemanticOrderScene,
-  buildInteractiveBoxScene,
-  buildScrollScene,
-  buildNestedProxyScrollScene,
-  buildWrappedThaiScene,
-  buildColorEmojiScene,
-  readCanvasInkStats,
-  readCanvasColorStats,
-  waitForCanvasInk,
-  type StaticServerHandle,
+buildClippedSemanticScene,
+buildEditableTextScene,
+buildMultiStaticTextScene,
+buildScrollableSemanticOrderScene,
+buildScrollableStaticTextScene,
+buildSemanticScene,
+buildStaticTextScene,
+gotoBridgePage,
+parseColoredHighlightRects,
+parseHighlightRects,
+setupServer,
+teardownServer
 } from './test-utils';
 
 test.beforeAll(async () => {
@@ -167,7 +139,7 @@ test('hidden semantic DOM keeps semantic order stable when scrollview items re-e
       Array.from(document.getElementById('semantic-layer')?.shadowRoot?.querySelectorAll('#semantic-content > [data-handle]') ?? [])
         .map((element) => {
           const htmlElement = element as HTMLElement;
-          const text = htmlElement.textContent ?? '';
+          const text = htmlElement.textContent;
           return text.length > 0 ? text : (htmlElement.getAttribute('aria-label') ?? '');
         });
 
@@ -220,18 +192,18 @@ test('static text projects as paragraph with a StaticText child', async ({ page 
       textRunFirstChildType: textRun.firstChild?.nodeType ?? -1,
       textContentChildNodeCount: textContent.childNodes.length,
       textContentFirstChildType: textContent.firstChild?.nodeType ?? -1,
-      textContent: paragraph.textContent ?? '',
+      textContent: paragraph.textContent,
     };
   });
 
   const client = await page.context().newCDPSession(page);
   const axTree = await client.send('Accessibility.getFullAXTree');
-  const nodes = axTree.nodes as Array<{
+  const nodes = axTree.nodes as {
     nodeId: string;
     role?: { value?: string };
     name?: { value?: string };
     childIds?: string[];
-  }>;
+  }[];
   const staticTextNodes = nodes.filter((node) => node.role?.value === 'StaticText' && node.name?.value === sample);
   const paragraphNode = nodes.find((node) =>
     node.role?.value === 'paragraph' &&
@@ -414,6 +386,17 @@ test('static text skips text-run refitting when only scroll position changes', a
   const sample = 'Semantic scroll performance cache';
   const scene = await buildScrollableStaticTextScene(page, sample);
 
+  await page.evaluate((scrollHandle) => {
+    const runtime = window.EffinDomBrowserBridge?.getRuntime();
+    const bridge = window.EffinDomBrowserBridge;
+    if (runtime === null || runtime === undefined || bridge === undefined) {
+      throw new Error('Expected bridge runtime.');
+    }
+    runtime.ui._ui_set_scroll_offset(bridge.handleToBigInt(scrollHandle), 0, 16);
+    runtime.commitFrame();
+    runtime.flushPendingCommit();
+  }, scene.scrollHandle);
+
   const createRangeCalls = await page.evaluate((scrollHandle) => {
     const runtime = window.EffinDomBrowserBridge?.getRuntime();
     const bridge = window.EffinDomBrowserBridge;
@@ -427,10 +410,10 @@ test('static text skips text-run refitting when only scroll position changes', a
       return originalCreateRange();
     };
     try {
-      runtime.ui._ui_set_scroll_offset(bridge.handleToBigInt(scrollHandle), 0, 16);
+      runtime.ui._ui_set_scroll_offset(bridge.handleToBigInt(scrollHandle), 0, 32);
       runtime.commitFrame();
       runtime.flushPendingCommit();
-      runtime.ui._ui_set_scroll_offset(bridge.handleToBigInt(scrollHandle), 0, 32);
+      runtime.ui._ui_set_scroll_offset(bridge.handleToBigInt(scrollHandle), 0, 48);
       runtime.commitFrame();
       runtime.flushPendingCommit();
       return createRangeCalls;
@@ -633,7 +616,7 @@ test('__OPEN_CANVAS_API__.findText applies intentful options and highlight-all r
   const sample = 'Cafe café CAFE bridge bridged bridge';
   const scene = await buildStaticTextScene(page, sample);
 
-  const apiState = await page.evaluate((textHandle) => {
+  const apiState = await page.evaluate(() => {
     const api = window.__OPEN_CANVAS_API__;
     const runtime = window.EffinDomBrowserBridge?.getRuntime();
     if (api === undefined || runtime === undefined || runtime === null) {
@@ -660,7 +643,7 @@ test('__OPEN_CANVAS_API__.findText applies intentful options and highlight-all r
       words: Array.from(runtime.extractCommandBuffer()),
       bridgeState: window.__bridgeFindState,
     };
-  }, scene.textHandle);
+  });
 
   expect(apiState.defaultCount).toBe(3);
   expect(apiState.caseSensitiveCount).toBe(1);
@@ -735,7 +718,7 @@ test('find-on-page mirror projects realized Text with canvas-scoped metadata', a
   const sample = 'Find mirror metadata stays canvas-scoped.';
   const scene = await buildStaticTextScene(page, sample);
 
-  const mirrorState = await page.evaluate((textHandle) => {
+  const mirrorState = await page.evaluate(() => {
     const root = document.querySelector('[data-ed-find-root="1"]');
     const fragment = document.querySelector('[data-ed-find-fragment="1"]');
     if (!(root instanceof HTMLElement) || !(fragment instanceof HTMLElement)) {
@@ -748,7 +731,7 @@ test('find-on-page mirror projects realized Text with canvas-scoped metadata', a
       fragmentHandle: fragment.dataset.edHandle ?? null,
       fragmentStart: fragment.dataset.edStart ?? null,
       fragmentEnd: fragment.dataset.edEnd ?? null,
-      fragmentText: fragment.textContent ?? '',
+      fragmentText: fragment.textContent,
     };
   }, scene.textHandle);
 
@@ -783,7 +766,7 @@ test('find-on-page mirror preserves realized Text tree order', async ({ page }) 
 
   const mirrorTexts = await page.evaluate(() => {
     return Array.from(document.querySelectorAll('[data-ed-find-fragment="1"]'))
-      .map((node) => node.textContent ?? '');
+      .map((node) => node.textContent);
   });
 
   expect(scene.textHandles).toHaveLength(2);
@@ -816,10 +799,11 @@ test('find-on-page selectionchange maps mirror selections back to UTF-8 byte ran
   }, scene.textHandle);
 
   await page.waitForFunction((textHandle) => {
+    const match = window.__bridgeFindMatch;
     return (
-      window.__bridgeFindMatch?.handle === textHandle &&
-      window.__bridgeFindMatch?.start === 1 &&
-      window.__bridgeFindMatch?.end === 3
+      match?.handle === textHandle &&
+      match.start === 1 &&
+      match.end === 3
     );
   }, scene.textHandle);
 
@@ -953,7 +937,7 @@ test('desktop find dialog uses Control+F on non-Apple platforms', async ({ page 
   await expect.poll(async () => {
     return await page.evaluate(() => ({
       match: window.__bridgeFindMatch,
-      open: (document.querySelector('[data-ed-find-dialog="1"]') as HTMLElement | null)?.style.display === 'flex',
+      open: document.querySelector<HTMLElement>('[data-ed-find-dialog="1"]')?.style.display === 'flex',
     }));
   }).toEqual({
     match: null,
@@ -1285,7 +1269,7 @@ test('focus changes publish a live announcement', async ({ page }) => {
     runtime.commitFrame();
     runtime.flushPendingCommit();
     await new Promise((resolve) => setTimeout(resolve, 220));
-    return announcer.textContent ?? '';
+    return announcer.textContent;
   }, scene.textboxHandle);
 
   expect(announcement).toContain('Email');
@@ -1319,7 +1303,7 @@ test('requested semantic announcements replay the focused control summary', asyn
     runtime.commitFrame();
     runtime.flushPendingCommit();
     await new Promise((resolve) => setTimeout(resolve, 220));
-    return announcer.textContent ?? '';
+    return announcer.textContent;
   }, scene.textboxHandle);
 
   expect(announcement).toContain('Email');
@@ -1394,7 +1378,7 @@ test('same-frame focus and checkbox announcements use the refreshed checked stat
     runtime.commitFrame();
     runtime.flushPendingCommit();
     await new Promise((resolve) => setTimeout(resolve, 220));
-    return announcer.textContent ?? '';
+    return announcer.textContent;
   });
 
   expect(announcement).toContain('Accept terms');
@@ -1469,7 +1453,7 @@ test('slider announcements do not repeat the current value', async ({ page }) =>
     runtime.commitFrame();
     runtime.flushPendingCommit();
     await new Promise((resolve) => setTimeout(resolve, 220));
-    return announcer.textContent ?? '';
+    return announcer.textContent;
   });
 
   expect(announcement).toContain('Slider');

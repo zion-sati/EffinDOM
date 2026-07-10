@@ -432,6 +432,12 @@ SkIRect ComputeImageNineCenter(const detail::TextureRecord& texture, const detai
     return SkIRect::MakeLTRB(left, top, right, bottom);
 }
 
+SkFilterMode ImageNineFilterMode(const detail::DisplayNode& node) {
+    return node.image_nine_sampling == ED_IMAGE_SAMPLING_NEAREST
+        ? SkFilterMode::kNearest
+        : SkFilterMode::kLinear;
+}
+
 sk_sp<SkImage> ResolveSvgRasterVariant(
     detail::SvgRecord& svg,
     const detail::DisplayNode& node,
@@ -536,7 +542,15 @@ void DrawSvg(detail::SvgRecord& svg, const detail::DisplayNode& node, SkCanvas* 
     if (!image) {
         return;
     }
-    canvas->drawImageRect(image, target, SkSamplingOptions(), nullptr);
+    canvas->drawImageRect(
+        image,
+        target,
+        detail::MakeImageSamplingOptions(node.svg_sampling, node.svg_max_aniso),
+        nullptr);
+}
+
+float EffectiveGlyphFontSize(const GlyphPlacement& glyph, const detail::DisplayNode& node) {
+    return glyph.font_size > 0.0f ? glyph.font_size : node.font_size;
 }
 
 sk_sp<SkTextBlob> BuildGlyphBlob(
@@ -551,18 +565,20 @@ sk_sp<SkTextBlob> BuildGlyphBlob(
     while (run_start < node.glyphs.size()) {
         const std::uint32_t run_font_id =
             node.glyphs[run_start].font_id != 0U ? node.glyphs[run_start].font_id : node.font_id;
+        const float run_font_size = EffectiveGlyphFontSize(node.glyphs[run_start], node);
         std::size_t run_end = run_start + 1U;
         while (run_end < node.glyphs.size()) {
             const std::uint32_t glyph_font_id =
                 node.glyphs[run_end].font_id != 0U ? node.glyphs[run_end].font_id : node.font_id;
-            if (glyph_font_id != run_font_id) {
+            const float glyph_font_size = EffectiveGlyphFontSize(node.glyphs[run_end], node);
+            if (glyph_font_id != run_font_id || std::abs(glyph_font_size - run_font_size) >= 0.001f) {
                 break;
             }
             run_end += 1U;
         }
 
         const auto font_it = fonts.find(run_font_id);
-        SkFont font(font_it != fonts.end() ? font_it->second : sk_sp<SkTypeface>(), node.font_size);
+        SkFont font(font_it != fonts.end() ? font_it->second : sk_sp<SkTypeface>(), run_font_size);
         font.setSubpixel(true);
         font.setHinting(SkFontHinting::kSlight);
         auto& run = builder.allocRunPos(font, static_cast<int>(run_end - run_start));
@@ -574,6 +590,14 @@ sk_sp<SkTextBlob> BuildGlyphBlob(
         run_start = run_end;
     }
     return builder.make();
+}
+
+bool SameGlyphDrawStyle(const GlyphPlacement& lhs, const GlyphPlacement& rhs, const detail::DisplayNode& node) {
+    const std::uint32_t lhs_font_id = lhs.font_id != 0U ? lhs.font_id : node.font_id;
+    const std::uint32_t rhs_font_id = rhs.font_id != 0U ? rhs.font_id : node.font_id;
+    return lhs.color == rhs.color &&
+        lhs_font_id == rhs_font_id &&
+        std::abs(EffectiveGlyphFontSize(lhs, node) - EffectiveGlyphFontSize(rhs, node)) < 0.001f;
 }
 
 void ApplySingleFadeMask(SkCanvas* canvas, const detail::DisplayNode& node, std::uint32_t fade_edge) {
@@ -640,6 +664,109 @@ void ApplyFadeMask(SkCanvas* canvas, const detail::DisplayNode& node) {
 
 } // namespace
 
+void Engine::Impl::DrawTextContent(
+    SkCanvas* canvas,
+    const detail::DisplayNode& node,
+    float origin_x,
+    float origin_y,
+    bool use_glyph_blob_cache,
+    bool apply_fade) {
+    for (const ColoredRect& colored_rect : node.colored_highlights) {
+        SkPaint highlight_paint;
+        highlight_paint.setStyle(SkPaint::kFill_Style);
+        highlight_paint.setColor(ToSkColor(colored_rect.color));
+        canvas->drawRect(
+            SkRect::MakeXYWH(
+                origin_x + colored_rect.rect.x,
+                origin_y + colored_rect.rect.y,
+                colored_rect.rect.width,
+                colored_rect.rect.height),
+            highlight_paint);
+    }
+
+    for (const Rect& rect : node.highlights) {
+        SkPaint highlight_paint;
+        highlight_paint.setStyle(SkPaint::kFill_Style);
+        highlight_paint.setColor(ToSkColor(node.highlight_color));
+        canvas->drawRect(
+            SkRect::MakeXYWH(
+                origin_x + rect.x,
+                origin_y + rect.y,
+                rect.width,
+                rect.height),
+            highlight_paint);
+    }
+
+    if (!node.has_glyph_run || node.glyphs.empty()) {
+        return;
+    }
+
+    if (node.glyphs_have_per_color || node.glyphs_have_per_style) {
+        std::size_t style_run_start = 0U;
+        while (style_run_start < node.glyphs.size()) {
+            const GlyphPlacement& first_glyph = node.glyphs[style_run_start];
+            const std::uint32_t run_color = first_glyph.color != 0U ? first_glyph.color : node.glyph_color;
+            std::size_t style_run_end = style_run_start + 1U;
+            while (style_run_end < node.glyphs.size() &&
+                   SameGlyphDrawStyle(first_glyph, node.glyphs[style_run_end], node)) {
+                style_run_end += 1U;
+            }
+            std::vector<GlyphPlacement> run_glyphs{};
+            run_glyphs.reserve(style_run_end - style_run_start);
+            for (std::size_t index = style_run_start; index < style_run_end; index += 1U) {
+                run_glyphs.push_back(node.glyphs[index]);
+            }
+            const detail::DisplayNode run_node = [&]() {
+                detail::DisplayNode copy = node;
+                copy.glyphs = std::move(run_glyphs);
+                return copy;
+            }();
+            const sk_sp<SkTextBlob> blob = BuildGlyphBlob(run_node, fonts);
+            if (blob) {
+                SkPaint glyph_paint;
+                glyph_paint.setAntiAlias(true);
+                glyph_paint.setColor(ToSkColor(run_color));
+                canvas->drawTextBlob(blob, origin_x, origin_y, glyph_paint);
+            }
+            style_run_start = style_run_end;
+        }
+        return;
+    }
+
+    detail::DisplayNode& mutable_node = const_cast<detail::DisplayNode&>(node);
+    sk_sp<SkTextBlob> blob{};
+    if (!use_glyph_blob_cache) {
+        blob = BuildGlyphBlob(node, fonts);
+    } else if (mutable_node.glyphs.empty()) {
+        ReleaseGlyphBlobCache(mutable_node);
+    } else if (
+        mutable_node.cached_glyph_blob != nullptr &&
+        mutable_node.cached_glyph_blob_version == mutable_node.glyph_blob_version) {
+        TouchGlyphBlobCache(mutable_node);
+        blob = mutable_node.cached_glyph_blob;
+    } else {
+        StoreGlyphBlobCache(mutable_node, BuildGlyphBlob(mutable_node, fonts));
+        blob = mutable_node.cached_glyph_blob;
+    }
+
+    if (!blob) {
+        return;
+    }
+
+    const bool should_apply_fade = apply_fade && node.fade_edge != ED_FADE_NONE;
+    if (should_apply_fade) {
+        canvas->saveLayer(nullptr, nullptr);
+    }
+    SkPaint glyph_paint;
+    glyph_paint.setAntiAlias(true);
+    glyph_paint.setColor(ToSkColor(node.glyph_color));
+    canvas->drawTextBlob(blob, origin_x, origin_y, glyph_paint);
+    if (should_apply_fade) {
+        ApplyFadeMask(canvas, node);
+        canvas->restore();
+    }
+}
+
 void Engine::Impl::DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, double current_time_ms) {
     DrawDropShadow(canvas, node);
     bool saved_background_blur_clip = false;
@@ -661,6 +788,7 @@ void Engine::Impl::DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, d
         SkPaint fill_paint;
         fill_paint.setStyle(SkPaint::kFill_Style);
         fill_paint.setColor(ToSkColor(node.bg_color));
+        fill_paint.setAntiAlias(true);
         if (const sk_sp<SkShader> shader = BuildGradientShader(node)) {
             fill_paint.setShader(shader);
         }
@@ -677,7 +805,7 @@ void Engine::Impl::DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, d
                     texture_it->second.raster_image,
                     src.value(),
                     dst,
-                    SkSamplingOptions(),
+                    detail::MakeImageSamplingOptions(node.image_sampling, node.image_max_aniso),
                     nullptr,
                     SkCanvas::kStrict_SrcRectConstraint);
             }
@@ -691,7 +819,7 @@ void Engine::Impl::DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, d
                 texture_it->second.raster_image.get(),
                 ComputeImageNineCenter(texture_it->second, node),
                 ToSkRect(node.visual_bounds),
-                SkFilterMode::kLinear,
+                ImageNineFilterMode(node),
                 nullptr);
         }
     }
@@ -709,6 +837,7 @@ void Engine::Impl::DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, d
             SkPaint fill_paint;
             fill_paint.setStyle(SkPaint::kFill_Style);
             fill_paint.setColor(ToSkColor(node.path_fill_color));
+            fill_paint.setAntiAlias(true);
             canvas->drawPath(path, fill_paint);
         }
         if (node.path_stroke_width > 0.0f && (node.path_stroke_color & 0xffU) != 0) {
@@ -716,93 +845,12 @@ void Engine::Impl::DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, d
             stroke_paint.setStyle(SkPaint::kStroke_Style);
             stroke_paint.setColor(ToSkColor(node.path_stroke_color));
             stroke_paint.setStrokeWidth(node.path_stroke_width);
+            stroke_paint.setAntiAlias(true);
             canvas->drawPath(path, stroke_paint);
         }
     }
 
-    for (const ColoredRect& colored_rect : node.colored_highlights) {
-        SkPaint highlight_paint;
-        highlight_paint.setStyle(SkPaint::kFill_Style);
-        highlight_paint.setColor(ToSkColor(colored_rect.color));
-        canvas->drawRect(
-            SkRect::MakeXYWH(
-                node.visual_bounds.x + colored_rect.rect.x,
-                node.visual_bounds.y + colored_rect.rect.y,
-                colored_rect.rect.width,
-                colored_rect.rect.height),
-            highlight_paint);
-    }
-
-    for (const Rect& rect : node.highlights) {
-        SkPaint highlight_paint;
-        highlight_paint.setStyle(SkPaint::kFill_Style);
-        highlight_paint.setColor(ToSkColor(node.highlight_color));
-        canvas->drawRect(
-            SkRect::MakeXYWH(
-                node.visual_bounds.x + rect.x,
-                node.visual_bounds.y + rect.y,
-                rect.width,
-                rect.height),
-            highlight_paint);
-    }
-
-    if (node.has_glyph_run && !node.glyphs.empty()) {
-        if (node.glyphs_have_per_color) {
-            std::size_t color_run_start = 0U;
-            while (color_run_start < node.glyphs.size()) {
-                const std::uint32_t run_color = node.glyphs[color_run_start].color;
-                std::size_t color_run_end = color_run_start + 1U;
-                while (color_run_end < node.glyphs.size() && node.glyphs[color_run_end].color == run_color) {
-                    color_run_end += 1U;
-                }
-                std::vector<GlyphPlacement> run_glyphs{};
-                run_glyphs.reserve(color_run_end - color_run_start);
-                for (std::size_t index = color_run_start; index < color_run_end; index += 1U) {
-                    run_glyphs.push_back(node.glyphs[index]);
-                }
-                const detail::DisplayNode run_node = [&]() {
-                    detail::DisplayNode copy = node;
-                    copy.glyphs = std::move(run_glyphs);
-                    return copy;
-                }();
-                const sk_sp<SkTextBlob> blob = BuildGlyphBlob(run_node, fonts);
-                if (blob) {
-                    SkPaint glyph_paint;
-                    glyph_paint.setAntiAlias(true);
-                    glyph_paint.setColor(ToSkColor(run_color));
-                    canvas->drawTextBlob(blob, node.visual_bounds.x, node.visual_bounds.y, glyph_paint);
-                }
-                color_run_start = color_run_end;
-            }
-        } else {
-        detail::DisplayNode& mutable_node = const_cast<detail::DisplayNode&>(node);
-        sk_sp<SkTextBlob> blob{};
-        if (mutable_node.glyphs.empty()) {
-            ReleaseGlyphBlobCache(mutable_node);
-        } else if (
-            mutable_node.cached_glyph_blob != nullptr &&
-            mutable_node.cached_glyph_blob_version == mutable_node.glyph_blob_version) {
-            TouchGlyphBlobCache(mutable_node);
-            blob = mutable_node.cached_glyph_blob;
-        } else {
-            StoreGlyphBlobCache(mutable_node, BuildGlyphBlob(mutable_node, fonts));
-            blob = mutable_node.cached_glyph_blob;
-        }
-        if (blob) {
-            if (node.fade_edge != ED_FADE_NONE) {
-                canvas->saveLayer(nullptr, nullptr);
-            }
-            SkPaint glyph_paint;
-            glyph_paint.setAntiAlias(true);
-            glyph_paint.setColor(ToSkColor(node.glyph_color));
-            canvas->drawTextBlob(blob, node.visual_bounds.x, node.visual_bounds.y, glyph_paint);
-            if (node.fade_edge != ED_FADE_NONE) {
-                ApplyFadeMask(canvas, node);
-                canvas->restore();
-            }
-        }
-        }
-    }
+    DrawTextContent(canvas, node, node.visual_bounds.x, node.visual_bounds.y, true, true);
 
     if (IsCaretVisible(node, current_time_ms)) {
         SkPaint caret_paint;
@@ -862,6 +910,8 @@ void Engine::RenderToCanvas(SkCanvas* canvas, double current_time_ms) const {
     canvas->save();
     canvas->clear(SK_ColorTRANSPARENT);
     canvas->scale(impl_->dpr, impl_->dpr);
+    canvas->translate(impl_->viewport_offset_x, impl_->viewport_offset_y);
+    canvas->scale(impl_->viewport_scale, impl_->viewport_scale);
     impl_->render_generation += 1U;
 
     int save_depth = 1;

@@ -368,7 +368,7 @@ bool UiRuntime::TryBuildFragmentGeometrySliceFromLogicalLineShapeImpl(
 // metadata forward instead of throwing away the whole paragraph cache.
 bool UiRuntime::TryApplyIncrementalNonWrapLayoutCacheImpl(UINode& node, std::string_view previous_text) const {
     const bool disable_soft_wrap =
-        !node.text_wrap || (node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines == 1);
+        !node.text_wrap || (IsSingleLineEditorTextNode(node));
     const std::size_t line_count = node.break_offsets.size() > 1U ? (node.break_offsets.size() - 1U) : 0U;
     if (!node.is_text_node ||
         !disable_soft_wrap ||
@@ -826,6 +826,7 @@ bool UiRuntime::TryApplyIncrementalNonWrapLayoutCacheImpl(UINode& node, std::str
                     full_shape.height,
                     full_shape.baseline,
                     IsAsciiOnly(next_text),
+                    next_text.find('\t') != std::string_view::npos,
                     false,
                     {},
                     {},

@@ -92,6 +92,9 @@ bool AppendClipboardSelectionParts(
     std::uint32_t start,
     std::uint32_t end,
     std::vector<ClipboardRichTextPart>& out_parts) {
+    if (node.is_obscured) {
+        return false;
+    }
     const std::uint32_t text_length = static_cast<std::uint32_t>(node.text_content.size());
     const std::uint32_t clamped_start = std::min(start, text_length);
     const std::uint32_t clamped_end = std::min(std::max(clamped_start, end), text_length);
@@ -197,6 +200,11 @@ bool UiRuntime::BuildSelectionClipboardRichPayload(
     std::uint32_t end,
     std::string& out_plain_text,
     std::string& out_rich_json) const {
+    if (node.is_obscured) {
+        out_plain_text.clear();
+        out_rich_json.clear();
+        return false;
+    }
     const std::uint32_t text_length = static_cast<std::uint32_t>(node.text_content.size());
     const std::uint32_t clamped_start = std::min(start, text_length);
     const std::uint32_t clamped_end = std::min(std::max(clamped_start, end), text_length);
@@ -243,7 +251,7 @@ bool UiRuntime::BuildCrossSelectionRichPayload(std::string& out_plain_text, std:
     std::vector<ClipboardRichTextPart> parts{};
     for (int index = first_index; index <= last_index; index += 1) {
         const UINode* node = Resolve(selection_area_nodes_[static_cast<std::size_t>(index)]);
-        if (node == nullptr) {
+        if (node == nullptr || node->is_obscured) {
             continue;
         }
 

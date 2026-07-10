@@ -8,11 +8,6 @@ export {
   getCanvasSizeSource,
   readCanvasLogicalSize,
 } from './events/canvas-geometry';
-import {
-  ensureCanvasLogicalSize,
-  getCanvasSizeSource,
-  readCanvasLogicalSize,
-} from './events/canvas-geometry';
 import { installKeyAndWindowHandlers } from './events/key-router';
 import { installPointerHandlers } from './events/pointer-router';
 
@@ -22,7 +17,7 @@ function detectCoarsePointerMode(): boolean {
 
 export function installEventHandlers(runtime: BridgeRuntime, interactionState: BridgeInteractionState): () => void {
   const { canvas, ui } = runtime;
-  const desktopFindDialog = new DesktopFindDialogController(runtime, canvas);
+  const desktopFindDialog = new DesktopFindDialogController(runtime);
   const pullToRefresh = createPullToRefreshOverlay();
   const coarsePointerQuery = window.matchMedia('(pointer: coarse)');
 
@@ -39,7 +34,7 @@ export function installEventHandlers(runtime: BridgeRuntime, interactionState: B
 
   updateCoarsePointerMode();
   updatePlatformFamily();
-  coarsePointerQuery.addEventListener?.('change', updateCoarsePointerMode);
+  coarsePointerQuery.addEventListener('change', updateCoarsePointerMode);
 
   const removePointerHandlers = installPointerHandlers(runtime, interactionState, pullToRefresh);
   const removeKeyAndWindowHandlers = installKeyAndWindowHandlers(runtime, interactionState, desktopFindDialog);
@@ -49,6 +44,6 @@ export function installEventHandlers(runtime: BridgeRuntime, interactionState: B
     removePointerHandlers();
     desktopFindDialog.destroy();
     pullToRefresh.destroy();
-    coarsePointerQuery.removeEventListener?.('change', updateCoarsePointerMode);
+    coarsePointerQuery.removeEventListener('change', updateCoarsePointerMode);
   };
 }

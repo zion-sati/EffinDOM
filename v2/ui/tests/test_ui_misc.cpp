@@ -13,6 +13,10 @@ TEST_CASE("v2 ui commit without a root flushes pending creates and empty scene c
     CHECK(ui_get_semantic_buffer(&empty_semantic_word_count) == nullptr);
     CHECK(empty_semantic_word_count == 0U);
     CHECK(ui_get_semantic_buffer(nullptr) == nullptr);
+    std::uint32_t empty_debug_tree_word_count = 66U;
+    CHECK(ui_get_debug_tree_buffer(&empty_debug_tree_word_count) == nullptr);
+    CHECK(empty_debug_tree_word_count == 0U);
+    CHECK(ui_get_debug_tree_buffer(nullptr) == nullptr);
 
     const std::uint64_t handle = ui_create_node(UI_NODE_FLEX_BOX);
     REQUIRE(handle != UI_INVALID_HANDLE);
@@ -28,6 +32,7 @@ TEST_CASE("v2 ui commit without a root flushes pending creates and empty scene c
 
     CHECK(words == expected);
     CHECK(ReadSemanticBuffer() == std::vector<std::uint32_t>{0U});
+    CHECK(ReadDebugTreeBuffer() == std::vector<std::uint32_t>{kDebugTreeMagic, kDebugTreeVersion, kDebugTreeFixedRecordWords, 0U});
 }
 
 
@@ -47,8 +52,8 @@ TEST_CASE("v2 ui yoga layout centres two children in a row", "[v2][ui][layout]")
     ui_set_root(root);
     ui_set_width(root, 800.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 600.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
-    ui_set_justify_content(root, 2U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
+    ui_set_justify_content(root, UI_JUSTIFY_CENTER);
 
     ui_set_width(child1, 100.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(child1, 100.0f, UI_SIZE_UNIT_PIXEL);
@@ -95,7 +100,7 @@ TEST_CASE("v2 ui positions flex children using margins", "[v2][ui][layout]") {
     ui_resize_window(240.0f, 120.0f);
     ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
     ui_set_width(first, 20.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(first, 20.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(second, 30.0f, UI_SIZE_UNIT_PIXEL);
@@ -135,7 +140,7 @@ TEST_CASE("v2 ui fill sizing respects padding and margins", "[v2][ui][layout]") 
     ui_resize_window(200.0f, 100.0f);
     ui_set_width(root, 200.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
     ui_set_padding(root, 10.0f, 10.0f, 10.0f, 10.0f);
 
     ui_set_width(fixed, 50.0f, UI_SIZE_UNIT_PIXEL);
@@ -213,7 +218,7 @@ TEST_CASE("v2 ui percent height sizes the box while fill height uses offered spa
     ui_resize_window(200.0f, 220.0f);
     ui_set_width(root, 200.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 220.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 0U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_COLUMN);
     ui_set_padding(root, 10.0f, 10.0f, 10.0f, 10.0f);
 
     ui_set_height(fixed, 40.0f, UI_SIZE_UNIT_PIXEL);
@@ -275,7 +280,7 @@ TEST_CASE("v2 ui available-space percent fill resolves against offered space and
     ui_resize_window(240.0f, 140.0f);
     ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 140.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
     ui_set_padding(root, 10.0f, 10.0f, 10.0f, 10.0f);
 
     ui_set_width(fixed, 40.0f, UI_SIZE_UNIT_PIXEL);
@@ -313,7 +318,7 @@ TEST_CASE("v2 ui percent min and max clamps apply during layout", "[v2][ui][layo
     ui_resize_window(220.0f, 140.0f);
     ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 140.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
     ui_set_padding(root, 10.0f, 10.0f, 10.0f, 10.0f);
 
     ui_set_width(fixed, 20.0f, UI_SIZE_UNIT_PIXEL);
@@ -350,7 +355,7 @@ TEST_CASE("v2 ui switching sizing modes clears stale axis state", "[v2][ui][layo
     ui_resize_window(200.0f, 120.0f);
     ui_set_width(root, 200.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
     ui_set_padding(root, 10.0f, 10.0f, 10.0f, 10.0f);
 
     ui_set_width(fixed, 40.0f, UI_SIZE_UNIT_PIXEL);
@@ -394,7 +399,7 @@ TEST_CASE("v2 ui switching height sizing modes clears stale axis state", "[v2][u
     ui_resize_window(160.0f, 220.0f);
     ui_set_width(root, 160.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 220.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 0U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_COLUMN);
     ui_set_padding(root, 10.0f, 10.0f, 10.0f, 10.0f);
 
     ui_set_height(fixed, 40.0f, UI_SIZE_UNIT_PIXEL);
@@ -444,7 +449,7 @@ TEST_CASE("v2 ui align-self can opt a child out of implicit cross-axis stretch",
     ui_resize_window(240.0f, 120.0f);
     ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 0U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_COLUMN);
 
     ui_set_height(stretched, 12.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_align_self(child, UI_ALIGN_SELF_START);
@@ -488,7 +493,7 @@ TEST_CASE("v2 ui updates bottom fade after dynamic overflow changes", "[v2][ui][
     ui_set_width(text, 60.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_font(text, 1U, 20.0f);
     ui_set_text_limits(text, 0, 2);
-    ui_set_text_overflow(text, effindom::v2::ui::OVERFLOW_CLIP);
+    ui_set_text_overflow(text, UI_TEXT_OVERFLOW_CLIP);
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
     ui_node_add_child(root, text);
 
@@ -497,7 +502,7 @@ TEST_CASE("v2 ui updates bottom fade after dynamic overflow changes", "[v2][ui][
     REQUIRE(fades.find(text) != fades.end());
     CHECK(fades.at(text) == ED_FADE_NONE);
 
-    ui_set_text_overflow(text, effindom::v2::ui::OVERFLOW_FADE);
+    ui_set_text_overflow(text, UI_TEXT_OVERFLOW_FADE);
     ui_commit_frame();
     fades = ReadTextFades(ReadCommandBuffer());
     REQUIRE(fades.find(text) != fades.end());
@@ -526,7 +531,6 @@ TEST_CASE("v2 ui decodes WOFF2 fallback shards before shaping", "[v2][ui][layout
         CHECK(glyph.font_id == 42U);
     }
 }
-
 
 TEST_CASE("v2 ui can unregister fallback shards and restore missing coverage reporting", "[v2][ui][layout][text][tofu-phase4]") {
     using effindom::v2::ui::GetRuntime;
@@ -740,7 +744,7 @@ TEST_CASE("v2 ui visibility hidden keeps layout while collapsed removes layout f
     ui_set_root(root);
     ui_set_width(root, 180.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 40.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
 
     ui_set_width(first, 40.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(first, 20.0f, UI_SIZE_UNIT_PIXEL);
@@ -806,11 +810,35 @@ TEST_CASE("v2 ui current-selection helpers cover cross-selection hit testing, co
     const auto [start_x, _] = GetRuntime().GetLocalPositionFromIndex(*first_node, 0U);
     const auto [end_x, __] = GetRuntime().GetLocalPositionFromIndex(*second_node, 4U);
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
-    ui_set_key_modifiers(UI_KEY_MOD_SHIFT);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, second, second_node->abs_x + end_x, second_node->abs_y + (second_node->line_height * 0.5f));
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, second, second_node->abs_x + end_x, second_node->abs_y + (second_node->line_height * 0.5f));
-    ui_set_key_modifiers(0U);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_DOWN,
+        second,
+        second_node->abs_x + end_x,
+        second_node->abs_y + (second_node->line_height * 0.5f),
+        -1,
+        UI_POINTER_TYPE_MOUSE,
+        0,
+        0,
+        0.0f,
+        0.0f,
+        0.0f,
+        0,
+        UI_KEY_MOD_SHIFT);
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_UP,
+        second,
+        second_node->abs_x + end_x,
+        second_node->abs_y + (second_node->line_height * 0.5f),
+        -1,
+        UI_POINTER_TYPE_MOUSE,
+        0,
+        0,
+        0.0f,
+        0.0f,
+        0.0f,
+        0,
+        UI_KEY_MOD_SHIFT);
 
     REQUIRE(GetRuntime().cross_selection_active_);
     const auto [probe_local_x, probe_line] = GetRuntime().GetLocalPositionFromIndex(*second_node, 2U);
@@ -878,11 +906,35 @@ TEST_CASE("v2 ui cross-selection copy emits rich clipboard payloads when styled 
     const auto [start_x, _] = GetRuntime().GetLocalPositionFromIndex(*first_node, 0U);
     const auto [end_x, __] = GetRuntime().GetLocalPositionFromIndex(*second_node, 4U);
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
-    ui_set_key_modifiers(UI_KEY_MOD_SHIFT);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, second, second_node->abs_x + end_x, second_node->abs_y + (second_node->line_height * 0.5f));
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, second, second_node->abs_x + end_x, second_node->abs_y + (second_node->line_height * 0.5f));
-    ui_set_key_modifiers(0U);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_DOWN,
+        second,
+        second_node->abs_x + end_x,
+        second_node->abs_y + (second_node->line_height * 0.5f),
+        -1,
+        UI_POINTER_TYPE_MOUSE,
+        0,
+        0,
+        0.0f,
+        0.0f,
+        0.0f,
+        0,
+        UI_KEY_MOD_SHIFT);
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_UP,
+        second,
+        second_node->abs_x + end_x,
+        second_node->abs_y + (second_node->line_height * 0.5f),
+        -1,
+        UI_POINTER_TYPE_MOUSE,
+        0,
+        0,
+        0.0f,
+        0.0f,
+        0.0f,
+        0,
+        UI_KEY_MOD_SHIFT);
 
     REQUIRE(GetRuntime().cross_selection_active_);
     ResetInteractionLogs();
@@ -952,7 +1004,7 @@ TEST_CASE("v2 ui cross-node keyboard extension traverses adjacent nodes", "[v2][
     CHECK(GetRuntime().end_node_handle_ == second);
     CHECK(GetRuntime().end_index_ == 0U);
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, root, 2.0f, 2.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, root, 2.0f, 2.0f);
     second_mut->selection_start = 3U;
     second_mut->selection_end = 3U;
     GetRuntime().SetFocus(second);
@@ -986,7 +1038,7 @@ TEST_CASE("v2 ui cross-selection helpers cover invalid state and direct endpoint
     ui_set_selection_area(area, true);
     ui_set_width(area, 240.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(area, 120.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(area, 1U);
+    ui_set_flex_direction(area, UI_FLEX_DIRECTION_ROW);
     for (const std::uint64_t child : {first, second}) {
         ui_set_width(child, 100.0f, UI_SIZE_UNIT_PIXEL);
         ui_set_font(child, 1U, 20.0f);
@@ -1426,4 +1478,3 @@ TEST_CASE("v2 ui selection-area invalidation clears cross-selection on tree muta
 
     CHECK_FALSE(runtime.SetSelectionArea(UI_INVALID_HANDLE, true));
 }
-

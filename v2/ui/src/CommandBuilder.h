@@ -189,11 +189,18 @@ public:
         PushFloat(spread);
     }
 
-    void SetImage(std::uint64_t handle, std::uint32_t texture_id, std::uint32_t object_fit) {
+    void SetImage(
+        std::uint64_t handle,
+        std::uint32_t texture_id,
+        std::uint32_t object_fit,
+        std::uint32_t sampling = ED_IMAGE_SAMPLING_LINEAR,
+        std::uint32_t max_aniso = 0) {
         words_.push_back(CMD_SET_IMAGE);
         PushHandle(handle);
         words_.push_back(texture_id);
         words_.push_back(object_fit);
+        words_.push_back(sampling);
+        words_.push_back(max_aniso);
     }
 
     void SetImageNine(
@@ -202,7 +209,9 @@ public:
         float inset_left,
         float inset_top,
         float inset_right,
-        float inset_bottom) {
+        float inset_bottom,
+        std::uint32_t sampling = ED_IMAGE_SAMPLING_LINEAR,
+        std::uint32_t max_aniso = 0) {
         words_.push_back(CMD_SET_IMAGE_NINE);
         PushHandle(handle);
         words_.push_back(texture_id);
@@ -210,13 +219,22 @@ public:
         PushFloat(inset_top);
         PushFloat(inset_right);
         PushFloat(inset_bottom);
+        words_.push_back(sampling);
+        words_.push_back(max_aniso);
     }
 
-    void SetSvg(std::uint64_t handle, std::uint32_t svg_id, std::uint32_t tint_color) {
+    void SetSvg(
+        std::uint64_t handle,
+        std::uint32_t svg_id,
+        std::uint32_t tint_color,
+        std::uint32_t sampling = ED_IMAGE_SAMPLING_LINEAR,
+        std::uint32_t max_aniso = 0) {
         words_.push_back(CMD_SET_SVG);
         PushHandle(handle);
         words_.push_back(svg_id);
         words_.push_back(tint_color);
+        words_.push_back(sampling);
+        words_.push_back(max_aniso);
     }
 
     void SetGlyphRun(
@@ -255,6 +273,26 @@ public:
             PushFloat(glyph.y);
             words_.push_back(glyph.font_id != 0U ? glyph.font_id : font_id);
             words_.push_back(glyph.color);
+        }
+    }
+
+    void SetGlyphRunStyled(
+        std::uint64_t handle,
+        std::uint32_t font_id,
+        float font_size,
+        const std::vector<GlyphPlacement>& glyphs) {
+        words_.push_back(CMD_SET_GLYPH_RUN_STYLED);
+        PushHandle(handle);
+        words_.push_back(font_id);
+        PushFloat(font_size);
+        words_.push_back(static_cast<std::uint32_t>(glyphs.size()));
+        for (const GlyphPlacement& glyph : glyphs) {
+            words_.push_back(glyph.glyph_id);
+            PushFloat(glyph.x);
+            PushFloat(glyph.y);
+            words_.push_back(glyph.font_id != 0U ? glyph.font_id : font_id);
+            words_.push_back(glyph.color);
+            PushFloat(glyph.font_size > 0.0f ? glyph.font_size : font_size);
         }
     }
 

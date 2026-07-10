@@ -12,6 +12,10 @@ export interface TouchGestureState {
   startY: number;
   lastX: number;
   lastY: number;
+  startScreenX: number;
+  startScreenY: number;
+  lastScreenX: number;
+  lastScreenY: number;
   startedOnTextbox: boolean;
   pendingTapTextHandle: bigint | null;
   axisMode: 'x' | 'y' | 'xy' | null;
@@ -28,6 +32,8 @@ export type TouchGestureEvent =
       pointerId: number;
       x: number;
       y: number;
+      screenX: number;
+      screenY: number;
       startedOnTextbox: boolean;
       pendingTextHandle: bigint | null;
     }
@@ -35,6 +41,8 @@ export type TouchGestureEvent =
       type: 'move';
       x: number;
       y: number;
+      screenX: number;
+      screenY: number;
     }
   | {
       type: 'scroll-threshold-crossed';
@@ -74,6 +82,10 @@ export function transitionTouchGesture(
         startY: event.y,
         lastX: event.x,
         lastY: event.y,
+        startScreenX: event.screenX,
+        startScreenY: event.screenY,
+        lastScreenX: event.screenX,
+        lastScreenY: event.screenY,
         startedOnTextbox: event.startedOnTextbox,
         pendingTapTextHandle: event.pendingTextHandle,
         axisMode: null,
@@ -103,6 +115,8 @@ export function transitionTouchGesture(
             ...state,
             lastX: event.x,
             lastY: event.y,
+            lastScreenX: event.screenX,
+            lastScreenY: event.screenY,
           };
         }
         case 'cancel':
@@ -122,6 +136,8 @@ export function transitionTouchGesture(
             ...state,
             lastX: event.x,
             lastY: event.y,
+            lastScreenX: event.screenX,
+            lastScreenY: event.screenY,
           };
         }
         case 'axis-unlocked': {

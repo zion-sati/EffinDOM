@@ -31,17 +31,17 @@ TEST_CASE("v2 ui collapsed cross-selection inside a selection area clears select
     REQUIRE(drag_start_line == 0);
     REQUIRE(caret_line == 0);
 
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         text,
         text_node->abs_x + drag_start_x + 0.5f,
         text_node->abs_y + (text_node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_MOVE,
         text,
         text_node->abs_x + caret_x + 0.5f,
         text_node->abs_y + (text_node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_UP,
         text,
         text_node->abs_x + caret_x + 0.5f,
@@ -52,12 +52,12 @@ TEST_CASE("v2 ui collapsed cross-selection inside a selection area clears select
     REQUIRE(highlights.find(text) != highlights.end());
     CHECK_FALSE(highlights.at(text).rects.empty());
 
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         text,
         text_node->abs_x + caret_x + 0.5f,
         text_node->abs_y + (text_node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_UP,
         text,
         text_node->abs_x + caret_x + 0.5f,
@@ -119,14 +119,14 @@ TEST_CASE("v2 ui pointer cross-selection switches between selection areas", "[v2
     REQUIRE(node_a != nullptr);
     REQUIRE(node_b != nullptr);
 
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         text_a,
         node_a->abs_x + 1.0f,
         node_a->abs_y + (node_a->line_height * 0.5f));
     CHECK(GetRuntime().selection_area_handle_ == area_a);
 
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         text_b,
         node_b->abs_x + 1.0f,

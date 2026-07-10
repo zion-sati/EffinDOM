@@ -1,9 +1,13 @@
 #include "UiRuntime.h"
 
+#include "CommandBuilder.h"
+
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstring>
 #include <memory>
+#include <limits>
 #include <unordered_map>
 
 #include <hb-ot.h>
@@ -330,13 +334,17 @@ void UiRuntime::InvalidateTextLayoutCache(UINode& node, bool preserve_logical_li
     node.text_render_line_end = 0U;
 }
 
+void UiRuntime::ClearDynamicTextFastPathCache(UINode& node) const {
+    node.dynamic_text_glyph_cache.clear();
+}
+
 bool UiRuntime::SetText(std::uint64_t handle, const std::uint8_t* utf8_str, std::uint32_t len) {
     UINode* node = ResolveMutable(handle);
     if (node == nullptr || !node->is_text_node || (utf8_str == nullptr && len > 0U)) {
         return false;
     }
     const bool should_emit_text_state =
-        node->is_editable || node->semantic_role == UI_SEMANTIC_TEXTBOX;
+        node->is_editable || IsEditorTextNode(*node);
     if (len == 0U) {
         node->text_content.clear();
     } else {
@@ -376,6 +384,36 @@ bool UiRuntime::SetText(std::uint64_t handle, const std::uint8_t* utf8_str, std:
     return true;
 }
 
+bool UiRuntime::SetDynamicTextCharset(std::uint64_t handle, const std::uint8_t* utf8_charset, std::uint32_t len) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || !node->is_text_node || (utf8_charset == nullptr && len > 0U)) {
+        return false;
+    }
+
+    std::string charset{};
+    if (len > 0U) {
+        charset.assign(
+            reinterpret_cast<const char*>(utf8_charset),
+            reinterpret_cast<const char*>(utf8_charset) + len);
+    }
+
+    if (node->dynamic_text_fast_path_enabled &&
+        node->dynamic_text_charset == charset) {
+        return true;
+    }
+
+    node->dynamic_text_fast_path_enabled = true;
+    node->dynamic_text_charset = std::move(charset);
+    ClearDynamicTextFastPathCache(*node);
+    InvalidateTextLayoutCache(*node);
+    if (node->yg_node != nullptr) {
+        YGNodeMarkDirty(node->yg_node);
+    }
+    node->is_dirty = true;
+    layout_dirty_ = true;
+    return true;
+}
+
 bool UiRuntime::SetTextStyleRuns(std::uint64_t handle, std::uint32_t run_count, const std::uint32_t* runs_words) {
     UINode* node = ResolveMutable(handle);
     if (node == nullptr || !node->is_text_node || (run_count > 0U && runs_words == nullptr)) {
@@ -412,6 +450,7 @@ bool UiRuntime::SetTextStyleRuns(std::uint64_t handle, std::uint32_t run_count, 
             }
             return lhs.end < rhs.end;
         });
+    ClearDynamicTextFastPathCache(*node);
     InvalidateTextLayoutCache(*node);
     if (node->yg_node != nullptr) {
         YGNodeMarkDirty(node->yg_node);
@@ -428,6 +467,7 @@ bool UiRuntime::SetFont(std::uint64_t handle, std::uint32_t font_id, float size)
     }
     node->font_id = font_id;
     node->font_size = std::max(size, 1.0f);
+    ClearDynamicTextFastPathCache(*node);
     InvalidateTextLayoutCache(*node);
     if (node->yg_node != nullptr) {
         YGNodeMarkDirty(node->yg_node);
@@ -473,7 +513,7 @@ bool UiRuntime::SetTextColor(std::uint64_t handle, std::uint32_t color) {
 bool UiRuntime::SetTextAlign(std::uint64_t handle, std::uint32_t align_enum) {
     UINode* node = ResolveMutable(handle);
     if (node == nullptr || !node->is_text_node ||
-        (align_enum != ALIGN_LEFT && align_enum != ALIGN_CENTER && align_enum != ALIGN_RIGHT)) {
+        (align_enum != UI_TEXT_ALIGN_LEFT && align_enum != UI_TEXT_ALIGN_CENTER && align_enum != UI_TEXT_ALIGN_RIGHT)) {
         return false;
     }
     if (node->text_align == align_enum) {
@@ -488,9 +528,9 @@ bool UiRuntime::SetTextAlign(std::uint64_t handle, std::uint32_t align_enum) {
 bool UiRuntime::SetTextVerticalAlign(std::uint64_t handle, std::uint32_t align_enum) {
     UINode* node = ResolveMutable(handle);
     if (node == nullptr || !node->is_text_node ||
-        (align_enum != VERTICAL_ALIGN_TOP &&
-         align_enum != VERTICAL_ALIGN_CENTER &&
-         align_enum != VERTICAL_ALIGN_BOTTOM)) {
+        (align_enum != UI_TEXT_VERTICAL_ALIGN_TOP &&
+         align_enum != UI_TEXT_VERTICAL_ALIGN_CENTER &&
+         align_enum != UI_TEXT_VERTICAL_ALIGN_BOTTOM)) {
         return false;
     }
     if (node->text_vertical_align == align_enum) {
@@ -536,7 +576,7 @@ bool UiRuntime::SetTextWrapping(std::uint64_t handle, bool wrap) {
 bool UiRuntime::SetTextOverflow(std::uint64_t handle, std::uint32_t overflow_enum) {
     UINode* node = ResolveMutable(handle);
     if (node == nullptr || !node->is_text_node ||
-        (overflow_enum != OVERFLOW_CLIP && overflow_enum != OVERFLOW_ELLIPSIS && overflow_enum != OVERFLOW_FADE)) {
+        (overflow_enum != UI_TEXT_OVERFLOW_CLIP && overflow_enum != UI_TEXT_OVERFLOW_ELLIPSIS && overflow_enum != UI_TEXT_OVERFLOW_FADE)) {
         return false;
     }
     if (node->text_overflow == overflow_enum) {
@@ -569,6 +609,7 @@ bool UiRuntime::SetTextObscured(std::uint64_t handle, bool is_password) {
         return false;
     }
     node->is_obscured = is_password;
+    ClearDynamicTextFastPathCache(*node);
     InvalidateTextLayoutCache(*node);
     node->is_dirty = true;
     return true;
@@ -692,6 +733,7 @@ void UiRuntime::InvalidateAllTextLayoutForFontChange() {
         if (!node.is_active || !node.is_text_node) {
             continue;
         }
+        ClearDynamicTextFastPathCache(node);
         InvalidateTextLayoutCache(node);
         node.is_dirty = true;
         if (node.yg_node != nullptr) {
@@ -853,7 +895,8 @@ bool UiRuntime::TryGetCachedNonWrapGeometrySliceForIndex(
     std::uint32_t byte_index,
     FragmentGeometrySlice& out) const {
     for (const CachedNonWrapGeometrySlice& cached : node.cached_nonwrap_geometry_slices) {
-        if (cached.line_index != line_index ||
+        if (cached.fragment_generation != node.nonwrap_fragment_cache_generation ||
+            cached.line_index != line_index ||
             byte_index < cached.slice_start ||
             byte_index > cached.slice_end) {
             continue;
@@ -884,7 +927,8 @@ bool UiRuntime::TryGetCachedNonWrapGeometrySliceForX(
     FragmentGeometrySlice& out) const {
     for (const CachedNonWrapGeometrySlice& cached : node.cached_nonwrap_geometry_slices) {
         const float cached_right = cached.slice_x + cached.shaped_width;
-        if (cached.line_index != line_index ||
+        if (cached.fragment_generation != node.nonwrap_fragment_cache_generation ||
+            cached.line_index != line_index ||
             aligned_x < cached.slice_x ||
             aligned_x > cached_right) {
             continue;
@@ -910,6 +954,7 @@ bool UiRuntime::TryGetCachedNonWrapGeometrySliceForX(
 
 void UiRuntime::StoreCachedNonWrapGeometrySlice(UINode& node, std::size_t line_index, const FragmentGeometrySlice& slice) const {
     CachedNonWrapGeometrySlice cached{};
+    cached.fragment_generation = node.nonwrap_fragment_cache_generation;
     cached.line_index = line_index;
     cached.line_start = slice.line_start;
     cached.line_end = slice.line_end;
@@ -928,8 +973,9 @@ void UiRuntime::StoreCachedNonWrapGeometrySlice(UINode& node, std::size_t line_i
     auto existing = std::find_if(
         node.cached_nonwrap_geometry_slices.begin(),
         node.cached_nonwrap_geometry_slices.end(),
-        [line_index](const CachedNonWrapGeometrySlice& entry) {
-            return entry.line_index == line_index;
+        [&node, line_index](const CachedNonWrapGeometrySlice& entry) {
+            return entry.fragment_generation == node.nonwrap_fragment_cache_generation &&
+                entry.line_index == line_index;
         });
     if (existing != node.cached_nonwrap_geometry_slices.end()) {
         *existing = std::move(cached);
@@ -1104,6 +1150,180 @@ std::vector<std::int32_t> UiRuntime::ComputeLineBreaks(
     float font_size,
     bool obscured) const {
     return ComputeLineBreaksImpl(utf8, max_width, font_id, font_size, obscured);
+}
+
+void UiRuntime::AppendResolvedGlyphPlacements(
+    const UINode& node,
+    const ShapedTextRun& shaped,
+    float x,
+    float baseline_y,
+    std::vector<GlyphPlacement>& out) const {
+    for (const GlyphPlacement& glyph : shaped.glyphs) {
+        out.push_back(GlyphPlacement{
+            glyph.glyph_id,
+            x + glyph.x,
+            baseline_y - glyph.y,
+            glyph.cluster,
+            glyph.font_id,
+            glyph.color != 0U ? glyph.color : node.text_color,
+            glyph.font_size > 0.0f ? glyph.font_size : node.font_size,
+        });
+    }
+}
+
+void UiRuntime::EmitTextGlyphRun(
+    CommandBuilder& builder,
+    std::uint64_t handle,
+    const UINode& node,
+    const std::vector<GlyphPlacement>& glyphs) const {
+    const bool has_per_glyph_color = std::any_of(
+        glyphs.begin(),
+        glyphs.end(),
+        [&node](const GlyphPlacement& glyph) {
+            return glyph.color != 0U && glyph.color != node.text_color;
+        });
+    const bool has_per_glyph_font_size = std::any_of(
+        glyphs.begin(),
+        glyphs.end(),
+        [&node](const GlyphPlacement& glyph) {
+            return glyph.font_size > 0.0f && std::abs(glyph.font_size - node.font_size) >= 0.001f;
+        });
+    if (has_per_glyph_font_size) {
+        builder.SetGlyphRunStyled(handle, node.font_id, node.font_size, glyphs);
+    } else if (has_per_glyph_color) {
+        builder.SetGlyphRunColored(handle, node.font_id, node.font_size, glyphs);
+    } else {
+        builder.SetGlyphRun(handle, node.font_id, node.font_size, node.text_color, glyphs);
+    }
+}
+
+UiRuntime::TextRenderPlan UiRuntime::BuildPreparedTextRenderPlan(
+    const UINode& node,
+    const ParagraphLayout& paragraph,
+    float width) const {
+    TextRenderPlan plan{};
+    plan.width = width;
+    float line_y = 0.0f;
+    for (std::size_t i = 0; i < paragraph.visible_line_count; ++i) {
+        const std::int32_t start = paragraph.break_offsets[i];
+        const std::int32_t end = paragraph.break_offsets[i + 1U];
+        if (start < 0 || end <= start) {
+            continue;
+        }
+
+        std::uint32_t line_start = static_cast<std::uint32_t>(start);
+        while (line_start < static_cast<std::uint32_t>(end)) {
+            const char ch = node.text_content[static_cast<std::size_t>(line_start)];
+            if (ch != '\n' && ch != '\r') {
+                break;
+            }
+            line_start += 1U;
+        }
+        if (line_start >= static_cast<std::uint32_t>(end)) {
+            line_y += paragraph.line_height;
+            continue;
+        }
+
+        ShapedTextRun shaped{};
+        if (!ShapeTextStyledRange(node, line_start, static_cast<std::uint32_t>(end), shaped)) {
+            continue;
+        }
+
+        const float full_line_width =
+            i < paragraph.line_widths.size() ? paragraph.line_widths[i] : 0.0f;
+        const float x_offset = GetAlignedLineXOffset(node, full_line_width);
+        const float line_ascent = i < paragraph.line_ascents.size()
+            ? paragraph.line_ascents[i] : shaped.ascent;
+        AppendResolvedGlyphPlacements(node, shaped, x_offset, line_y + line_ascent, plan.glyphs);
+        line_y += paragraph.line_height;
+    }
+    plan.height = line_y;
+    plan.style_highlights = BuildStyleInlineRects(node);
+    return plan;
+}
+
+bool UiRuntime::PrepareNode(std::uint64_t handle) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || !node->is_text_node) {
+        return false;
+    }
+
+    const auto prepare_start = std::chrono::steady_clock::now();
+    ResetCurrentDynamicTextPrepareProfile();
+
+    // Determine layout width — explicit Yoga width or unlimited
+    float max_width = 100000.0f;
+    if (node->yg_node != nullptr) {
+        const YGValue w = YGNodeStyleGetWidth(node->yg_node);
+        if (w.unit == YGUnitPoint && w.value > 0.0f) {
+            max_width = w.value;
+        }
+    }
+
+    // Run paragraph layout
+    const ParagraphLayout paragraph = LayoutParagraph(*node, max_width);
+
+    // Store line metrics
+    node->break_offsets = paragraph.break_offsets;
+    node->line_widths = paragraph.line_widths;
+    node->line_height = paragraph.line_height;
+    node->visible_line_count = paragraph.visible_line_count;
+    node->total_line_count = paragraph.total_line_count;
+
+    const TextRenderPlan plan = BuildPreparedTextRenderPlan(*node, paragraph, max_width);
+
+    // Ensure the engine knows about this node before setting glyphs
+    CommandBuilder builder(pending_prepare_commands_);
+    builder.CreateNode(handle);
+    builder.SetBounds(handle, 0.0f, 0.0f, plan.width, plan.height);
+    if (!plan.style_highlights.empty()) {
+        builder.SetHighlightsColored(handle, plan.style_highlights);
+    }
+    EmitTextGlyphRun(builder, handle, *node, plan.glyphs);
+
+    FinishCurrentDynamicTextPrepareProfile(
+        std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - prepare_start).count());
+    return true;
+}
+
+bool UiRuntime::GetTextMetrics(
+    std::uint64_t handle,
+    float* out_width,
+    float* out_height,
+    float* out_baseline,
+    std::uint32_t* out_line_count,
+    float* out_max_line_width) const {
+    const UINode* node = Resolve(handle);
+    if (node == nullptr || !node->is_text_node || !node->text_layout_cache_valid) {
+        return false;
+    }
+
+    const std::size_t visible_lines = node->visible_line_count;
+    const float max_line_width = std::max(0.0f, node->text_layout_cache_max_line_width);
+    const float height = visible_lines < node->line_y_offsets.size()
+        ? std::max(0.0f, node->line_y_offsets[visible_lines])
+        : static_cast<float>(visible_lines) * std::max(0.0f, node->line_height);
+    const float baseline = !node->line_ascents.empty()
+        ? std::max(0.0f, node->line_ascents.front())
+        : std::max(0.0f, node->font_size);
+
+    if (out_width != nullptr) {
+        *out_width = max_line_width;
+    }
+    if (out_height != nullptr) {
+        *out_height = height;
+    }
+    if (out_baseline != nullptr) {
+        *out_baseline = baseline;
+    }
+    if (out_line_count != nullptr) {
+        *out_line_count = static_cast<std::uint32_t>(
+            std::min<std::size_t>(visible_lines, static_cast<std::size_t>(std::numeric_limits<std::uint32_t>::max())));
+    }
+    if (out_max_line_width != nullptr) {
+        *out_max_line_width = max_line_width;
+    }
+    return true;
 }
 
 } // namespace effindom::v2::ui

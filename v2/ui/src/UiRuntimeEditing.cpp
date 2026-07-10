@@ -78,6 +78,24 @@ bool IsLineBreakByte(char ch) {
     return ch == '\n' || ch == '\r';
 }
 
+bool IsSoftWrappedLineBoundary(const UINode& node, std::uint32_t pos) {
+    if (!node.text_wrap || node.break_offsets.size() < 3U) {
+        return false;
+    }
+    const std::uint32_t text_length = static_cast<std::uint32_t>(node.text_content.size());
+    const std::uint32_t clamped = std::min<std::uint32_t>(pos, text_length);
+    if (clamped == 0U || clamped >= text_length) {
+        return false;
+    }
+    const auto it = std::lower_bound(
+        node.break_offsets.begin() + 1,
+        node.break_offsets.end() - 1,
+        static_cast<std::int32_t>(clamped));
+    return it != node.break_offsets.end() - 1 &&
+        *it == static_cast<std::int32_t>(clamped) &&
+        !IsLineBreakByte(node.text_content[clamped - 1U]);
+}
+
 std::vector<std::uint32_t> ComputeTextLineStartsForRange(
     std::string_view text,
     std::uint32_t start,
@@ -144,7 +162,9 @@ bool UiRuntime::SetSelectable(std::uint64_t handle, bool selectable, std::uint32
     if (!selectable) {
         node->selection_start = 0U;
         node->selection_end = 0U;
+        node->caret_trailing_edge = false;
         node->is_editable = false;
+        node->is_text_editor = false;
         ClearUndoHistory(*node);
         if (active_selection_handle_ == handle) {
             active_selection_handle_ = UI_INVALID_HANDLE;
@@ -162,8 +182,13 @@ bool UiRuntime::SetEditable(std::uint64_t handle, bool editable) {
 
     node->is_editable = editable;
     if (editable) {
+        const std::string previous_text = node->text_content;
+        node->is_text_editor = true;
         node->is_selectable = true;
         node->is_interactive = true;
+        if (ApplyAbsurdLineClamp(*node)) {
+            NotifyTextStateChanged(handle, *node, &previous_text);
+        }
     } else {
         ClearUndoHistory(*node);
     }
@@ -179,10 +204,6 @@ bool UiRuntime::SetCaretColor(std::uint64_t handle, std::uint32_t color) {
     node->caret_color = color;
     node->is_dirty = true;
     return true;
-}
-
-void UiRuntime::SetKeyModifiers(std::uint32_t modifiers) {
-    current_modifiers_ = modifiers;
 }
 
 void UiRuntime::SetInteractionTime(std::uint64_t interaction_time_ms) {
@@ -222,8 +243,12 @@ void UiRuntime::BeginUndoGroup(UINode& node) {
     node.undo_group_timestamp = interaction_time_ms_;
 }
 
-void UiRuntime::NotifyTextStateChanged(std::uint64_t handle, UINode& node, const std::string* previous_text) {
-    NotifyTextStateChangedImpl(handle, node, previous_text);
+void UiRuntime::NotifyTextStateChanged(
+    std::uint64_t handle,
+    UINode& node,
+    const std::string* previous_text,
+    const ExactTextReplaceNotification* exact_replace) {
+    NotifyTextStateChangedImpl(handle, node, previous_text, exact_replace);
 }
 
 bool UiRuntime::ApplyAbsurdLineClamp(UINode& node) const {
@@ -343,6 +368,7 @@ bool UiRuntime::UndoTextEdit(std::uint64_t handle, UINode& node) {
     node.text_content = std::move(entry.text);
     node.selection_start = entry.sel_start;
     node.selection_end = entry.sel_end;
+    node.caret_trailing_edge = false;
     (void)ApplyAbsurdLineClamp(node);
     node.undo_group_open = false;
     node.undo_group_timestamp = 0U;
@@ -366,6 +392,7 @@ bool UiRuntime::RedoTextEdit(std::uint64_t handle, UINode& node) {
     node.text_content = std::move(entry.text);
     node.selection_start = entry.sel_start;
     node.selection_end = entry.sel_end;
+    node.caret_trailing_edge = false;
     (void)ApplyAbsurdLineClamp(node);
     node.undo_group_open = false;
     node.undo_group_timestamp = 0U;
@@ -408,7 +435,7 @@ bool UiRuntime::RedoTextEditAtHandle(std::uint64_t handle) {
 
 bool UiRuntime::CopyTextSelection(std::uint64_t handle) const {
     const UINode* node = Resolve(handle);
-    if (node == nullptr || !node->is_text_node || !node->is_selectable || node->selection_start == node->selection_end) {
+    if (node == nullptr || !node->is_text_node || !node->is_selectable || node->is_obscured || node->selection_start == node->selection_end) {
         return false;
     }
     HandleCopy(*node);
@@ -417,7 +444,7 @@ bool UiRuntime::CopyTextSelection(std::uint64_t handle) const {
 
 bool UiRuntime::CutTextSelection(std::uint64_t handle) {
     UINode* node = ResolveMutable(handle);
-    if (node == nullptr || !node->is_text_node || !node->is_editable) {
+    if (node == nullptr || !node->is_text_node || !node->is_editable || node->is_obscured) {
         return false;
     }
     SetFocus(handle);
@@ -438,6 +465,18 @@ bool UiRuntime::PasteText(std::uint64_t handle) {
 }
 
 bool UiRuntime::SelectAllText(std::uint64_t handle) {
+    if (cross_selection_active_ && handle == selection_area_handle_) {
+        const UINode* focused_node = Resolve(focused_handle_);
+        if (focused_node != nullptr &&
+            focused_node->is_text_node &&
+            focused_node->is_selectable &&
+            !focused_node->text_content.empty()) {
+            handle = focused_handle_;
+        } else if (start_node_handle_ != UI_INVALID_HANDLE) {
+            handle = start_node_handle_;
+        }
+    }
+
     UINode* node = ResolveMutable(handle);
     if (node == nullptr || !node->is_text_node || !node->is_selectable || node->text_content.empty()) {
         return false;
@@ -485,6 +524,7 @@ bool UiRuntime::SelectAllText(std::uint64_t handle) {
     active_selection_dragged_ = false;
     node->selection_start = 0U;
     node->selection_end = static_cast<std::uint32_t>(node->text_content.size());
+    node->caret_trailing_edge = false;
     node->last_interaction_time = interaction_time_ms_;
     selection_anchor_handle_ = handle;
     selection_anchor_index_ = 0U;
@@ -492,6 +532,136 @@ bool UiRuntime::SelectAllText(std::uint64_t handle) {
     EnsureTextCaretVisible(handle, *node);
     pending_caret_visibility_handle_ = handle;
     as_on_selection_changed(handle, node->selection_start, node->selection_end);
+    return true;
+}
+
+bool UiRuntime::SelectWordAt(std::uint64_t handle, float logical_x, float logical_y) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || !node->is_text_node || !node->is_selectable || node->text_content.empty()) {
+        return false;
+    }
+    if (node->is_obscured) {
+        return SelectAllText(handle);
+    }
+
+    const std::uint32_t index = GetStringIndexFromPoint(*node, logical_x - node->abs_x, logical_y - node->abs_y);
+    const auto [word_start, word_end] = GetWordBoundaries(*node, index);
+    if (word_start == word_end) {
+        return false;
+    }
+
+    const std::uint64_t area_handle =
+        !node->is_editable ? FindSelectionAreaAncestor(handle) : static_cast<std::uint64_t>(UI_INVALID_HANDLE);
+    if (area_handle != UI_INVALID_HANDLE) {
+        if (cross_selection_active_ && selection_area_handle_ != area_handle) {
+            ClearCrossSelection(true);
+        }
+        if (active_selection_handle_ != UI_INVALID_HANDLE) {
+            ClearSelectionHighlight(active_selection_handle_, true);
+        }
+
+        SetFocus(handle);
+        EnsureSelectionAreaNodes(area_handle);
+        current_selection_hit_rects_.clear();
+        selection_horizontal_extend_active_ = false;
+        cross_selection_active_ = true;
+        cross_selection_dragged_ = false;
+        cross_selection_horizontal_extend_active_ = true;
+        selection_area_handle_ = area_handle;
+        start_node_handle_ = handle;
+        start_index_ = word_start;
+        end_node_handle_ = handle;
+        end_index_ = word_end;
+        touch_text_tap_handle_ = UI_INVALID_HANDLE;
+        touch_text_tap_moved_ = false;
+        active_selection_handle_ = UI_INVALID_HANDLE;
+        active_selection_dragged_ = false;
+        MarkSelectionAreaNodesDirty();
+        NotifyCrossSelectionChanged();
+        return true;
+    }
+
+    if (cross_selection_active_) {
+        ClearCrossSelection(true);
+    } else if (active_selection_handle_ != UI_INVALID_HANDLE && active_selection_handle_ != handle) {
+        ClearSelectionHighlight(active_selection_handle_, true);
+    }
+
+    const bool focus_unchanged = focused_handle_ == handle;
+    SetFocus(handle);
+    current_selection_hit_rects_.clear();
+    selection_horizontal_extend_active_ = true;
+    active_selection_handle_ = handle;
+    active_selection_dragged_ = false;
+    touch_text_tap_handle_ = UI_INVALID_HANDLE;
+    touch_text_tap_moved_ = false;
+    node->selection_start = word_start;
+    node->selection_end = word_end;
+    node->caret_trailing_edge = false;
+    node->last_interaction_time = interaction_time_ms_;
+    selection_anchor_handle_ = handle;
+    selection_anchor_index_ = node->selection_start;
+    MarkTextSelectionVisualsDirty(*node);
+    EnsureTextCaretVisible(handle, *node);
+    pending_caret_visibility_handle_ = handle;
+    if (focus_unchanged || word_start != word_end) {
+        as_on_selection_changed(handle, node->selection_start, node->selection_end);
+    }
+    return true;
+}
+
+bool UiRuntime::BeginSelectionEndpointDrag(std::uint64_t handle, std::uint32_t endpoint) {
+    constexpr std::uint32_t kEndpointStart = 0U;
+    constexpr std::uint32_t kEndpointEnd = 1U;
+    if (endpoint != kEndpointStart && endpoint != kEndpointEnd) {
+        return false;
+    }
+
+    if (cross_selection_active_ && handle == selection_area_handle_) {
+        EnsureSelectionAreaNodes(selection_area_handle_);
+        if (selection_area_nodes_.empty() ||
+            start_node_handle_ == UI_INVALID_HANDLE ||
+            end_node_handle_ == UI_INVALID_HANDLE ||
+            (start_node_handle_ == end_node_handle_ && start_index_ == end_index_)) {
+            return false;
+        }
+        cross_selection_dragged_ = true;
+        cross_selection_horizontal_extend_active_ = true;
+        selection_handle_drag_active_ = true;
+        active_selection_drag_endpoint_ = endpoint;
+        active_selection_stationary_index_ = 0U;
+        touch_text_tap_handle_ = UI_INVALID_HANDLE;
+        touch_text_tap_moved_ = false;
+        active_selection_handle_ = UI_INVALID_HANDLE;
+        active_selection_dragged_ = false;
+        active_scroll_handle_ = UI_INVALID_HANDLE;
+        active_scroll_dragged_ = false;
+        MarkSelectionAreaNodesDirty();
+        return true;
+    }
+
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || !node->is_text_node || !node->is_selectable || node->selection_start == node->selection_end) {
+        return false;
+    }
+    if (cross_selection_active_) {
+        ClearCrossSelection(true);
+    }
+
+    SetFocus(handle);
+    selection_handle_drag_active_ = true;
+    active_selection_drag_endpoint_ = endpoint;
+    active_selection_stationary_index_ = endpoint == 0U ? node->selection_end : node->selection_start;
+    touch_text_tap_handle_ = UI_INVALID_HANDLE;
+    touch_text_tap_moved_ = false;
+    active_selection_handle_ = handle;
+    active_selection_dragged_ = true;
+    active_scroll_handle_ = UI_INVALID_HANDLE;
+    active_scroll_dragged_ = false;
+    selection_horizontal_extend_active_ = true;
+    selection_anchor_handle_ = handle;
+    selection_anchor_index_ = node->selection_start;
+    MarkTextSelectionVisualsDirty(*node);
     return true;
 }
 
@@ -507,12 +677,9 @@ bool UiRuntime::SetTextSelectionRange(std::uint64_t handle, std::uint32_t select
         ClearSelectionHighlight(active_selection_handle_, true);
     }
 
-    const bool focus_unchanged = focused_handle_ == handle;
-    SetFocus(handle);
-    current_selection_hit_rects_.clear();
-    selection_horizontal_extend_active_ = false;
-    active_selection_handle_ = handle;
-    active_selection_dragged_ = false;
+    if (selection_handle_drag_active_ && active_selection_handle_ == handle) {
+        return true;
+    }
 
     const std::uint32_t text_length = static_cast<std::uint32_t>(node->text_content.size());
     const std::uint32_t clamped_start = std::min(selection_start, text_length);
@@ -522,20 +689,25 @@ bool UiRuntime::SetTextSelectionRange(std::uint64_t handle, std::uint32_t select
         node->selection_end != clamped_end;
     node->selection_start = clamped_start;
     node->selection_end = clamped_end;
-    node->last_interaction_time = interaction_time_ms_;
+
+    current_selection_hit_rects_.clear();
+    selection_horizontal_extend_active_ = false;
+    active_selection_handle_ = handle;
+    active_selection_dragged_ = false;
     selection_anchor_handle_ = handle;
     selection_anchor_index_ = node->selection_start;
+
+    node->caret_trailing_edge = false;
+    node->last_interaction_time = interaction_time_ms_;
     MarkTextSelectionVisualsDirty(*node);
-    EnsureTextCaretVisible(handle, *node);
-    pending_caret_visibility_handle_ = handle;
-    if (selection_changed || focus_unchanged) {
+    if (selection_changed || focused_handle_ == handle) {
         as_on_selection_changed(handle, node->selection_start, node->selection_end);
     }
     return true;
 }
 
 void UiRuntime::HandleCopy(const UINode& node) const {
-    if (node.selection_start == node.selection_end) {
+    if (node.is_obscured || node.selection_start == node.selection_end) {
         return;
     }
 
@@ -561,13 +733,14 @@ bool UiRuntime::DeleteSelection(UINode& node) {
     node.text_content.erase(static_cast<std::size_t>(start), static_cast<std::size_t>(end - start));
     node.selection_start = start;
     node.selection_end = start;
+    node.caret_trailing_edge = false;
     selection_anchor_handle_ = focused_handle_;
     selection_anchor_index_ = start;
     return true;
 }
 
 bool UiRuntime::HandleCut(UINode& node) {
-    if (!node.is_editable || node.selection_start == node.selection_end) {
+    if (!node.is_editable || node.is_obscured || node.selection_start == node.selection_end) {
         return false;
     }
 
@@ -609,6 +782,7 @@ void UiRuntime::HandleImeUpdate(std::uint64_t handle, const std::uint8_t* utf8_s
     node->text_content = updated_text;
     node->selection_start = clamped_index;
     node->selection_end = clamped_index;
+    node->caret_trailing_edge = false;
     (void)ApplyAbsurdLineClamp(*node);
     NotifyTextStateChanged(handle, *node, &previous_text);
 }
@@ -660,8 +834,15 @@ void UiRuntime::HandleTextReplaceRange(
     node->text_content = std::move(updated_text);
     node->selection_start = clamped_caret;
     node->selection_end = clamped_caret;
+    node->caret_trailing_edge = false;
     (void)ApplyAbsurdLineClamp(*node);
-    NotifyTextStateChanged(handle, *node, &previous_text);
+    const ExactTextReplaceNotification exact_replace{
+        replace_start,
+        replace_end,
+        replace_start,
+        static_cast<std::uint32_t>(inserted_text.size()),
+    };
+    NotifyTextStateChanged(handle, *node, &previous_text, &exact_replace);
 }
 
 void UiRuntime::HandlePasteText(std::uint64_t handle, const std::uint8_t* utf8_str, std::uint32_t len) {
@@ -694,6 +875,7 @@ void UiRuntime::HandlePasteText(std::uint64_t handle, const std::uint8_t* utf8_s
     const std::uint32_t new_caret = insert_at + len;
     node->selection_start = new_caret;
     node->selection_end = new_caret;
+    node->caret_trailing_edge = false;
     (void)ApplyAbsurdLineClamp(*node);
     NotifyTextStateChanged(handle, *node, &previous_text);
 }
@@ -711,7 +893,7 @@ bool UiRuntime::HandleTextEditingKey(UINode& node, std::string_view key, std::ui
     const bool horizontal_selection_key = key == "ArrowLeft" || key == "ArrowRight";
     const bool vertical_navigation_key = key == "ArrowUp" || key == "ArrowDown";
     const bool page_navigation_key = key == "PageUp" || key == "PageDown";
-    const bool multiline_textbox = node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines != 1;
+    const bool multiline_textbox = IsMultilineEditorTextNode(node);
     const std::uint32_t text_length = static_cast<std::uint32_t>(node.text_content.size());
     std::uint32_t caret = std::min<std::uint32_t>(node.selection_end, text_length);
     std::optional<std::uint32_t> next_index{};
@@ -739,6 +921,7 @@ bool UiRuntime::HandleTextEditingKey(UINode& node, std::string_view key, std::ui
                 static_cast<std::size_t>(caret - erase_start));
             node.selection_start = erase_start;
             node.selection_end = erase_start;
+            node.caret_trailing_edge = false;
         } else {
             const std::uint32_t erase_end = NextCharacterIndex(node.text_content, caret, true);
             node.text_content.erase(
@@ -746,6 +929,7 @@ bool UiRuntime::HandleTextEditingKey(UINode& node, std::string_view key, std::ui
                 static_cast<std::size_t>(erase_end - caret));
             node.selection_start = caret;
             node.selection_end = caret;
+            node.caret_trailing_edge = false;
         }
         NotifyTextStateChanged(focused_handle_, node, &previous_text);
         selection_horizontal_extend_active_ = false;
@@ -762,6 +946,7 @@ bool UiRuntime::HandleTextEditingKey(UINode& node, std::string_view key, std::ui
         const std::uint32_t new_caret = insert_at + 1U;
         node.selection_start = new_caret;
         node.selection_end = new_caret;
+        node.caret_trailing_edge = false;
         (void)ApplyAbsurdLineClamp(node);
         NotifyTextStateChanged(focused_handle_, node, &previous_text);
         selection_horizontal_extend_active_ = false;
@@ -777,6 +962,7 @@ bool UiRuntime::HandleTextEditingKey(UINode& node, std::string_view key, std::ui
         const std::uint32_t new_caret = insert_at + static_cast<std::uint32_t>(key.size());
         node.selection_start = new_caret;
         node.selection_end = new_caret;
+        node.caret_trailing_edge = false;
         (void)ApplyAbsurdLineClamp(node);
         NotifyTextStateChanged(focused_handle_, node, &previous_text);
         selection_horizontal_extend_active_ = false;
@@ -788,13 +974,13 @@ bool UiRuntime::HandleTextEditingKey(UINode& node, std::string_view key, std::ui
         horizontal_selection_key &&
         !selection_horizontal_extend_active_ &&
         !node.is_editable &&
-        node.semantic_role != UI_SEMANTIC_TEXTBOX) {
+        !IsEditorTextNode(node)) {
         return false;
     }
     if (shift &&
         (vertical_navigation_key || page_navigation_key) &&
         !node.is_editable &&
-        node.semantic_role != UI_SEMANTIC_TEXTBOX) {
+        !IsEditorTextNode(node)) {
         return false;
     }
 
@@ -816,13 +1002,35 @@ bool UiRuntime::HandleTextEditingKey(UINode& node, std::string_view key, std::ui
 
     if (!next_index.has_value()) {
         if (key == "ArrowLeft") {
-            next_index = line_boundary_modifier
-                ? IndexForLineBegin(node, caret)
-                : (word_modifier ? NextWordIndex(node, caret, false) : NextCharacterIndex(node.text_content, caret, false));
+            if (!shift &&
+                !line_boundary_modifier &&
+                !word_modifier &&
+                !document_boundary_modifier &&
+                node.selection_start == node.selection_end &&
+                !node.caret_trailing_edge &&
+                IsSoftWrappedLineBoundary(node, caret)) {
+                next_index = caret;
+                node.caret_trailing_edge = true;
+            } else {
+                next_index = line_boundary_modifier
+                    ? IndexForLineBegin(node, caret)
+                    : (word_modifier ? NextWordIndex(node, caret, false) : NextCharacterIndex(node.text_content, caret, false));
+            }
         } else if (key == "ArrowRight") {
-            next_index = line_boundary_modifier
-                ? IndexForLineEnd(node, caret)
-                : (word_modifier ? NextWordIndex(node, caret, true) : NextCharacterIndex(node.text_content, caret, true));
+            if (!shift &&
+                !line_boundary_modifier &&
+                !word_modifier &&
+                !document_boundary_modifier &&
+                node.selection_start == node.selection_end &&
+                node.caret_trailing_edge &&
+                IsSoftWrappedLineBoundary(node, caret)) {
+                next_index = caret;
+                node.caret_trailing_edge = false;
+            } else {
+                next_index = line_boundary_modifier
+                    ? IndexForLineEnd(node, caret)
+                    : (word_modifier ? NextWordIndex(node, caret, true) : NextCharacterIndex(node.text_content, caret, true));
+            }
         } else if (key == "ArrowUp") {
             next_index = IndexForVerticalMove(node, caret, false);
         } else if (key == "ArrowDown") {
@@ -866,6 +1074,7 @@ bool UiRuntime::HandleTextEditingKey(UINode& node, std::string_view key, std::ui
 
     const std::uint32_t clamped_next = std::min<std::uint32_t>(*next_index, text_length);
     if (shift) {
+        node.caret_trailing_edge = false;
         if (selection_anchor_handle_ != focused_handle_) {
             selection_anchor_handle_ = focused_handle_;
             selection_anchor_index_ = node.selection_start;
@@ -875,6 +1084,9 @@ bool UiRuntime::HandleTextEditingKey(UINode& node, std::string_view key, std::ui
         node.selection_start = selection_anchor_index_;
         node.selection_end = clamped_next;
     } else {
+        if (*next_index != caret) {
+            node.caret_trailing_edge = false;
+        }
         node.selection_start = clamped_next;
         node.selection_end = clamped_next;
         selection_anchor_handle_ = focused_handle_;

@@ -6,6 +6,7 @@
 
 #include <array>
 #include <cstdint>
+#include <cstring>
 #include <vector>
 
 #include <include/core/SkCanvas.h>
@@ -53,6 +54,12 @@ bool PixelHasAlpha(const std::vector<std::uint8_t>& pixels, int width, int x, in
 std::uint8_t PixelAlpha(const std::vector<std::uint8_t>& pixels, int width, int x, int y) {
     const std::size_t idx = (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * 4U;
     return pixels[idx + 3];
+}
+
+std::uint32_t FloatWord(float value) {
+    std::uint32_t word = 0U;
+    std::memcpy(&word, &value, sizeof(word));
+    return word;
 }
 
 constexpr std::uint32_t kRed = 0xFF0000FFU;     // 0xRRGGBBAA: solid red
@@ -212,6 +219,59 @@ TEST_CASE("Canvas transforms", "[canvas]") {
     }
 }
 
+TEST_CASE("Canvas draw batch replays ordered state and draw commands", "[canvas]") {
+    Engine engine;
+    auto surface = MakeRasterSurface(64, 64);
+    SkCanvas* canvas = surface->getCanvas();
+    canvas->clear(SK_ColorTRANSPARENT);
+
+    const std::vector<std::uint32_t> words = {
+        1U, // save
+        3U, FloatWord(10.0f), FloatWord(10.0f), // translate
+        10U, FloatWord(0.0f), FloatWord(0.0f), FloatWord(16.0f), FloatWord(16.0f),
+        kRed, 0U, FloatWord(0.0f),
+        2U, // restore
+        10U, FloatWord(0.0f), FloatWord(0.0f), FloatWord(8.0f), FloatWord(8.0f),
+        kBlue, 0U, FloatWord(0.0f),
+        12U, FloatWord(20.0f), FloatWord(20.0f), FloatWord(50.0f), FloatWord(20.0f),
+        kGreen, FloatWord(2.0f),
+        1U, // save
+        7U, FloatWord(40.0f), FloatWord(40.0f), FloatWord(12.0f), FloatWord(12.0f),
+        FloatWord(2.0f), FloatWord(4.0f), FloatWord(6.0f), FloatWord(8.0f),
+        10U, FloatWord(40.0f), FloatWord(40.0f), FloatWord(12.0f), FloatWord(12.0f),
+        kRed, 0U, FloatWord(0.0f),
+        2U,
+    };
+
+    engine.CanvasDrawBatch(canvas, words.data(), static_cast<std::uint32_t>(words.size()));
+
+    const auto pixels = SnapshotRgba(surface, 64, 64);
+    CHECK(PixelHasAlpha(pixels, 64, 12, 12)); // translated red rect
+    CHECK(PixelHasAlpha(pixels, 64, 4, 4));   // blue rect after restore
+    CHECK(PixelHasAlpha(pixels, 64, 30, 20)); // green line
+    CHECK(PixelHasAlpha(pixels, 64, 46, 46)); // rounded-clip rect
+    CHECK_FALSE(PixelHasAlpha(pixels, 64, 20, 4));
+}
+
+TEST_CASE("Canvas draw batch ignores invalid input", "[canvas]") {
+    Engine engine;
+    auto surface = MakeRasterSurface(16, 16);
+    SkCanvas* canvas = surface->getCanvas();
+    canvas->clear(SK_ColorTRANSPARENT);
+
+    const std::array<std::uint32_t, 2> truncated = {
+        10U,
+        FloatWord(0.0f),
+    };
+
+    engine.CanvasDrawBatch(nullptr, truncated.data(), static_cast<std::uint32_t>(truncated.size()));
+    engine.CanvasDrawBatch(canvas, nullptr, 0U);
+    engine.CanvasDrawBatch(canvas, truncated.data(), static_cast<std::uint32_t>(truncated.size()));
+
+    const auto pixels = SnapshotRgba(surface, 16, 16);
+    CHECK_FALSE(PixelHasAlpha(pixels, 16, 0, 0));
+}
+
 TEST_CASE("Path management", "[path]") {
     Engine engine;
 
@@ -318,5 +378,32 @@ TEST_CASE("Offscreen surfaces", "[offscreen]") {
     SECTION("zero-size offscreen returns 0") {
         REQUIRE(engine.CreateOffscreenSurface(0, 10) == 0);
         REQUIRE(engine.CreateOffscreenSurface(10, 0) == 0);
+    }
+}
+
+TEST_CASE("RenderNodeToRgba validation", "[canvas]") {
+    Engine engine;
+    std::array<uint8_t, 64> buffer{};
+    engine.Init(100, 100, 2.0f);
+
+    SECTION("null handle returns 0") {
+        REQUIRE(engine.RenderNodeToRgba(0, 10, 10, buffer.data(), buffer.size(), 1.0f, 0.0f, 0.0f) == 0);
+    }
+
+    SECTION("zero dimensions return 0") {
+        REQUIRE(engine.RenderNodeToRgba(1, 0, 10, buffer.data(), buffer.size(), 1.0f, 0.0f, 0.0f) == 0);
+        REQUIRE(engine.RenderNodeToRgba(1, 10, 0, buffer.data(), buffer.size(), 1.0f, 0.0f, 0.0f) == 0);
+    }
+
+    SECTION("null output buffer returns 0") {
+        REQUIRE(engine.RenderNodeToRgba(1, 10, 10, nullptr, 100, 1.0f, 0.0f, 0.0f) == 0);
+    }
+
+    SECTION("insufficient capacity returns 0") {
+        REQUIRE(engine.RenderNodeToRgba(1, 10, 10, buffer.data(), 10, 1.0f, 0.0f, 0.0f) == 0);
+    }
+
+    SECTION("unknown handle returns 0") {
+        REQUIRE(engine.RenderNodeToRgba(9999, 10, 10, buffer.data(), buffer.size(), 1.0f, 0.0f, 0.0f) == 0);
     }
 }

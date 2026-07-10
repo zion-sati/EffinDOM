@@ -101,7 +101,7 @@ function stripRootSvgAttribute(tag: string, attributeName: 'width' | 'height'): 
 
 export function normalizeSvgMarkupForCore(markup: string): string {
   const rootTagMatch = SVG_OPEN_TAG_PATTERN.exec(markup);
-  if (rootTagMatch === null || rootTagMatch.index === undefined) {
+  if (rootTagMatch?.index === undefined) {
     return markup;
   }
 

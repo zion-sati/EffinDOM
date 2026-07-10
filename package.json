@@ -1,7 +1,7 @@
 {
   "name": "effindom-runtime-repo",
   "private": true,
-  "version": "0.1.18",
+  "version": "0.1.20",
   "description": "Standalone runtime repository for @effindomv2/runtime",
   "engines": {
     "node": ">=18"
@@ -10,10 +10,24 @@
     "v2/browser-bridge"
   ],
   "scripts": {
+    "lint:v2": "node --experimental-strip-types ./node_modules/eslint/bin/eslint.js --config eslint.config.ts --max-warnings=0 \"v2/**/*.ts\" --ignore-pattern \"v2/fui-as/src/**/*.ts\" --ignore-pattern \"v2/fui-as/tests/unit/**/*.ts\" --ignore-pattern \"v2/fui-as/build/**/*.ts\"",
+    "lint": "npm run lint:v2",
     "typecheck": "npm --workspace v2/browser-bridge run typecheck",
-    "build": "bash scripts/build_skia_wasm.sh && npm --workspace v2/browser-bridge run typecheck && npm --workspace v2/browser-bridge run build:package && npm --workspace v2/browser-bridge pack --dry-run --ignore-scripts >/dev/null",
+    "build": "bash scripts/build_skia_wasm.sh && npm run lint:v2 && npm --workspace v2/browser-bridge run typecheck && npm --workspace v2/browser-bridge run build:package && npm --workspace v2/browser-bridge pack --dry-run --ignore-scripts >/dev/null",
     "test": "npm --workspace v2/browser-bridge run test",
     "publish:local": "bash scripts/publish/local/runtime.sh",
-    "publish:npm": "bash scripts/publish/npm/runtime.sh"
+    "publish:npm": "bash scripts/publish/npm/runtime.sh",
+    "prepublishOnly": "npm run lint:v2 && npm --workspace v2/browser-bridge run typecheck"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "eslint": "^10.3.0",
+    "jiti": "^2.7.0",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.59.2"
+  },
+  "allowScripts": {
+    "esbuild@0.27.7": true,
+    "fsevents@2.3.2": true
   }
 }

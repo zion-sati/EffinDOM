@@ -83,28 +83,54 @@ TEST_CASE("v2 ui command builder encodes colored glyph runs into Core words", "[
     CHECK(words[15] == 0x00ff00ffU);
 }
 
+TEST_CASE("v2 ui command builder encodes styled glyph runs into Core words", "[v2][ui][unit]") {
+    std::vector<std::uint32_t> words{};
+    effindom::v2::ui::CommandBuilder builder(words);
+
+    builder.SetGlyphRunStyled(42ULL, 7U, 24.0f, {
+        effindom::v2::ui::GlyphPlacement{10U, 0.0f, 20.0f, 0U, 7U, 0xff0000ffU, 24.0f},
+        effindom::v2::ui::GlyphPlacement{11U, 12.5f, 20.0f, 1U, 7U, 0x00ff00ffU, 32.0f},
+    });
+
+    REQUIRE(words.size() == 18U);
+    CHECK(words[0] == CMD_SET_GLYPH_RUN_STYLED);
+    CHECK(words[1] == 42U);
+    CHECK(words[2] == 0U);
+    CHECK(words[3] == 7U);
+    CHECK(effindom::v2::ui::CommandBuilder::WordToFloat(words[4]) == Approx(24.0f));
+    CHECK(words[5] == 2U);
+    CHECK(words[10] == 0xff0000ffU);
+    CHECK(effindom::v2::ui::CommandBuilder::WordToFloat(words[11]) == Approx(24.0f));
+    CHECK(words[16] == 0x00ff00ffU);
+    CHECK(effindom::v2::ui::CommandBuilder::WordToFloat(words[17]) == Approx(32.0f));
+}
+
 
 TEST_CASE("v2 ui command builder encodes retained image and svg commands", "[v2][ui][unit]") {
     std::vector<std::uint32_t> words{};
     effindom::v2::ui::CommandBuilder builder(words);
 
-    builder.SetImage(42ULL, 17U, ED_OBJECT_FIT_CONTAIN);
-    builder.SetImageNine(42ULL, 18U, 1.0f, 2.0f, 3.0f, 4.0f);
-    builder.SetSvg(42ULL, 19U, 0xff3366ffU);
+    builder.SetImage(42ULL, 17U, ED_OBJECT_FIT_CONTAIN, ED_IMAGE_SAMPLING_NEAREST, 0U);
+    builder.SetImageNine(42ULL, 18U, 1.0f, 2.0f, 3.0f, 4.0f, ED_IMAGE_SAMPLING_CUBIC_MITCHELL, 0U);
+    builder.SetSvg(42ULL, 19U, 0xff3366ffU, ED_IMAGE_SAMPLING_ANISOTROPIC, 12U);
 
-    REQUIRE(words.size() == 18U);
+    REQUIRE(words.size() == 24U);
     CHECK(words[0] == CMD_SET_IMAGE);
     CHECK(words[1] == 42U);
     CHECK(words[2] == 0U);
     CHECK(words[3] == 17U);
     CHECK(words[4] == ED_OBJECT_FIT_CONTAIN);
-    CHECK(words[5] == CMD_SET_IMAGE_NINE);
-    CHECK(words[8] == 18U);
-    CHECK(effindom::v2::ui::CommandBuilder::WordToFloat(words[9]) == Approx(1.0f));
-    CHECK(effindom::v2::ui::CommandBuilder::WordToFloat(words[12]) == Approx(4.0f));
-    CHECK(words[13] == CMD_SET_SVG);
-    CHECK(words[16] == 19U);
-    CHECK(words[17] == 0xff3366ffU);
+    CHECK(words[5] == ED_IMAGE_SAMPLING_NEAREST);
+    CHECK(words[6] == 0U);
+    CHECK(words[7] == CMD_SET_IMAGE_NINE);
+    CHECK(words[10] == 18U);
+    CHECK(effindom::v2::ui::CommandBuilder::WordToFloat(words[11]) == Approx(1.0f));
+    CHECK(effindom::v2::ui::CommandBuilder::WordToFloat(words[14]) == Approx(4.0f));
+    CHECK(words[15] == ED_IMAGE_SAMPLING_CUBIC_MITCHELL);
+    CHECK(words[16] == 0U);
+    CHECK(words[17] == CMD_SET_SVG);
+    CHECK(words[20] == 19U);
+    CHECK(words[21] == 0xff3366ffU);
+    CHECK(words[22] == ED_IMAGE_SAMPLING_ANISOTROPIC);
+    CHECK(words[23] == 12U);
 }
-
-

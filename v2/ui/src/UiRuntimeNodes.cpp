@@ -21,6 +21,17 @@ void ApplyEffectiveMargin(YGNodeRef yg_node, float left, float top, float right,
     YGNodeStyleSetMargin(yg_node, YGEdgeBottom, bottom);
 }
 
+bool IsValidImageSampling(std::uint32_t sampling) {
+    return sampling <= ED_IMAGE_SAMPLING_ANISOTROPIC;
+}
+
+std::uint32_t NormalizeImageMaxAniso(std::uint32_t max_aniso) {
+    if (max_aniso == 0U) {
+        return 8U;
+    }
+    return std::clamp(max_aniso, 1U, 16U);
+}
+
 bool ApplyYogaAlign(YGNodeRef yg_node, std::uint32_t align_enum, bool self) {
     YGAlign align = YGAlignAuto;
     switch (align_enum) {
@@ -102,6 +113,7 @@ std::uint64_t UiRuntime::CreateNode(std::uint32_t type) {
         const std::uint32_t next_generation = node.generation + 1U;
         node = UINode{};
         node.generation = next_generation;
+        node.node_type = type;
         node.is_active = true;
         node.needs_creation = true;
         node.is_dirty = true;
@@ -833,6 +845,9 @@ bool UiRuntime::SetScrollOffset(std::uint64_t handle, float offset_x, float offs
     node->pending_scroll_offset_generation += 1U;
     node->scroll_velocity_x = 0.0f;
     node->scroll_velocity_y = 0.0f;
+    node->smooth_scroll_active = false;
+    node->smooth_scroll_target_x = offset_x;
+    node->smooth_scroll_target_y = offset_y;
     return true;
 }
 
@@ -863,9 +878,11 @@ bool UiRuntime::SetScrollEnabled(std::uint64_t handle, bool enabled_x, bool enab
     node->scroll_enabled_y = enabled_y;
     if (!enabled_x) {
         node->scroll_velocity_x = 0.0f;
+        node->smooth_scroll_target_x = 0.0f;
     }
     if (!enabled_y) {
         node->scroll_velocity_y = 0.0f;
+        node->smooth_scroll_target_y = 0.0f;
     }
     (void)ApplyScrollOffset(handle, *node, node->scroll_offset_x, node->scroll_offset_y, true);
     return true;
@@ -888,6 +905,18 @@ bool UiRuntime::SetScrollFriction(std::uint64_t handle, float friction) {
     }
     node->friction = friction;
     node->scroll_friction_overridden = true;
+    return true;
+}
+
+bool UiRuntime::SetSmoothScrolling(std::uint64_t handle, bool smooth_scrolling) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || !node->is_scroll_view) {
+        return false;
+    }
+    node->smooth_scrolling = smooth_scrolling;
+    node->smooth_scroll_active = false;
+    node->smooth_scroll_target_x = node->scroll_offset_x;
+    node->smooth_scroll_target_y = node->scroll_offset_y;
     return true;
 }
 
@@ -1142,10 +1171,10 @@ bool UiRuntime::SetFlexDirection(std::uint64_t handle, std::uint32_t dir_enum) {
         return false;
     }
     switch (dir_enum) {
-    case 0U:
+    case UI_FLEX_DIRECTION_COLUMN:
         YGNodeStyleSetFlexDirection(node->yg_node, YGFlexDirectionColumn);
         break;
-    case 1U:
+    case UI_FLEX_DIRECTION_ROW:
         YGNodeStyleSetFlexDirection(node->yg_node, YGFlexDirectionRow);
         break;
     default:
@@ -1161,9 +1190,9 @@ bool UiRuntime::SetFlexWrap(std::uint64_t handle, std::uint32_t wrap_enum) {
         return false;
     }
     switch (wrap_enum) {
-    case 0U: YGNodeStyleSetFlexWrap(node->yg_node, YGWrapNoWrap); break;
-    case 1U: YGNodeStyleSetFlexWrap(node->yg_node, YGWrapWrap); break;
-    case 2U: YGNodeStyleSetFlexWrap(node->yg_node, YGWrapWrapReverse); break;
+    case UI_FLEX_WRAP_NO_WRAP: YGNodeStyleSetFlexWrap(node->yg_node, YGWrapNoWrap); break;
+    case UI_FLEX_WRAP_WRAP: YGNodeStyleSetFlexWrap(node->yg_node, YGWrapWrap); break;
+    case UI_FLEX_WRAP_WRAP_REVERSE: YGNodeStyleSetFlexWrap(node->yg_node, YGWrapWrapReverse); break;
     default: return false;
     }
     layout_dirty_ = true;
@@ -1188,14 +1217,13 @@ bool UiRuntime::SetJustifyContent(std::uint64_t handle, std::uint32_t justify_en
         return false;
     }
     switch (justify_enum) {
-    case 0U:
-    case 1U:
+    case UI_JUSTIFY_START:
         YGNodeStyleSetJustifyContent(node->yg_node, YGJustifyFlexStart);
         break;
-    case 2U:
+    case UI_JUSTIFY_CENTER:
         YGNodeStyleSetJustifyContent(node->yg_node, YGJustifyCenter);
         break;
-    case 3U:
+    case UI_JUSTIFY_END:
         YGNodeStyleSetJustifyContent(node->yg_node, YGJustifyFlexEnd);
         break;
     default:
@@ -1215,7 +1243,24 @@ bool UiRuntime::SetAlignItems(std::uint64_t handle, std::uint32_t align_enum) {
         layout_dirty_ = true;
         return true;
     }
-    if (!ApplyYogaAlign(node->yg_node, align_enum == 0U ? UI_ALIGN_SELF_START : align_enum, false)) {
+    std::uint32_t align_self_enum = UI_ALIGN_SELF_START;
+    switch (align_enum) {
+    case UI_ALIGN_ITEMS_START:
+        align_self_enum = UI_ALIGN_SELF_START;
+        break;
+    case UI_ALIGN_ITEMS_CENTER:
+        align_self_enum = UI_ALIGN_SELF_CENTER;
+        break;
+    case UI_ALIGN_ITEMS_END:
+        align_self_enum = UI_ALIGN_SELF_END;
+        break;
+    case UI_ALIGN_ITEMS_STRETCH:
+        align_self_enum = UI_ALIGN_SELF_STRETCH;
+        break;
+    default:
+        return false;
+    }
+    if (!ApplyYogaAlign(node->yg_node, align_self_enum, false)) {
         return false;
     }
     layout_dirty_ = true;
@@ -1389,14 +1434,23 @@ bool UiRuntime::SetBackgroundBlur(std::uint64_t handle, float blur_sigma) {
     return true;
 }
 
-bool UiRuntime::SetImage(std::uint64_t handle, std::uint32_t texture_id, std::uint32_t object_fit_enum) {
+bool UiRuntime::SetImage(
+    std::uint64_t handle,
+    std::uint32_t texture_id,
+    std::uint32_t object_fit_enum,
+    std::uint32_t sampling_kind,
+    std::uint32_t max_aniso) {
     UINode* node = ResolveMutable(handle);
-    if (node == nullptr || object_fit_enum > ED_OBJECT_FIT_SCALE_DOWN) {
+    if (node == nullptr ||
+        object_fit_enum > ED_OBJECT_FIT_SCALE_DOWN ||
+        !IsValidImageSampling(sampling_kind)) {
         return false;
     }
     node->has_image = texture_id != 0U;
     node->texture_id = texture_id;
     node->object_fit = object_fit_enum;
+    node->image_sampling = sampling_kind;
+    node->image_max_aniso = NormalizeImageMaxAniso(max_aniso);
     node->is_dirty = true;
     return true;
 }
@@ -1407,9 +1461,12 @@ bool UiRuntime::SetImageNine(
     float inset_left,
     float inset_top,
     float inset_right,
-    float inset_bottom) {
+    float inset_bottom,
+    std::uint32_t sampling_kind,
+    std::uint32_t max_aniso) {
     UINode* node = ResolveMutable(handle);
     if (node == nullptr ||
+        !IsValidImageSampling(sampling_kind) ||
         !std::isfinite(inset_left) ||
         !std::isfinite(inset_top) ||
         !std::isfinite(inset_right) ||
@@ -1426,18 +1483,27 @@ bool UiRuntime::SetImageNine(
     node->image_nine_inset_top = inset_top;
     node->image_nine_inset_right = inset_right;
     node->image_nine_inset_bottom = inset_bottom;
+    node->image_nine_sampling = sampling_kind;
+    node->image_nine_max_aniso = NormalizeImageMaxAniso(max_aniso);
     node->is_dirty = true;
     return true;
 }
 
-bool UiRuntime::SetSvg(std::uint64_t handle, std::uint32_t svg_id, std::uint32_t tint_color) {
+bool UiRuntime::SetSvg(
+    std::uint64_t handle,
+    std::uint32_t svg_id,
+    std::uint32_t tint_color,
+    std::uint32_t sampling_kind,
+    std::uint32_t max_aniso) {
     UINode* node = ResolveMutable(handle);
-    if (node == nullptr) {
+    if (node == nullptr || !IsValidImageSampling(sampling_kind)) {
         return false;
     }
     node->has_svg = svg_id != 0U;
     node->svg_id = svg_id;
     node->svg_tint_color = tint_color;
+    node->svg_sampling = sampling_kind;
+    node->svg_max_aniso = NormalizeImageMaxAniso(max_aniso);
     node->is_dirty = true;
     return true;
 }

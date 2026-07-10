@@ -2,10 +2,13 @@
 # Build output directories
 # ─────────────────────────────────────────────
 /build/
+target/
 v2/fui-as/build/
 /v2/browser-bridge/dist/
 /v2/fui-rs/build/
-/v2/fui-rs/target/
+/v2/fui-cs/build/
+/v2/fui-cs/**/bin/
+/v2/fui-cs/**/obj/
 /out/
 /published/
 /v2/create-fui-as-app/dist/

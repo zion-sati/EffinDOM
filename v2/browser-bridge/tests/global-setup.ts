@@ -11,8 +11,8 @@ declare global {
   var __serverPort: number | null;
 }
 
-export default async function globalSetup(config: FullConfig) {
+export default async function globalSetup(_config: FullConfig) {
   globalThis.__serverHandle = await startStaticServer(PUBLIC_DIR, 11_150, 12_000);
-  globalThis.__serverPort = globalThis.__serverHandle?.port ?? null;
+  globalThis.__serverPort = globalThis.__serverHandle.port;
   process.env.BRIDGE_TEST_SERVER_PORT = String(globalThis.__serverPort);
 }

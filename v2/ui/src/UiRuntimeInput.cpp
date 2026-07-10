@@ -3,6 +3,7 @@
 #include "effindom_ui.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstring>
 #include <limits>
 
@@ -12,7 +13,26 @@ namespace {
 
 constexpr float kSelectionDragThreshold = 4.0f;
 constexpr float kSelectionDragThresholdSquared = kSelectionDragThreshold * kSelectionDragThreshold;
+constexpr float kSelectionHandleCenterToTextHitOffset = 21.0f;
 constexpr float kMaxAutoScrollFactor = 3.0f;
+constexpr double kNominalFrameMs = 1000.0 / 60.0;
+constexpr double kMinInputDeltaMs = 1.0;
+constexpr double kMaxInputDeltaMs = 100.0;
+
+bool IsValidTimestamp(double timestamp_ms) {
+    return std::isfinite(timestamp_ms) && timestamp_ms >= 0.0;
+}
+
+double ClampInputDeltaMs(double delta_ms) {
+    if (!std::isfinite(delta_ms)) {
+        return kNominalFrameMs;
+    }
+    return std::max(kMinInputDeltaMs, std::min(delta_ms, kMaxInputDeltaMs));
+}
+
+float PixelsPerSecond(float delta, double delta_ms) {
+    return delta / static_cast<float>(ClampInputDeltaMs(delta_ms) / 1000.0);
+}
 
 std::int32_t FocusOrderKey(const UINode* node) {
     return node == nullptr ? std::numeric_limits<std::int32_t>::max()
@@ -83,7 +103,7 @@ float ComputeEdgeAutoScrollFactor(float pointer, float edge_min, float edge_max,
 Rect UiRuntime::ComputeVisibleBounds(const UINode& node) const {
     Rect bounds = BoundsForNode(node);
     const bool uses_internal_textbox_viewport =
-        node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines == 1;
+        IsSingleLineEditorTextNode(node);
     if (node.is_text_node && !node.text_wrap && !uses_internal_textbox_viewport) {
         const Rect content_bounds = ComputeContentBounds(node, node.abs_x, node.abs_y);
         const float max_line_width =
@@ -336,7 +356,11 @@ bool UiRuntime::CanScrollOnAxis(const UINode& node, bool horizontal) const {
     return enabled && max_scroll > 0.0f;
 }
 
-bool UiRuntime::CanConsumeScrollDelta(const UINode& node, bool horizontal, float delta) const {
+bool UiRuntime::CanConsumeScrollDelta(
+    const UINode& node,
+    bool horizontal,
+    float delta,
+    bool use_smooth_target) const {
     if (std::abs(delta) < 0.001f || !CanScrollOnAxis(node, horizontal)) {
         return false;
     }
@@ -344,14 +368,45 @@ bool UiRuntime::CanConsumeScrollDelta(const UINode& node, bool horizontal, float
     const float max_scroll = horizontal
         ? std::max(0.0f, node.scroll_content_width - viewport_extent)
         : std::max(0.0f, node.scroll_content_height - viewport_extent);
-    const float offset = horizontal ? node.scroll_offset_x : node.scroll_offset_y;
+    const float offset = use_smooth_target && node.smooth_scroll_active
+        ? (horizontal ? node.smooth_scroll_target_x : node.smooth_scroll_target_y)
+        : (horizontal ? node.scroll_offset_x : node.scroll_offset_y);
     return delta > 0.0f ? offset < (max_scroll - 0.001f) : offset > 0.001f;
+}
+
+bool UiRuntime::CanConsumeScrollDeltaFromTarget(std::uint64_t start_handle, float delta_x, float delta_y) const {
+    if (start_handle == UI_INVALID_HANDLE) {
+        return false;
+    }
+
+    const float abs_x = std::abs(delta_x);
+    const float abs_y = std::abs(delta_y);
+    if (abs_x < 0.001f && abs_y < 0.001f) {
+        return false;
+    }
+
+    for (std::uint64_t current = start_handle; current != UI_INVALID_HANDLE;) {
+        const UINode* node = Resolve(current);
+        if (node == nullptr) {
+            break;
+        }
+        if (node->is_scroll_view) {
+            const bool can_consume_x = abs_x >= 0.001f && CanConsumeScrollDelta(*node, true, delta_x);
+            const bool can_consume_y = abs_y >= 0.001f && CanConsumeScrollDelta(*node, false, delta_y);
+            if (can_consume_x || can_consume_y) {
+                return true;
+            }
+        }
+        current = node->parent_handle;
+    }
+    return false;
 }
 
 std::uint64_t UiRuntime::RetargetScrollHandleForDelta(
     std::uint64_t start_handle,
     float delta_x,
-    float delta_y) const {
+    float delta_y,
+    bool use_smooth_target) const {
     if (start_handle == UI_INVALID_HANDLE) {
         return UI_INVALID_HANDLE;
     }
@@ -370,8 +425,8 @@ std::uint64_t UiRuntime::RetargetScrollHandleForDelta(
         if (node->is_scroll_view) {
             const bool can_scroll_x = CanScrollOnAxis(*node, true);
             const bool can_scroll_y = CanScrollOnAxis(*node, false);
-            const bool can_consume_x = CanConsumeScrollDelta(*node, true, delta_x);
-            const bool can_consume_y = CanConsumeScrollDelta(*node, false, delta_y);
+            const bool can_consume_x = CanConsumeScrollDelta(*node, true, delta_x, use_smooth_target);
+            const bool can_consume_y = CanConsumeScrollDelta(*node, false, delta_y, use_smooth_target);
             if ((prefer_horizontal && can_consume_x) ||
                 (prefer_vertical && can_consume_y) ||
                 (!prefer_horizontal && !prefer_vertical &&
@@ -700,7 +755,7 @@ bool UiRuntime::CopyCurrentSelection() const {
 
     const auto copy_node_selection = [this](std::uint64_t handle) {
         const UINode* node = Resolve(handle);
-        if (node == nullptr || !node->is_text_node || !node->is_selectable || node->selection_start == node->selection_end) {
+        if (node == nullptr || !node->is_text_node || !node->is_selectable || node->is_obscured || node->selection_start == node->selection_end) {
             return false;
         }
         HandleCopy(*node);
@@ -747,6 +802,38 @@ bool UiRuntime::SetInteractive(std::uint64_t handle, bool interactive) {
     }
     node->is_interactive = interactive;
     node->is_dirty = true;
+    return true;
+}
+
+bool UiRuntime::SetPreserveSelectionOnPointerDown(std::uint64_t handle, bool preserve) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr) {
+        return false;
+    }
+    node->preserves_selection_on_pointer_down = preserve;
+    return true;
+}
+
+bool UiRuntime::PreservesSelectionOnPointerDown(std::uint64_t handle) const {
+    const UINode* node = Resolve(handle);
+    return node != nullptr && node->preserves_selection_on_pointer_down;
+}
+
+bool UiRuntime::SetEditorCommandKeys(std::uint64_t handle, bool enabled) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || !node->is_text_node) {
+        return false;
+    }
+    node->uses_editor_command_keys = enabled;
+    return true;
+}
+
+bool UiRuntime::SetEditorAcceptsTab(std::uint64_t handle, bool enabled) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || !node->is_text_node) {
+        return false;
+    }
+    node->accepts_tab = enabled;
     return true;
 }
 
@@ -816,13 +903,62 @@ bool IsRepeatClick(
 
 } // namespace
 
-void UiRuntime::HandlePointerEvent(std::uint32_t event_enum, std::uint64_t handle, float logical_x, float logical_y) {
+void UiRuntime::HandlePointerEvent(
+    std::uint32_t event_enum,
+    std::uint64_t handle,
+    float logical_x,
+    float logical_y,
+    std::int32_t pointer_id,
+    std::uint32_t pointer_type,
+    std::int32_t button,
+    std::uint32_t buttons,
+    float pressure,
+    float width,
+    float height,
+    std::int32_t click_count,
+    std::uint32_t modifiers) {
+    (void)pointer_id;
+    (void)buttons;
+    (void)pressure;
+    (void)width;
+    (void)height;
+    (void)click_count;
     const float previous_pointer_x = last_pointer_logical_x_;
     const float previous_pointer_y = last_pointer_logical_y_;
     bool handled_cross_selection = false;
+    const bool is_primary_pointer_button =
+        button == 0 ||
+        ((event_enum == UI_EVENT_POINTER_MOVE || event_enum == UI_EVENT_POINTER_UP) && primary_pointer_down_);
+    const bool allow_pointer_text_drag =
+        is_primary_pointer_button && (pointer_type != UI_POINTER_TYPE_TOUCH || selection_handle_drag_active_);
+    const bool allow_pointer_text_down_selection =
+        is_primary_pointer_button && pointer_type != UI_POINTER_TYPE_TOUCH;
+    const auto should_use_trailing_caret_edge = [this](const UINode& node, std::uint32_t index, float local_x, float local_y) {
+        const auto [leading_x, leading_line] = GetLocalPositionFromIndex(node, index, false);
+        const auto [trailing_x, trailing_line] = GetLocalPositionFromIndex(node, index, true);
+        if (trailing_line < 0 || leading_line < 0 || trailing_line + 1 != leading_line) {
+            return false;
+        }
+        const float leading_line_top = GetLineTopForIndex(node, static_cast<std::size_t>(leading_line));
+        const float leading_line_height = GetLineHeightForIndex(node, static_cast<std::size_t>(leading_line));
+        const float x_slop = std::max(4.0f, std::min(node.font_size * 0.5f, 10.0f));
+        (void)leading_x;
+        return local_x >= trailing_x - x_slop &&
+            local_y <= leading_line_top + (leading_line_height * 0.5f);
+    };
+    const auto is_text_target_in_active_selection_area = [this](std::uint64_t candidate_handle) {
+        if (candidate_handle == UI_INVALID_HANDLE || selection_area_handle_ == UI_INVALID_HANDLE) {
+            return false;
+        }
+        const UINode* candidate = Resolve(candidate_handle);
+        return candidate != nullptr &&
+            candidate->is_text_node &&
+            candidate->is_selectable &&
+            FindSelectionAreaAncestor(candidate_handle) == selection_area_handle_;
+    };
 
     if (event_enum == UI_EVENT_POINTER_DOWN) {
-        primary_pointer_down_ = true;
+        primary_pointer_down_ = button == 0;
     } else if (event_enum == UI_EVENT_POINTER_UP || event_enum == UI_EVENT_POINTER_LEAVE) {
         primary_pointer_down_ = false;
     }
@@ -848,13 +984,33 @@ void UiRuntime::HandlePointerEvent(std::uint32_t event_enum, std::uint64_t handl
         UINode* down_node = handle == UI_INVALID_HANDLE ? nullptr : ResolveMutable(handle);
         const bool down_is_selectable_text =
             down_node != nullptr && down_node->is_text_node && down_node->is_selectable;
-        if (!down_is_selectable_text) {
+        const bool down_preserves_selection =
+            down_node != nullptr && down_node->preserves_selection_on_pointer_down;
+        touch_text_tap_handle_ = UI_INVALID_HANDLE;
+        touch_text_tap_moved_ = false;
+        if (pointer_type == UI_POINTER_TYPE_TOUCH && down_is_selectable_text) {
+            touch_text_tap_handle_ = handle;
+            touch_text_tap_logical_x_ = logical_x;
+            touch_text_tap_logical_y_ = logical_y;
+        }
+        if (!down_is_selectable_text && !down_preserves_selection) {
             const bool cleared_cross_selection = cross_selection_active_;
             if (cleared_cross_selection) {
                 ClearCrossSelection(true);
             }
             if (!cleared_cross_selection && focused_handle_ != UI_INVALID_HANDLE) {
                 ClearSelectionHighlight(focused_handle_, true);
+            }
+            if (active_selection_handle_ != UI_INVALID_HANDLE) {
+                if (active_selection_handle_ != focused_handle_) {
+                    ClearSelectionHighlight(active_selection_handle_, true);
+                }
+                active_selection_handle_ = UI_INVALID_HANDLE;
+                active_selection_dragged_ = false;
+                selection_handle_drag_active_ = false;
+                active_selection_drag_endpoint_ = 1U;
+                active_selection_stationary_index_ = 0U;
+                selection_node = nullptr;
             }
             if (handle == UI_INVALID_HANDLE ||
                 (down_node != nullptr && !down_node->is_focusable && !down_node->is_selectable && !down_node->is_selection_area)) {
@@ -884,34 +1040,38 @@ void UiRuntime::HandlePointerEvent(std::uint32_t event_enum, std::uint64_t handl
         last_click_time_ms_ = interaction_time_ms_;
 
         UINode* down_node = ResolveMutable(handle);
+        const bool down_preserves_selection =
+            down_node != nullptr && down_node->preserves_selection_on_pointer_down;
         const std::uint64_t area_handle =
             (down_node != nullptr && down_node->is_text_node && down_node->is_selectable)
             ? FindSelectionAreaAncestor(handle)
             : static_cast<std::uint64_t>(UI_INVALID_HANDLE);
-        if (area_handle != UI_INVALID_HANDLE) {
+        if (allow_pointer_text_down_selection && area_handle != UI_INVALID_HANDLE) {
             if (cross_selection_active_ && selection_area_handle_ != area_handle) {
                 ClearCrossSelection(true);
             }
             EnsureSelectionAreaNodes(area_handle);
             if (!selection_area_nodes_.empty()) {
+                SetFocus(handle, false, false);
                 const std::uint32_t index =
                     GetStringIndexFromPoint(*down_node, logical_x - down_node->abs_x, logical_y - down_node->abs_y);
+                const bool allow_repeat_text_selection = pointer_type != UI_POINTER_TYPE_TOUCH;
                 cross_selection_active_ = true;
                 cross_selection_dragged_ = false;
                 selection_area_handle_ = area_handle;
-                if (click_count_ >= 3U) {
+                if (allow_repeat_text_selection && click_count_ >= 3U) {
                     const auto [paragraph_start, paragraph_end] = GetParagraphBoundaries(*down_node, index);
                     start_node_handle_ = handle;
                     start_index_ = paragraph_start;
                     end_node_handle_ = handle;
                     end_index_ = paragraph_end;
-                } else if (click_count_ == 2U) {
+                } else if (allow_repeat_text_selection && click_count_ == 2U) {
                     const auto [word_start, word_end] = GetWordBoundaries(*down_node, index);
                     start_node_handle_ = handle;
                     start_index_ = word_start;
                     end_node_handle_ = handle;
                     end_index_ = word_end;
-                } else if ((current_modifiers_ & UI_KEY_MOD_SHIFT) != 0U &&
+                } else if ((modifiers & UI_KEY_MOD_SHIFT) != 0U &&
                     start_node_handle_ != UI_INVALID_HANDLE &&
                     selection_area_handle_ == area_handle) {
                     end_node_handle_ = handle;
@@ -933,68 +1093,122 @@ void UiRuntime::HandlePointerEvent(std::uint32_t event_enum, std::uint64_t handl
                 handled_cross_selection = true;
                 MarkSelectionAreaNodesDirty();
             }
-        } else if (cross_selection_active_) {
+        } else if (area_handle == UI_INVALID_HANDLE && cross_selection_active_ && !down_preserves_selection) {
             ClearCrossSelection(true);
         }
 
         if (!handled_cross_selection) {
-        if (UINode* node = ResolveMutable(handle); node != nullptr && node->is_selectable) {
-            const std::uint32_t index = GetStringIndexFromPoint(*node, logical_x - node->abs_x, logical_y - node->abs_y);
-            const bool has_existing_selection_state =
-                node->last_interaction_time != 0U || node->selection_start != 0U || node->selection_end != 0U;
-            if (click_count_ >= 3U) {
-                const auto [paragraph_start, paragraph_end] = GetParagraphBoundaries(*node, index);
-                node->selection_start = paragraph_start;
-                node->selection_end = paragraph_end;
-            } else if (click_count_ == 2U) {
-                const auto [word_start, word_end] = GetWordBoundaries(*node, index);
-                node->selection_start = word_start;
-                node->selection_end = word_end;
-            } else if ((current_modifiers_ & UI_KEY_MOD_SHIFT) != 0U && has_existing_selection_state) {
-                node->selection_end = index;
-            } else {
-                node->selection_start = index;
-                node->selection_end = index;
-            }
-            node->last_interaction_time = interaction_time_ms_;
-            MarkTextSelectionVisualsDirty(*node);
-            active_selection_handle_ = handle;
-            active_selection_dragged_ = false;
-            selection_press_logical_x_ = logical_x;
-            selection_press_logical_y_ = logical_y;
-            selection_anchor_handle_ = handle;
-            selection_anchor_index_ = node->selection_start;
-            selection_node = node;
-        }
-
-        const bool blocks_scroll_drag =
-            down_node != nullptr &&
-            (down_node->is_focusable ||
-             down_node->is_selectable ||
-             down_node->is_selection_area ||
-             down_node->is_interactive);
-        if (selection_node == nullptr && !blocks_scroll_drag) {
-            const std::uint64_t scroll_handle = ResolveScrollTarget(handle, logical_x, logical_y);
-            if (scroll_handle != UI_INVALID_HANDLE) {
-                active_scroll_handle_ = scroll_handle;
-                active_scroll_dragged_ = false;
-                scroll_drag_node = ResolveMutable(scroll_handle);
-                if (scroll_drag_node != nullptr) {
-                    scroll_drag_node->scroll_velocity_x = 0.0f;
-                    scroll_drag_node->scroll_velocity_y = 0.0f;
+            if (allow_pointer_text_down_selection) {
+                if (UINode* node = ResolveMutable(handle); node != nullptr && node->is_selectable) {
+                    SetFocus(handle, false, false);
+                    const std::uint32_t index =
+                        GetStringIndexFromPoint(*node, logical_x - node->abs_x, logical_y - node->abs_y);
+                    const bool allow_repeat_text_selection = pointer_type != UI_POINTER_TYPE_TOUCH;
+                    const bool has_existing_selection_state =
+                        node->last_interaction_time != 0U || node->selection_start != 0U || node->selection_end != 0U;
+                    if (allow_repeat_text_selection && click_count_ >= 2U && node->is_obscured) {
+                        node->selection_start = 0U;
+                        node->selection_end = static_cast<std::uint32_t>(node->text_content.size());
+                    } else if (allow_repeat_text_selection && click_count_ >= 3U) {
+                        const auto [paragraph_start, paragraph_end] = GetParagraphBoundaries(*node, index);
+                        node->selection_start = paragraph_start;
+                        node->selection_end = paragraph_end;
+                    } else if (allow_repeat_text_selection && click_count_ == 2U) {
+                        const auto [word_start, word_end] = GetWordBoundaries(*node, index);
+                        node->selection_start = word_start;
+                        node->selection_end = word_end;
+                    } else if ((modifiers & UI_KEY_MOD_SHIFT) != 0U && has_existing_selection_state) {
+                        node->selection_end = index;
+                    } else {
+                        node->selection_start = index;
+                        node->selection_end = index;
+                    }
+                    node->caret_trailing_edge =
+                        node->selection_start == node->selection_end &&
+                        should_use_trailing_caret_edge(*node, index, logical_x - node->abs_x, logical_y - node->abs_y);
+                    node->last_interaction_time = interaction_time_ms_;
+                    MarkTextSelectionVisualsDirty(*node);
+                    active_selection_handle_ = handle;
+                    active_selection_dragged_ = false;
+                    selection_press_logical_x_ = logical_x;
+                    selection_press_logical_y_ = logical_y;
+                    selection_anchor_handle_ = handle;
+                    selection_anchor_index_ = node->selection_start;
+                    selection_node = node;
                 }
             }
-        } else {
-            active_scroll_handle_ = UI_INVALID_HANDLE;
-            active_scroll_dragged_ = false;
+
+            const bool blocks_scroll_drag =
+                down_node != nullptr &&
+                (down_node->is_focusable ||
+                 down_node->is_selectable ||
+                 down_node->is_selection_area ||
+                 down_node->preserves_selection_on_pointer_down ||
+                 down_node->is_interactive);
+            if (selection_node == nullptr && !blocks_scroll_drag) {
+                const std::uint64_t scroll_handle = ResolveScrollTarget(handle, logical_x, logical_y);
+                if (scroll_handle != UI_INVALID_HANDLE) {
+                    active_scroll_handle_ = scroll_handle;
+                    active_scroll_dragged_ = false;
+                    scroll_drag_node = ResolveMutable(scroll_handle);
+                    if (scroll_drag_node != nullptr) {
+                        scroll_drag_node->scroll_velocity_x = 0.0f;
+                        scroll_drag_node->scroll_velocity_y = 0.0f;
+                    }
+                }
+            } else {
+                active_scroll_handle_ = UI_INVALID_HANDLE;
+                active_scroll_dragged_ = false;
+            }
         }
+    }
+
+    if (event_enum == UI_EVENT_POINTER_MOVE &&
+        pointer_type == UI_POINTER_TYPE_TOUCH &&
+        !selection_handle_drag_active_ &&
+        touch_text_tap_handle_ != UI_INVALID_HANDLE) {
+        touch_text_tap_moved_ = touch_text_tap_moved_ ||
+            MovedBeyondSelectionDragThreshold(
+                touch_text_tap_logical_x_,
+                touch_text_tap_logical_y_,
+                logical_x,
+                logical_y);
+        if (touch_text_tap_moved_) {
+            UINode* touch_node = ResolveMutable(touch_text_tap_handle_);
+            if (touch_node != nullptr &&
+                touch_node->is_text_node &&
+                touch_node->is_selectable &&
+                IsEditorTextNode(*touch_node)) {
+                const std::uint32_t touch_index = GetStringIndexFromPoint(
+                    *touch_node,
+                    logical_x - touch_node->abs_x,
+                    logical_y - touch_node->abs_y);
+                (void)SetTextSelectionRange(touch_text_tap_handle_, touch_index, touch_index);
+                UpdateAutoScrollState(touch_text_tap_handle_, logical_x, logical_y);
+                if (UINode* updated_touch_node = ResolveMutable(touch_text_tap_handle_); updated_touch_node != nullptr) {
+                    updated_touch_node->caret_trailing_edge =
+                        should_use_trailing_caret_edge(
+                            *updated_touch_node,
+                            touch_index,
+                            logical_x - updated_touch_node->abs_x,
+                            logical_y - updated_touch_node->abs_y);
+                    MarkTextSelectionVisualsDirty(*updated_touch_node);
+                    EnsureTextCaretVisible(touch_text_tap_handle_, *updated_touch_node);
+                    pending_caret_visibility_handle_ = touch_text_tap_handle_;
+                }
+                handled_cross_selection = true;
+            }
         }
     }
 
     if (cross_selection_active_ &&
-        ((event_enum == UI_EVENT_POINTER_MOVE && primary_pointer_down_) || event_enum == UI_EVENT_POINTER_UP)) {
+        ((event_enum == UI_EVENT_POINTER_MOVE && primary_pointer_down_) ||
+         event_enum == UI_EVENT_POINTER_UP)) {
+        const float selection_drag_logical_x = logical_x;
+        const float selection_drag_logical_y =
+            selection_handle_drag_active_ ? logical_y - kSelectionHandleCenterToTextHitOffset : logical_y;
         const bool is_drag_update = event_enum == UI_EVENT_POINTER_MOVE && primary_pointer_down_;
-        if (is_drag_update) {
+        if (is_drag_update && allow_pointer_text_drag) {
             cross_selection_dragged_ = cross_selection_dragged_ ||
                 MovedBeyondSelectionDragThreshold(
                     selection_press_logical_x_,
@@ -1003,26 +1217,98 @@ void UiRuntime::HandlePointerEvent(std::uint32_t event_enum, std::uint64_t handl
                     logical_y);
         }
         const std::uint64_t selection_handle =
-            end_node_handle_ != UI_INVALID_HANDLE ? end_node_handle_ : (handle != UI_INVALID_HANDLE ? handle : selection_area_handle_);
+            selection_handle_drag_active_ && active_selection_drag_endpoint_ == 0U && start_node_handle_ != UI_INVALID_HANDLE
+            ? start_node_handle_
+            : (end_node_handle_ != UI_INVALID_HANDLE ? end_node_handle_ : (handle != UI_INVALID_HANDLE ? handle : selection_area_handle_));
         if (cross_selection_dragged_) {
-            const auto [clamped_x, clamped_y] = ClampPointToScrollViewport(selection_handle, logical_x, logical_y);
-            const bool point_was_clamped = clamped_x != logical_x || clamped_y != logical_y;
-            handled_cross_selection =
-                UpdateCrossSelectionEndpoint(point_was_clamped ? UI_INVALID_HANDLE : handle, clamped_x, clamped_y) ||
-                handled_cross_selection;
+            if (is_text_target_in_active_selection_area(handle)) {
+                handled_cross_selection =
+                    UpdateCrossSelectionEndpoint(handle, selection_drag_logical_x, selection_drag_logical_y) ||
+                    handled_cross_selection;
+            } else {
+                const auto [clamped_x, clamped_y] =
+                    ClampPointToScrollViewport(selection_handle, selection_drag_logical_x, selection_drag_logical_y);
+                const bool point_was_clamped =
+                    clamped_x != selection_drag_logical_x || clamped_y != selection_drag_logical_y;
+                handled_cross_selection =
+                    UpdateCrossSelectionEndpoint(point_was_clamped ? UI_INVALID_HANDLE : handle, clamped_x, clamped_y) ||
+                    handled_cross_selection;
+            }
         }
         if (event_enum == UI_EVENT_POINTER_UP) {
             if (BuildCrossSelectionText().empty()) {
                 ClearCrossSelection(true);
             } else {
+                if (selection_handle_drag_active_) {
+                    NormalizeCrossSelectionEndpoints();
+                }
                 cross_selection_horizontal_extend_active_ = true;
                 NotifyCrossSelectionChanged();
             }
             cross_selection_dragged_ = false;
+            selection_handle_drag_active_ = false;
+            active_selection_drag_endpoint_ = 1U;
+        } else if (selection_handle_drag_active_ && cross_selection_dragged_) {
+            NotifyCrossSelectionChanged();
         }
     }
 
-    if (!handled_cross_selection && event_enum == UI_EVENT_POINTER_MOVE && primary_pointer_down_ && selection_node != nullptr) {
+    if (event_enum == UI_EVENT_POINTER_UP &&
+        pointer_type == UI_POINTER_TYPE_TOUCH &&
+        touch_text_tap_handle_ != UI_INVALID_HANDLE) {
+        if (!touch_text_tap_moved_) {
+            UINode* tap_node = ResolveMutable(touch_text_tap_handle_);
+            bool tap_inside_existing_selection = false;
+            bool placed_touch_caret = false;
+            if (tap_node != nullptr && tap_node->is_text_node && tap_node->is_selectable) {
+                const std::uint32_t tap_index = GetStringIndexFromPoint(
+                    *tap_node,
+                    logical_x - tap_node->abs_x,
+                    logical_y - tap_node->abs_y);
+                if (IsEditorTextNode(*tap_node)) {
+                    (void)SetTextSelectionRange(touch_text_tap_handle_, tap_index, tap_index);
+                    if (UINode* updated_tap_node = ResolveMutable(touch_text_tap_handle_); updated_tap_node != nullptr) {
+                        updated_tap_node->caret_trailing_edge =
+                            should_use_trailing_caret_edge(
+                                *updated_tap_node,
+                                tap_index,
+                                logical_x - updated_tap_node->abs_x,
+                                logical_y - updated_tap_node->abs_y);
+                        MarkTextSelectionVisualsDirty(*updated_tap_node);
+                        EnsureTextCaretVisible(touch_text_tap_handle_, *updated_tap_node);
+                        pending_caret_visibility_handle_ = touch_text_tap_handle_;
+                    }
+                    handled_cross_selection = true;
+                    placed_touch_caret = true;
+                } else if (cross_selection_active_ &&
+                    touch_text_tap_handle_ == start_node_handle_ &&
+                    touch_text_tap_handle_ == end_node_handle_) {
+                    const std::uint32_t selection_start = std::min(start_index_, end_index_);
+                    const std::uint32_t selection_end = std::max(start_index_, end_index_);
+                    tap_inside_existing_selection = tap_index >= selection_start && tap_index <= selection_end;
+                } else if (!cross_selection_active_ && tap_node->selection_start != tap_node->selection_end) {
+                    const std::uint32_t selection_start = std::min(tap_node->selection_start, tap_node->selection_end);
+                    const std::uint32_t selection_end = std::max(tap_node->selection_start, tap_node->selection_end);
+                    tap_inside_existing_selection = tap_index >= selection_start && tap_index <= selection_end;
+                }
+            }
+            if (placed_touch_caret) {
+                // The caret placement above already cleared cross-selection if needed.
+            } else if (cross_selection_active_) {
+                if (!tap_inside_existing_selection) {
+                    ClearCrossSelection(true);
+                    handled_cross_selection = true;
+                }
+            } else if (!tap_inside_existing_selection && tap_node != nullptr && tap_node->selection_start != tap_node->selection_end) {
+                ClearSelectionHighlight(touch_text_tap_handle_, true);
+            }
+        }
+        touch_text_tap_handle_ = UI_INVALID_HANDLE;
+        touch_text_tap_moved_ = false;
+    }
+
+    if (allow_pointer_text_drag &&
+        !handled_cross_selection && event_enum == UI_EVENT_POINTER_MOVE && primary_pointer_down_ && selection_node != nullptr) {
         active_selection_dragged_ = active_selection_dragged_ ||
             MovedBeyondSelectionDragThreshold(
                 selection_press_logical_x_,
@@ -1030,12 +1316,36 @@ void UiRuntime::HandlePointerEvent(std::uint32_t event_enum, std::uint64_t handl
                 logical_x,
                 logical_y);
         if (active_selection_dragged_) {
-            const auto [clamped_x, clamped_y] = ClampPointToScrollViewport(active_selection_handle_, logical_x, logical_y);
-            selection_node->selection_end = GetStringIndexFromPoint(
+            const float selection_drag_logical_x = logical_x;
+            const float selection_drag_logical_y =
+                selection_handle_drag_active_ ? logical_y - kSelectionHandleCenterToTextHitOffset : logical_y;
+            const auto [clamped_x, clamped_y] =
+                ClampPointToScrollViewport(active_selection_handle_, selection_drag_logical_x, selection_drag_logical_y);
+            const std::uint32_t next_selection_end = GetStringIndexFromPoint(
                 *selection_node,
                 clamped_x - selection_node->abs_x,
                 clamped_y - selection_node->abs_y);
-            MarkTextSelectionVisualsDirty(*selection_node);
+            std::uint32_t& dragged_endpoint =
+                active_selection_drag_endpoint_ == 0U
+                ? selection_node->selection_start
+                : selection_node->selection_end;
+            const std::uint32_t previous_start = selection_node->selection_start;
+            const std::uint32_t previous_end = selection_node->selection_end;
+            if (selection_handle_drag_active_) {
+                selection_node->selection_start = std::min(active_selection_stationary_index_, next_selection_end);
+                selection_node->selection_end = std::max(active_selection_stationary_index_, next_selection_end);
+            } else {
+                dragged_endpoint = next_selection_end;
+            }
+            if (selection_node->selection_start != previous_start || selection_node->selection_end != previous_end) {
+                MarkTextSelectionVisualsDirty(*selection_node);
+                if (selection_handle_drag_active_) {
+                    as_on_selection_changed(
+                        active_selection_handle_,
+                        selection_node->selection_start,
+                        selection_node->selection_end);
+                }
+            }
         }
     }
 
@@ -1050,17 +1360,33 @@ void UiRuntime::HandlePointerEvent(std::uint32_t event_enum, std::uint64_t handl
             scroll_drag_node->scroll_offset_x - delta_x,
             scroll_drag_node->scroll_offset_y - delta_y,
             true);
-        scroll_drag_node->scroll_velocity_x = -delta_x;
-        scroll_drag_node->scroll_velocity_y = -delta_y;
+        scroll_drag_node->scroll_velocity_x = PixelsPerSecond(-delta_x, kNominalFrameMs);
+        scroll_drag_node->scroll_velocity_y = PixelsPerSecond(-delta_y, kNominalFrameMs);
     }
 
-    if (!handled_cross_selection && event_enum == UI_EVENT_POINTER_UP && selection_node != nullptr) {
+    if (!handled_cross_selection &&
+        event_enum == UI_EVENT_POINTER_UP &&
+        selection_node != nullptr) {
         if (active_selection_dragged_) {
-            const auto [clamped_x, clamped_y] = ClampPointToScrollViewport(active_selection_handle_, logical_x, logical_y);
-            selection_node->selection_end = GetStringIndexFromPoint(
+            const float selection_drag_logical_x = logical_x;
+            const float selection_drag_logical_y =
+                selection_handle_drag_active_ ? logical_y - kSelectionHandleCenterToTextHitOffset : logical_y;
+            const auto [clamped_x, clamped_y] =
+                ClampPointToScrollViewport(active_selection_handle_, selection_drag_logical_x, selection_drag_logical_y);
+            std::uint32_t& dragged_endpoint =
+                active_selection_drag_endpoint_ == 0U
+                ? selection_node->selection_start
+                : selection_node->selection_end;
+            const std::uint32_t next_selection_end = GetStringIndexFromPoint(
                 *selection_node,
                 clamped_x - selection_node->abs_x,
                 clamped_y - selection_node->abs_y);
+            if (selection_handle_drag_active_) {
+                selection_node->selection_start = std::min(active_selection_stationary_index_, next_selection_end);
+                selection_node->selection_end = std::max(active_selection_stationary_index_, next_selection_end);
+            } else {
+                dragged_endpoint = next_selection_end;
+            }
         }
         selection_node->last_interaction_time = interaction_time_ms_;
         MarkTextSelectionVisualsDirty(*selection_node);
@@ -1073,6 +1399,9 @@ void UiRuntime::HandlePointerEvent(std::uint32_t event_enum, std::uint64_t handl
             selection_node->selection_end);
         active_selection_handle_ = UI_INVALID_HANDLE;
         active_selection_dragged_ = false;
+        selection_handle_drag_active_ = false;
+        active_selection_drag_endpoint_ = 1U;
+        active_selection_stationary_index_ = 0U;
     }
 
     if (!handled_cross_selection &&
@@ -1107,7 +1436,7 @@ void UiRuntime::HandlePointerEvent(std::uint32_t event_enum, std::uint64_t handl
     }
 
     if (handle != UI_INVALID_HANDLE) {
-        as_on_pointer_event(handle, event_enum);
+        as_on_pointer_event(handle, static_cast<UiEvent>(event_enum));
     }
     last_pointer_logical_x_ = logical_x;
     last_pointer_logical_y_ = logical_y;
@@ -1117,7 +1446,8 @@ void UiRuntime::HandleWheelEvent(float delta_x, float delta_y) {
     const std::uint64_t scroll_handle = RetargetScrollHandleForDelta(
         FindWheelScrollableTarget(UI_INVALID_HANDLE, last_pointer_logical_x_, last_pointer_logical_y_),
         delta_x,
-        delta_y);
+        delta_y,
+        true);
     if (scroll_handle == UI_INVALID_HANDLE) {
         return;
     }
@@ -1127,6 +1457,30 @@ void UiRuntime::HandleWheelEvent(float delta_x, float delta_y) {
     }
     scroll_node->scroll_velocity_x = 0.0f;
     scroll_node->scroll_velocity_y = 0.0f;
+    if (scroll_node->smooth_scrolling) {
+        const float max_x = std::max(
+            0.0f,
+            scroll_node->scroll_content_width - GetScrollViewportWidth(*scroll_node));
+        const float max_y = std::max(
+            0.0f,
+            scroll_node->scroll_content_height - GetScrollViewportHeight(*scroll_node));
+        const float base_x = scroll_node->smooth_scroll_active
+            ? scroll_node->smooth_scroll_target_x
+            : scroll_node->scroll_offset_x;
+        const float base_y = scroll_node->smooth_scroll_active
+            ? scroll_node->smooth_scroll_target_y
+            : scroll_node->scroll_offset_y;
+        scroll_node->smooth_scroll_target_x = scroll_node->scroll_enabled_x
+            ? std::clamp(base_x + delta_x, 0.0f, max_x)
+            : 0.0f;
+        scroll_node->smooth_scroll_target_y = scroll_node->scroll_enabled_y
+            ? std::clamp(base_y + delta_y, 0.0f, max_y)
+            : 0.0f;
+        scroll_node->smooth_scroll_active =
+            std::abs(scroll_node->smooth_scroll_target_x - scroll_node->scroll_offset_x) >= 0.001f ||
+            std::abs(scroll_node->smooth_scroll_target_y - scroll_node->scroll_offset_y) >= 0.001f;
+        return;
+    }
     (void)ApplyScrollOffset(
         scroll_handle,
         *scroll_node,
@@ -1135,20 +1489,26 @@ void UiRuntime::HandleWheelEvent(float delta_x, float delta_y) {
         true);
 }
 
-void UiRuntime::BeginTouchScroll(std::uint64_t handle, float logical_x, float logical_y) {
+void UiRuntime::BeginTouchScroll(std::uint64_t handle, float logical_x, float logical_y, double timestamp_ms) {
     const std::uint64_t scroll_handle = ResolveScrollTarget(handle, logical_x, logical_y);
     if (scroll_handle == UI_INVALID_HANDLE) {
         active_scroll_handle_ = UI_INVALID_HANDLE;
         active_touch_scroll_handle_x_ = UI_INVALID_HANDLE;
         active_touch_scroll_handle_y_ = UI_INVALID_HANDLE;
         active_scroll_dragged_ = false;
+        has_last_touch_scroll_timestamp_ = false;
         return;
     }
     active_scroll_handle_ = scroll_handle;
     active_touch_scroll_handle_x_ = UI_INVALID_HANDLE;
     active_touch_scroll_handle_y_ = UI_INVALID_HANDLE;
     active_scroll_dragged_ = false;
+    has_last_touch_scroll_timestamp_ = IsValidTimestamp(timestamp_ms);
+    last_touch_scroll_timestamp_ms_ = has_last_touch_scroll_timestamp_ ? timestamp_ms : 0.0;
     if (UINode* scroll_node = ResolveMutable(scroll_handle); scroll_node != nullptr) {
+        scroll_node->smooth_scroll_active = false;
+        scroll_node->smooth_scroll_target_x = scroll_node->scroll_offset_x;
+        scroll_node->smooth_scroll_target_y = scroll_node->scroll_offset_y;
         if (CanScrollOnAxis(*scroll_node, true)) {
             active_touch_scroll_handle_x_ = scroll_handle;
         }
@@ -1160,9 +1520,19 @@ void UiRuntime::BeginTouchScroll(std::uint64_t handle, float logical_x, float lo
     }
 }
 
-void UiRuntime::UpdateTouchScroll(float delta_x, float delta_y) {
+void UiRuntime::UpdateTouchScroll(float delta_x, float delta_y, double timestamp_ms) {
     if (active_scroll_handle_ == UI_INVALID_HANDLE) {
         return;
+    }
+    double delta_ms = kNominalFrameMs;
+    if (IsValidTimestamp(timestamp_ms)) {
+        if (has_last_touch_scroll_timestamp_) {
+            delta_ms = ClampInputDeltaMs(timestamp_ms - last_touch_scroll_timestamp_ms_);
+        }
+        last_touch_scroll_timestamp_ms_ = timestamp_ms;
+        has_last_touch_scroll_timestamp_ = true;
+    } else if (has_last_touch_scroll_timestamp_) {
+        last_touch_scroll_timestamp_ms_ += kNominalFrameMs;
     }
     const std::uint64_t primary_scroll_handle = RetargetScrollHandleForDelta(active_scroll_handle_, delta_x, delta_y);
     const std::uint64_t scroll_handle_x =
@@ -1206,8 +1576,8 @@ void UiRuntime::UpdateTouchScroll(float delta_x, float delta_y) {
             shared_scroll_node->scroll_offset_x + delta_x,
             shared_scroll_node->scroll_offset_y + delta_y,
             true);
-        shared_scroll_node->scroll_velocity_x = delta_x;
-        shared_scroll_node->scroll_velocity_y = delta_y;
+        shared_scroll_node->scroll_velocity_x = PixelsPerSecond(delta_x, delta_ms);
+        shared_scroll_node->scroll_velocity_y = PixelsPerSecond(delta_y, delta_ms);
         return;
     }
 
@@ -1219,7 +1589,7 @@ void UiRuntime::UpdateTouchScroll(float delta_x, float delta_y) {
                 scroll_node_x->scroll_offset_x + delta_x,
                 scroll_node_x->scroll_offset_y,
                 true);
-            scroll_node_x->scroll_velocity_x = delta_x;
+            scroll_node_x->scroll_velocity_x = PixelsPerSecond(delta_x, delta_ms);
             scroll_node_x->scroll_velocity_y = 0.0f;
         }
     }
@@ -1233,12 +1603,16 @@ void UiRuntime::UpdateTouchScroll(float delta_x, float delta_y) {
                 scroll_node_y->scroll_offset_y + delta_y,
                 true);
             scroll_node_y->scroll_velocity_x = 0.0f;
-            scroll_node_y->scroll_velocity_y = delta_y;
+            scroll_node_y->scroll_velocity_y = PixelsPerSecond(delta_y, delta_ms);
         }
     }
 }
 
-void UiRuntime::EndTouchScroll() {
+void UiRuntime::EndTouchScroll(double timestamp_ms) {
+    if (IsValidTimestamp(timestamp_ms)) {
+        last_touch_scroll_timestamp_ms_ = timestamp_ms;
+        has_last_touch_scroll_timestamp_ = true;
+    }
     const auto clear_velocity_if_needed = [this](std::uint64_t handle) {
         if (handle == UI_INVALID_HANDLE) {
             return;
@@ -1277,6 +1651,7 @@ void UiRuntime::EndTouchScroll() {
     active_touch_scroll_handle_x_ = UI_INVALID_HANDLE;
     active_touch_scroll_handle_y_ = UI_INVALID_HANDLE;
     active_scroll_dragged_ = false;
+    has_last_touch_scroll_timestamp_ = false;
 }
 
 void UiRuntime::ClearMomentumScroll() {
@@ -1310,37 +1685,73 @@ bool UiRuntime::ActiveTouchScrollAllowsPullToRefresh() const {
     return !CanConsumeScrollDelta(*scroll_node, false, -1.0f);
 }
 
+bool UiRuntime::WheelScrollCanConsume(float delta_x, float delta_y) const {
+    return CanConsumeScrollDeltaFromTarget(
+        FindWheelScrollableTarget(UI_INVALID_HANDLE, last_pointer_logical_x_, last_pointer_logical_y_),
+        delta_x,
+        delta_y);
+}
+
+bool UiRuntime::ActiveTouchScrollCanConsume(float delta_x, float delta_y) const {
+    if (active_scroll_handle_ == UI_INVALID_HANDLE) {
+        return false;
+    }
+    if (std::abs(delta_x) >= 0.001f) {
+        if (CanConsumeScrollDeltaFromTarget(
+                active_touch_scroll_handle_x_ != UI_INVALID_HANDLE ? active_touch_scroll_handle_x_ : active_scroll_handle_,
+                delta_x,
+                0.0f)) {
+            return true;
+        }
+    }
+    if (std::abs(delta_y) >= 0.001f) {
+        if (CanConsumeScrollDeltaFromTarget(
+                active_touch_scroll_handle_y_ != UI_INVALID_HANDLE ? active_touch_scroll_handle_y_ : active_scroll_handle_,
+                0.0f,
+                delta_y)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void UiRuntime::SetCoarsePointerMode(bool coarse_pointer_mode) {
     coarse_pointer_mode_ = coarse_pointer_mode;
 }
 
-void UiRuntime::HandleKeyEvent(
+bool UiRuntime::HandleKeyEvent(
     std::uint32_t type_enum,
     const std::uint8_t* key_utf8,
     std::uint32_t len,
     std::uint32_t modifiers) {
-    current_modifiers_ = modifiers;
-    if (type_enum != UI_KEY_EVENT_DOWN || (key_utf8 == nullptr && len > 0U)) return;
+    if (type_enum != UI_KEY_EVENT_DOWN || (key_utf8 == nullptr && len > 0U)) return false;
 
     const std::string_view key =
         key_utf8 == nullptr ? std::string_view{} : std::string_view(reinterpret_cast<const char*>(key_utf8), len);
 
     if (key == "Escape") {
         if (ClearCurrentSelection(true)) {
-            return;
+            return true;
         }
     }
 
+    UINode* node = ResolveMutable(focused_handle_);
     if (key == "Tab") {
+        if (node != nullptr &&
+            node->is_text_node &&
+            node->is_editable &&
+            node->accepts_tab &&
+            modifiers == 0U) {
+            return false;
+        }
         const bool forward = (modifiers & UI_KEY_MOD_SHIFT) == 0U;
         const std::uint64_t next = GetNextFocusable(focused_handle_, forward);
         if (next != UI_INVALID_HANDLE) {
             SetFocus(next, true);
         }
-        return;
+        return true;
     }
 
-    UINode* node = ResolveMutable(focused_handle_);
     if (node != nullptr && node->is_text_node && node->is_selectable) {
         const std::uint64_t area_handle = FindSelectionAreaAncestor(focused_handle_);
         if (area_handle != UI_INVALID_HANDLE &&
@@ -1355,42 +1766,43 @@ void UiRuntime::HandleKeyEvent(
             } else {
                 EmitClipboardWrite(stitched);
             }
-            return;
+            return true;
         }
         if (area_handle != UI_INVALID_HANDLE && HandleCrossSelectionNavigation(area_handle, *node, key, modifiers)) {
-            return;
+            return true;
         }
         if (node->is_editable && IsUndoShortcut(key, modifiers)) {
             (void)UndoTextEdit(focused_handle_, *node);
-            return;
+            return true;
         }
         if (node->is_editable && IsRedoShortcut(key, modifiers)) {
             (void)RedoTextEdit(focused_handle_, *node);
-            return;
+            return true;
         }
         if (IsPrimaryShortcut(key, modifiers, 'a')) {
             (void)SelectAllText(focused_handle_);
-            return;
+            return true;
         }
         if (IsPrimaryShortcut(key, modifiers, 'c')) {
             HandleCopy(*node);
-            return;
+            return true;
         }
         if (node->is_editable && IsPrimaryShortcut(key, modifiers, 'x')) {
             if (HandleCut(*node)) {
                 node->is_dirty = true;
             }
-            return;
+            return true;
         }
         if (node->is_editable && IsPrimaryShortcut(key, modifiers, 'v')) {
             (void)HandlePaste(*node);
-            return;
+            return true;
         }
         if (HandleTextEditingKey(*node, key, modifiers)) {
             node->is_dirty = true;
-            return;
+            return true;
         }
     }
+    return false;
 }
 
 void UiRuntime::InvalidateFocusOrder() {

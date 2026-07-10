@@ -147,8 +147,8 @@ TEST_CASE("v2 ui runtime emits retained image and svg commands", "[v2][ui][unit]
     ui_node_add_child(root, image);
     ui_node_add_child(root, svg);
 
-    ui_set_image(image, 21U, ED_OBJECT_FIT_COVER);
-    ui_set_svg(svg, 22U, 0xff1122ffU);
+    ui_set_image(image, 21U, ED_OBJECT_FIT_COVER, ED_IMAGE_SAMPLING_NEAREST, 0U);
+    ui_set_svg(svg, 22U, 0xff1122ffU, ED_IMAGE_SAMPLING_CUBIC_MITCHELL, 0U);
 
     ui_commit_frame();
     const std::vector<std::uint32_t> words = ReadCommandBuffer();
@@ -161,14 +161,18 @@ TEST_CASE("v2 ui runtime emits retained image and svg commands", "[v2][ui][unit]
     const std::size_t image_index = static_cast<std::size_t>(std::distance(words.begin(), image_it));
     CHECK(words[image_index + 3U] == 21U);
     CHECK(words[image_index + 4U] == ED_OBJECT_FIT_COVER);
+    CHECK(words[image_index + 5U] == ED_IMAGE_SAMPLING_NEAREST);
+    CHECK(words[image_index + 6U] == 8U);
 
     const auto svg_it = std::find(words.begin(), words.end(), CMD_SET_SVG);
     REQUIRE(svg_it != words.end());
     const std::size_t svg_index = static_cast<std::size_t>(std::distance(words.begin(), svg_it));
     CHECK(words[svg_index + 3U] == 22U);
     CHECK(words[svg_index + 4U] == 0xff1122ffU);
+    CHECK(words[svg_index + 5U] == ED_IMAGE_SAMPLING_CUBIC_MITCHELL);
+    CHECK(words[svg_index + 6U] == 8U);
 
-    ui_set_svg(svg, 0U, 0xff1122ffU);
+    ui_set_svg(svg, 0U, 0xff1122ffU, ED_IMAGE_SAMPLING_LINEAR, 0U);
     ui_commit_frame();
     const std::vector<std::uint32_t> cleared_words = ReadCommandBuffer();
     CHECK(CountCommand(cleared_words, CMD_SET_SVG) == 1U);
@@ -177,6 +181,8 @@ TEST_CASE("v2 ui runtime emits retained image and svg commands", "[v2][ui][unit]
     const std::size_t cleared_svg_index = static_cast<std::size_t>(std::distance(cleared_words.begin(), cleared_svg_it));
     CHECK(cleared_words[cleared_svg_index + 3U] == 0U);
     CHECK(cleared_words[cleared_svg_index + 4U] == 0xff1122ffU);
+    CHECK(cleared_words[cleared_svg_index + 5U] == ED_IMAGE_SAMPLING_LINEAR);
+    CHECK(cleared_words[cleared_svg_index + 6U] == 8U);
 }
 
 
@@ -188,7 +194,7 @@ TEST_CASE("v2 ui runtime emits retained nine-patch image commands", "[v2][ui][un
     ui_set_root(image);
     ui_set_width(image, 120.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(image, 80.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_image_nine(image, 33U, 4.0f, 5.0f, 6.0f, 7.0f);
+    ui_set_image_nine(image, 33U, 4.0f, 5.0f, 6.0f, 7.0f, ED_IMAGE_SAMPLING_NEAREST, 0U);
 
     ui_commit_frame();
     const std::vector<std::uint32_t> words = ReadCommandBuffer();
@@ -200,6 +206,8 @@ TEST_CASE("v2 ui runtime emits retained nine-patch image commands", "[v2][ui][un
     CHECK(words[image_nine_index + 3U] == 33U);
     CHECK(effindom::v2::ui::CommandBuilder::WordToFloat(words[image_nine_index + 4U]) == Approx(4.0f));
     CHECK(effindom::v2::ui::CommandBuilder::WordToFloat(words[image_nine_index + 7U]) == Approx(7.0f));
+    CHECK(words[image_nine_index + 8U] == ED_IMAGE_SAMPLING_NEAREST);
+    CHECK(words[image_nine_index + 9U] == 8U);
 }
 
 
@@ -251,5 +259,3 @@ TEST_CASE("v2 ui arena api resets and deleting root clears the tree", "[v2][ui][
     CHECK(GetRuntime().window_width() == Approx(800.0f));
     CHECK(GetRuntime().window_height() == Approx(600.0f));
 }
-
-

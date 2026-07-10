@@ -118,7 +118,7 @@ EMSCRIPTEN_KEEPALIVE void as_on_focus_changed(ui_handle_t handle, bool is_focuse
     js_on_focus_changed(handle, is_focused ? 1 : 0);
 }
 
-EMSCRIPTEN_KEEPALIVE void as_on_pointer_event(ui_handle_t handle, uint32_t event_enum) {
+EMSCRIPTEN_KEEPALIVE void as_on_pointer_event(ui_handle_t handle, UiEvent event_enum) {
     js_on_pointer_event(handle, static_cast<int>(event_enum));
 }
 
@@ -189,7 +189,7 @@ __attribute__((weak)) void as_on_focus_changed(ui_handle_t handle, bool is_focus
     (void)is_focused;
 }
 
-__attribute__((weak)) void as_on_pointer_event(ui_handle_t handle, uint32_t event_enum) {
+__attribute__((weak)) void as_on_pointer_event(ui_handle_t handle, UiEvent event_enum) {
     (void)handle;
     (void)event_enum;
 }

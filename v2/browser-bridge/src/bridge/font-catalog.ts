@@ -9,10 +9,10 @@ export const BUILT_IN_FONT_BODY = 1;
 export const BUILT_IN_FONT_HEADING = 2;
 export const BUILT_IN_FONT_SYMBOLS = 3;
 export const BUILT_IN_FONT_EMOJI = 4;
-export const BUILT_IN_FONT_MONO = 5;
-export const BUILT_IN_FONT_MONO_BOLD = 6;
-export const BUILT_IN_FONT_BODY_ITALIC = 9;
-export const BUILT_IN_FONT_BODY_BOLD_ITALIC = 10;
+export const BUILT_IN_FONT_BODY_ITALIC = 5;
+export const BUILT_IN_FONT_BODY_BOLD_ITALIC = 6;
+export const BUILT_IN_FONT_MONO = 7;
+export const BUILT_IN_FONT_MONO_BOLD = 8;
 
 const BUILT_IN_BRIDGE_FONTS: readonly BridgeFontDefinition[] = [
   { id: BUILT_IN_FONT_BODY, assetFile: 'NotoSans-Regular.ttf', fallbackIds: [BUILT_IN_FONT_EMOJI, BUILT_IN_FONT_SYMBOLS], preload: true },

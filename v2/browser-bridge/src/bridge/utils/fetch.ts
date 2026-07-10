@@ -27,28 +27,6 @@ export function normalizeFetchIntegrity(integrity: string | null | undefined): s
   return `sha256-${digest}`;
 }
 
-export function bytesToBase64(bytes: Uint8Array): string {
-  let binary = '';
-  for (let index = 0; index < bytes.length; index += 0x8000) {
-    const chunk = bytes.subarray(index, Math.min(index + 0x8000, bytes.length));
-    binary += String.fromCharCode(...chunk);
-  }
-  return window.btoa(binary);
-}
-
-export async function verifyFetchedIntegrity(assetUrl: string, buffer: ArrayBuffer, integrity: string | null | undefined): Promise<ArrayBuffer> {
-  const normalizedIntegrity = normalizeFetchIntegrity(integrity);
-  if (normalizedIntegrity === null) {
-    return buffer;
-  }
-  const digestBuffer = await globalThis.crypto.subtle.digest('SHA-256', buffer);
-  const actualIntegrity = `sha256-${bytesToBase64(new Uint8Array(digestBuffer))}`;
-  if (actualIntegrity !== normalizedIntegrity) {
-    throw new Error(`Integrity mismatch for ${assetUrl}`);
-  }
-  return buffer;
-}
-
 export function buildFetchInit(integrity: string | null | undefined, cache: RequestCache = 'force-cache'): RequestInit {
   const fetchIntegrity = normalizeFetchIntegrity(integrity);
   const init: RequestInit = {
@@ -94,7 +72,7 @@ export async function fetchBinaryAsset(url: string, integrity: string | null | u
     async (response) => await response.arrayBuffer(),
     buildFetchInit(integrity),
   );
-  return new Uint8Array(await verifyFetchedIntegrity(assetUrl, buffer, integrity));
+  return new Uint8Array(buffer);
 }
 
 export async function fetchResponseWithRetry(url: string, integrity: string | null | undefined): Promise<Response> {

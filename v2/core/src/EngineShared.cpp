@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cstring>
+#include <include/core/SkSamplingOptions.h>
 
 namespace effindom::v2 {
 
@@ -47,12 +48,18 @@ void DisplayNode::ResetForCreate(std::uint32_t next_generation) {
     has_image = false;
     texture_id = 0;
     object_fit = ED_OBJECT_FIT_FILL;
+    image_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    image_max_aniso = 0;
     has_image_nine = false;
     image_nine_texture_id = 0;
     image_nine_insets = {};
+    image_nine_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    image_nine_max_aniso = 0;
     has_svg = false;
     svg_id = 0;
     svg_tint_color = 0;
+    svg_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    svg_max_aniso = 0;
     has_path = false;
     path_fill_color = 0;
     path_stroke_color = 0;
@@ -60,6 +67,7 @@ void DisplayNode::ResetForCreate(std::uint32_t next_generation) {
     path.clear();
     has_glyph_run = false;
     glyphs_have_per_color = false;
+    glyphs_have_per_style = false;
     font_id = 0;
     font_size = 16.0f;
     glyph_color = 0;
@@ -121,12 +129,18 @@ void DisplayNode::ResetForDelete() {
     has_image = false;
     texture_id = 0;
     object_fit = ED_OBJECT_FIT_FILL;
+    image_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    image_max_aniso = 0;
     has_image_nine = false;
     image_nine_texture_id = 0;
     image_nine_insets = {};
+    image_nine_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    image_nine_max_aniso = 0;
     has_svg = false;
     svg_id = 0;
     svg_tint_color = 0;
+    svg_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    svg_max_aniso = 0;
     has_path = false;
     path_fill_color = 0;
     path_stroke_color = 0;
@@ -135,6 +149,7 @@ void DisplayNode::ResetForDelete() {
     path.shrink_to_fit();
     has_glyph_run = false;
     glyphs_have_per_color = false;
+    glyphs_have_per_style = false;
     font_id = 0;
     font_size = 16.0f;
     glyph_color = 0;
@@ -201,6 +216,37 @@ std::uint32_t VerbArgCount(std::uint32_t verb) {
     case ED_PATH_CLOSE:
     default:
         return 0;
+    }
+}
+
+bool IsValidImageSampling(std::uint32_t sampling) {
+    return sampling <= ED_IMAGE_SAMPLING_ANISOTROPIC;
+}
+
+std::uint32_t NormalizeImageMaxAniso(std::uint32_t max_aniso) {
+    if (max_aniso == 0U) {
+        return 8U;
+    }
+    return std::clamp(max_aniso, 1U, 16U);
+}
+
+SkSamplingOptions MakeImageSamplingOptions(std::uint32_t sampling, std::uint32_t max_aniso) {
+    switch (sampling) {
+    case ED_IMAGE_SAMPLING_NEAREST:
+        return SkSamplingOptions(SkFilterMode::kNearest, SkMipmapMode::kNone);
+    case ED_IMAGE_SAMPLING_LINEAR_MIPMAP_NEAREST:
+        return SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kNearest);
+    case ED_IMAGE_SAMPLING_LINEAR_MIPMAP_LINEAR:
+        return SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kLinear);
+    case ED_IMAGE_SAMPLING_CUBIC_MITCHELL:
+        return SkSamplingOptions(SkCubicResampler::Mitchell());
+    case ED_IMAGE_SAMPLING_CUBIC_CATMULL_ROM:
+        return SkSamplingOptions(SkCubicResampler::CatmullRom());
+    case ED_IMAGE_SAMPLING_ANISOTROPIC:
+        return SkSamplingOptions::Aniso(static_cast<int>(NormalizeImageMaxAniso(max_aniso)));
+    case ED_IMAGE_SAMPLING_LINEAR:
+    default:
+        return SkSamplingOptions(SkFilterMode::kLinear, SkMipmapMode::kNone);
     }
 }
 

@@ -7,6 +7,10 @@
 
 extern "C" {
 
+std::uint32_t ui_get_abi_version(void) {
+    return UI_ABI_VERSION;
+}
+
 void ui_reset(void) {
     effindom::v2::ui::GetRuntime().Reset();
 }
@@ -15,7 +19,7 @@ std::uintptr_t ui_arena_alloc(std::uint32_t byte_length) {
     return effindom::v2::ui::GetRuntime().ArenaAlloc(byte_length);
 }
 
-ui_handle_t ui_create_node(uint32_t type) {
+ui_handle_t ui_create_node(UiNodeType type) {
     return effindom::v2::ui::GetRuntime().CreateNode(type);
 }
 
@@ -27,7 +31,7 @@ void ui_set_node_id(ui_handle_t handle, const uint8_t* utf8_id, uint32_t len) {
     (void)effindom::v2::ui::GetRuntime().SetNodeId(handle, utf8_id, len);
 }
 
-void ui_set_semantic_role(ui_handle_t handle, uint32_t role_enum) {
+void ui_set_semantic_role(ui_handle_t handle, UiSemanticRole role_enum) {
     (void)effindom::v2::ui::GetRuntime().SetSemanticRole(handle, role_enum);
 }
 
@@ -35,7 +39,7 @@ void ui_set_semantic_label(ui_handle_t handle, const uint8_t* utf8_label, uint32
     (void)effindom::v2::ui::GetRuntime().SetSemanticLabel(handle, utf8_label, len);
 }
 
-void ui_set_semantic_checked(ui_handle_t handle, uint32_t checked_state_enum) {
+void ui_set_semantic_checked(ui_handle_t handle, UiSemanticCheckedState checked_state_enum) {
     (void)effindom::v2::ui::GetRuntime().SetSemanticChecked(handle, checked_state_enum);
 }
 
@@ -55,7 +59,7 @@ void ui_set_semantic_value_range(ui_handle_t handle, bool has_value_range, float
     (void)effindom::v2::ui::GetRuntime().SetSemanticValueRange(handle, has_value_range, value_now, value_min, value_max);
 }
 
-void ui_set_semantic_orientation(ui_handle_t handle, uint32_t orientation_enum) {
+void ui_set_semantic_orientation(ui_handle_t handle, UiOrientation orientation_enum) {
     (void)effindom::v2::ui::GetRuntime().SetSemanticOrientation(handle, orientation_enum);
 }
 
@@ -83,7 +87,7 @@ void ui_set_is_portal(ui_handle_t handle, bool is_portal) {
     (void)effindom::v2::ui::GetRuntime().SetPortal(handle, is_portal);
 }
 
-void ui_set_visibility(ui_handle_t handle, uint32_t visibility_enum) {
+void ui_set_visibility(ui_handle_t handle, UiVisibility visibility_enum) {
     (void)effindom::v2::ui::GetRuntime().SetVisibility(handle, visibility_enum);
 }
 
@@ -95,8 +99,32 @@ void ui_set_custom_drawable(ui_handle_t handle, bool is_custom_drawable) {
     (void)effindom::v2::ui::GetRuntime().SetCustomDrawable(handle, is_custom_drawable);
 }
 
-void ui_set_flex_wrap(ui_handle_t handle, uint32_t wrap_enum) {
+void ui_set_flex_wrap(ui_handle_t handle, UiFlexWrap wrap_enum) {
     (void)effindom::v2::ui::GetRuntime().SetFlexWrap(handle, wrap_enum);
+}
+
+uint32_t ui_prepare_node(ui_handle_t handle) {
+    return effindom::v2::ui::GetRuntime().PrepareNode(handle) ? 1U : 0U;
+}
+
+void ui_set_dynamic_text_charset(ui_handle_t handle, const uint8_t* utf8_charset, uint32_t len) {
+    (void)effindom::v2::ui::GetRuntime().SetDynamicTextCharset(handle, utf8_charset, len);
+}
+
+bool ui_get_text_metrics(
+    ui_handle_t handle,
+    float* out_width,
+    float* out_height,
+    float* out_baseline,
+    uint32_t* out_line_count,
+    float* out_max_line_width) {
+    return effindom::v2::ui::GetRuntime().GetTextMetrics(
+        handle,
+        out_width,
+        out_height,
+        out_baseline,
+        out_line_count,
+        out_max_line_width);
 }
 
 void ui_grid_set_columns(ui_handle_t handle, uint32_t count, const float* values, const uint8_t* types) {
@@ -131,11 +159,11 @@ void ui_set_root(ui_handle_t handle) {
     (void)effindom::v2::ui::GetRuntime().SetRoot(handle);
 }
 
-void ui_set_width(ui_handle_t handle, float value, uint32_t unit_enum) {
+void ui_set_width(ui_handle_t handle, float value, UiSizeUnit unit_enum) {
     (void)effindom::v2::ui::GetRuntime().SetWidth(handle, value, unit_enum);
 }
 
-void ui_set_height(ui_handle_t handle, float value, uint32_t unit_enum) {
+void ui_set_height(ui_handle_t handle, float value, UiSizeUnit unit_enum) {
     (void)effindom::v2::ui::GetRuntime().SetHeight(handle, value, unit_enum);
 }
 
@@ -155,23 +183,23 @@ void ui_set_fill_height_percent(ui_handle_t handle, float percent) {
     (void)effindom::v2::ui::GetRuntime().SetFillHeightPercent(handle, percent);
 }
 
-void ui_set_min_width(ui_handle_t handle, float value, uint32_t unit_enum) {
+void ui_set_min_width(ui_handle_t handle, float value, UiSizeUnit unit_enum) {
     (void)effindom::v2::ui::GetRuntime().SetMinWidth(handle, value, unit_enum);
 }
 
-void ui_set_max_width(ui_handle_t handle, float value, uint32_t unit_enum) {
+void ui_set_max_width(ui_handle_t handle, float value, UiSizeUnit unit_enum) {
     (void)effindom::v2::ui::GetRuntime().SetMaxWidth(handle, value, unit_enum);
 }
 
-void ui_set_min_height(ui_handle_t handle, float value, uint32_t unit_enum) {
+void ui_set_min_height(ui_handle_t handle, float value, UiSizeUnit unit_enum) {
     (void)effindom::v2::ui::GetRuntime().SetMinHeight(handle, value, unit_enum);
 }
 
-void ui_set_max_height(ui_handle_t handle, float value, uint32_t unit_enum) {
+void ui_set_max_height(ui_handle_t handle, float value, UiSizeUnit unit_enum) {
     (void)effindom::v2::ui::GetRuntime().SetMaxHeight(handle, value, unit_enum);
 }
 
-void ui_set_flex_direction(ui_handle_t handle, uint32_t dir_enum) {
+void ui_set_flex_direction(ui_handle_t handle, UiFlexDirection dir_enum) {
     (void)effindom::v2::ui::GetRuntime().SetFlexDirection(handle, dir_enum);
 }
 
@@ -179,15 +207,15 @@ void ui_set_flex_basis(ui_handle_t handle, float basis) {
     (void)effindom::v2::ui::GetRuntime().SetFlexBasis(handle, basis);
 }
 
-void ui_set_justify_content(ui_handle_t handle, uint32_t justify_enum) {
+void ui_set_justify_content(ui_handle_t handle, UiJustifyContent justify_enum) {
     (void)effindom::v2::ui::GetRuntime().SetJustifyContent(handle, justify_enum);
 }
 
-void ui_set_align_items(ui_handle_t handle, uint32_t align_enum) {
+void ui_set_align_items(ui_handle_t handle, UiAlignItems align_enum) {
     (void)effindom::v2::ui::GetRuntime().SetAlignItems(handle, align_enum);
 }
 
-void ui_set_align_self(ui_handle_t handle, uint32_t align_enum) {
+void ui_set_align_self(ui_handle_t handle, UiAlignSelf align_enum) {
     (void)effindom::v2::ui::GetRuntime().SetAlignSelf(handle, align_enum);
 }
 
@@ -199,7 +227,7 @@ void ui_set_margin(ui_handle_t handle, float left, float top, float right, float
     (void)effindom::v2::ui::GetRuntime().SetMargin(handle, left, top, right, bottom);
 }
 
-void ui_set_position_type(ui_handle_t handle, uint32_t pos_enum) {
+void ui_set_position_type(ui_handle_t handle, UiPositionType pos_enum) {
     (void)effindom::v2::ui::GetRuntime().SetPositionType(handle, pos_enum);
 }
 
@@ -224,7 +252,7 @@ void ui_set_box_style(
     float radius_bl,
     float border_width,
     ui_color_t border_color,
-    uint32_t border_style_enum,
+    EdBorderStyle border_style_enum,
     float border_dash_on,
     float border_dash_off) {
     (void)effindom::v2::ui::GetRuntime().SetBoxStyle(
@@ -241,7 +269,7 @@ void ui_set_box_style(
         border_dash_off);
 }
 
-void ui_set_layer_effect(ui_handle_t handle, float opacity, float blur_sigma, uint32_t blend_mode_enum) {
+void ui_set_layer_effect(ui_handle_t handle, float opacity, float blur_sigma, EdBlendMode blend_mode_enum) {
     (void)effindom::v2::ui::GetRuntime().SetLayerEffect(handle, opacity, blur_sigma, blend_mode_enum);
 }
 
@@ -259,8 +287,13 @@ void ui_set_background_blur(ui_handle_t handle, float blur_sigma) {
     (void)effindom::v2::ui::GetRuntime().SetBackgroundBlur(handle, blur_sigma);
 }
 
-void ui_set_image(ui_handle_t handle, uint32_t texture_id, uint32_t object_fit_enum) {
-    (void)effindom::v2::ui::GetRuntime().SetImage(handle, texture_id, object_fit_enum);
+void ui_set_image(
+    ui_handle_t handle,
+    uint32_t texture_id,
+    EdObjectFit object_fit_enum,
+    EdImageSampling sampling_kind,
+    uint32_t max_aniso) {
+    (void)effindom::v2::ui::GetRuntime().SetImage(handle, texture_id, object_fit_enum, sampling_kind, max_aniso);
 }
 
 void ui_set_image_nine(
@@ -269,12 +302,27 @@ void ui_set_image_nine(
     float inset_l,
     float inset_t,
     float inset_r,
-    float inset_b) {
-    (void)effindom::v2::ui::GetRuntime().SetImageNine(handle, texture_id, inset_l, inset_t, inset_r, inset_b);
+    float inset_b,
+    EdImageSampling sampling_kind,
+    uint32_t max_aniso) {
+    (void)effindom::v2::ui::GetRuntime().SetImageNine(
+        handle,
+        texture_id,
+        inset_l,
+        inset_t,
+        inset_r,
+        inset_b,
+        sampling_kind,
+        max_aniso);
 }
 
-void ui_set_svg(ui_handle_t handle, uint32_t svg_id, ui_color_t tint_color) {
-    (void)effindom::v2::ui::GetRuntime().SetSvg(handle, svg_id, tint_color);
+void ui_set_svg(
+    ui_handle_t handle,
+    uint32_t svg_id,
+    ui_color_t tint_color,
+    EdImageSampling sampling_kind,
+    uint32_t max_aniso) {
+    (void)effindom::v2::ui::GetRuntime().SetSvg(handle, svg_id, tint_color, sampling_kind, max_aniso);
 }
 
 void ui_set_linear_gradient(
@@ -317,11 +365,11 @@ void ui_set_text_color(ui_handle_t handle, ui_color_t color) {
     (void)effindom::v2::ui::GetRuntime().SetTextColor(handle, color);
 }
 
-void ui_set_text_align(ui_handle_t handle, uint32_t align_enum) {
+void ui_set_text_align(ui_handle_t handle, UiTextAlign align_enum) {
     (void)effindom::v2::ui::GetRuntime().SetTextAlign(handle, align_enum);
 }
 
-void ui_set_text_vertical_align(ui_handle_t handle, uint32_t align_enum) {
+void ui_set_text_vertical_align(ui_handle_t handle, UiTextVerticalAlign align_enum) {
     (void)effindom::v2::ui::GetRuntime().SetTextVerticalAlign(handle, align_enum);
 }
 
@@ -333,7 +381,7 @@ void ui_set_text_wrapping(ui_handle_t handle, bool wrap) {
     (void)effindom::v2::ui::GetRuntime().SetTextWrapping(handle, wrap);
 }
 
-void ui_set_text_overflow(ui_handle_t handle, uint32_t overflow_enum) {
+void ui_set_text_overflow(ui_handle_t handle, UiTextOverflow overflow_enum) {
     (void)effindom::v2::ui::GetRuntime().SetTextOverflow(handle, overflow_enum);
 }
 
@@ -347,6 +395,18 @@ void ui_set_text_obscured(ui_handle_t handle, bool is_password) {
 
 void ui_set_interactive(ui_handle_t handle, bool interactive) {
     (void)effindom::v2::ui::GetRuntime().SetInteractive(handle, interactive);
+}
+
+void ui_set_preserve_selection_on_pointer_down(ui_handle_t handle, bool preserve) {
+    (void)effindom::v2::ui::GetRuntime().SetPreserveSelectionOnPointerDown(handle, preserve);
+}
+
+void ui_set_editor_command_keys(ui_handle_t handle, bool enabled) {
+    (void)effindom::v2::ui::GetRuntime().SetEditorCommandKeys(handle, enabled);
+}
+
+void ui_set_editor_accepts_tab(ui_handle_t handle, bool enabled) {
+    (void)effindom::v2::ui::GetRuntime().SetEditorAcceptsTab(handle, enabled);
 }
 
 void ui_set_scroll_proxy_target(ui_handle_t handle, ui_handle_t scroll_handle) {
@@ -363,6 +423,10 @@ void ui_set_show_scrollbars(ui_handle_t handle, bool show_scrollbars) {
 
 void ui_set_scroll_friction(ui_handle_t handle, float friction) {
     (void)effindom::v2::ui::GetRuntime().SetScrollFriction(handle, friction);
+}
+
+void ui_set_smooth_scrolling(ui_handle_t handle, bool smooth_scrolling) {
+    (void)effindom::v2::ui::GetRuntime().SetSmoothScrolling(handle, smooth_scrolling);
 }
 
 void ui_set_focusable(ui_handle_t handle, bool focusable, int32_t tab_index) {
@@ -409,12 +473,16 @@ void ui_set_text_selection_range(ui_handle_t handle, uint32_t selection_start, u
     (void)effindom::v2::ui::GetRuntime().SetTextSelectionRange(handle, selection_start, selection_end);
 }
 
-float ui_get_text_scene_position_x(ui_handle_t handle, uint32_t byte_index) {
-    return effindom::v2::ui::GetRuntime().GetTextScenePositionFromIndex(handle, byte_index).first;
+bool ui_select_word_at(ui_handle_t handle, float logical_x, float logical_y) {
+    return effindom::v2::ui::GetRuntime().SelectWordAt(handle, logical_x, logical_y);
 }
 
-float ui_get_text_scene_position_y(ui_handle_t handle, uint32_t byte_index) {
-    return effindom::v2::ui::GetRuntime().GetTextScenePositionFromIndex(handle, byte_index).second;
+bool ui_begin_selection_endpoint_drag(ui_handle_t handle, uint32_t endpoint) {
+    return effindom::v2::ui::GetRuntime().BeginSelectionEndpointDrag(handle, endpoint);
+}
+
+bool ui_preserves_selection_on_pointer_down(ui_handle_t handle) {
+    return effindom::v2::ui::GetRuntime().PreservesSelectionOnPointerDown(handle);
 }
 
 uint32_t ui_get_text_snapshot_handle_count(void) {
@@ -532,6 +600,26 @@ uint32_t ui_copy_text_range_rects(
     return rect_count;
 }
 
+bool ui_copy_cross_selection_endpoint_rects(ui_handle_t area_handle, float* out_rect_words) {
+    if (out_rect_words == nullptr) {
+        return false;
+    }
+    effindom::v2::ui::Rect start_rect{};
+    effindom::v2::ui::Rect end_rect{};
+    if (!effindom::v2::ui::GetRuntime().GetCrossSelectionEndpointSceneRects(area_handle, start_rect, end_rect)) {
+        return false;
+    }
+    out_rect_words[0U] = start_rect.x;
+    out_rect_words[1U] = start_rect.y;
+    out_rect_words[2U] = start_rect.width;
+    out_rect_words[3U] = start_rect.height;
+    out_rect_words[4U] = end_rect.x;
+    out_rect_words[5U] = end_rect.y;
+    out_rect_words[6U] = end_rect.width;
+    out_rect_words[7U] = end_rect.height;
+    return true;
+}
+
 bool ui_reveal_text_range(ui_handle_t handle, uint32_t start, uint32_t end) {
     return effindom::v2::ui::GetRuntime().RevealTextRange(handle, start, end);
 }
@@ -588,8 +676,8 @@ void ui_set_caret_color(ui_handle_t handle, ui_color_t color) {
     (void)effindom::v2::ui::GetRuntime().SetCaretColor(handle, color);
 }
 
-void ui_commit_frame(void) {
-    effindom::v2::ui::GetRuntime().CommitFrame();
+void ui_commit_frame(double timestamp_ms) {
+    effindom::v2::ui::GetRuntime().CommitFrame(timestamp_ms);
 }
 
 bool ui_has_pending_visual_work(void) {
@@ -606,10 +694,6 @@ bool ui_has_pointer_autoscroll(void) {
 
 ui_handle_t ui_selection_autoscroll(float logical_x, float logical_y, float edge_threshold) {
     return effindom::v2::ui::GetRuntime().SelectionAutoScroll(logical_x, logical_y, edge_threshold);
-}
-
-void ui_set_key_modifiers(uint32_t modifiers) {
-    effindom::v2::ui::GetRuntime().SetKeyModifiers(modifiers);
 }
 
 void ui_resize_window(float logical_w, float logical_h) {
@@ -636,24 +720,58 @@ void ui_register_icu_data(const uint8_t* bytes, uint32_t len) {
     (void)effindom::v2::ui::GetRuntime().RegisterIcuData(bytes, len);
 }
 
-void ui_on_pointer_event(uint32_t event_enum, ui_handle_t handle, float logical_x, float logical_y) {
-    effindom::v2::ui::GetRuntime().HandlePointerEvent(event_enum, handle, logical_x, logical_y);
+void ui_on_pointer_event(
+    UiEvent event_enum,
+    ui_handle_t handle,
+    float logical_x,
+    float logical_y,
+    int32_t pointer_id,
+    UiPointerType pointer_type,
+    int32_t button,
+    uint32_t buttons,
+    float pressure,
+    float width,
+    float height,
+    int32_t click_count,
+    uint32_t modifiers) {
+    effindom::v2::ui::GetRuntime().HandlePointerEvent(
+        event_enum,
+        handle,
+        logical_x,
+        logical_y,
+        pointer_id,
+        pointer_type,
+        button,
+        buttons,
+        pressure,
+        width,
+        height,
+        click_count,
+        modifiers);
 }
 
 void ui_on_wheel_event(float delta_x, float delta_y) {
     effindom::v2::ui::GetRuntime().HandleWheelEvent(delta_x, delta_y);
 }
 
-void ui_touch_scroll_begin(ui_handle_t handle, float logical_x, float logical_y) {
-    effindom::v2::ui::GetRuntime().BeginTouchScroll(handle, logical_x, logical_y);
+void ui_touch_scroll_begin(ui_handle_t handle, float logical_x, float logical_y, double timestamp_ms) {
+    effindom::v2::ui::GetRuntime().BeginTouchScroll(handle, logical_x, logical_y, timestamp_ms);
 }
 
-void ui_touch_scroll_update(float delta_x, float delta_y) {
-    effindom::v2::ui::GetRuntime().UpdateTouchScroll(delta_x, delta_y);
+void ui_touch_scroll_update(float delta_x, float delta_y, double timestamp_ms) {
+    effindom::v2::ui::GetRuntime().UpdateTouchScroll(delta_x, delta_y, timestamp_ms);
 }
 
-void ui_touch_scroll_end(void) {
-    effindom::v2::ui::GetRuntime().EndTouchScroll();
+bool ui_wheel_scroll_can_consume(float delta_x, float delta_y) {
+    return effindom::v2::ui::GetRuntime().WheelScrollCanConsume(delta_x, delta_y);
+}
+
+bool ui_touch_scroll_can_consume(float delta_x, float delta_y) {
+    return effindom::v2::ui::GetRuntime().ActiveTouchScrollCanConsume(delta_x, delta_y);
+}
+
+void ui_touch_scroll_end(double timestamp_ms) {
+    effindom::v2::ui::GetRuntime().EndTouchScroll(timestamp_ms);
 }
 
 void ui_clear_momentum_scroll(void) {
@@ -672,8 +790,8 @@ void ui_set_platform_family(uint32_t platform_family) {
     effindom::v2::ui::GetRuntime().SetPlatformFamily(platform_family);
 }
 
-void ui_on_key_event(uint32_t type_enum, const uint8_t* key_utf8, uint32_t len, uint32_t modifiers) {
-    effindom::v2::ui::GetRuntime().HandleKeyEvent(type_enum, key_utf8, len, modifiers);
+bool ui_on_key_event(UiKeyEventType type_enum, const uint8_t* key_utf8, uint32_t len, uint32_t modifiers) {
+    return effindom::v2::ui::GetRuntime().HandleKeyEvent(type_enum, key_utf8, len, modifiers);
 }
 
 void ui_set_interaction_time(uint64_t interaction_time_ms) {
@@ -729,6 +847,22 @@ const std::uint32_t* ui_get_semantic_buffer(std::uint32_t* out_length) {
     return semantic_buffer.empty() ? nullptr : semantic_buffer.data();
 }
 
+const std::uint32_t* ui_get_debug_tree_buffer(std::uint32_t* out_length) {
+    const auto& debug_tree_buffer = effindom::v2::ui::GetRuntime().debug_tree_buffer();
+    if (out_length != nullptr) {
+        *out_length = static_cast<std::uint32_t>(debug_tree_buffer.size());
+    }
+    return debug_tree_buffer.empty() ? nullptr : debug_tree_buffer.data();
+}
+
+const std::uint32_t* ui_get_live_fallback_font_buffer(std::uint32_t* out_length) {
+    const auto& live_fallback_font_buffer = effindom::v2::ui::GetRuntime().LiveFallbackFontBuffer();
+    if (out_length != nullptr) {
+        *out_length = static_cast<std::uint32_t>(live_fallback_font_buffer.size());
+    }
+    return live_fallback_font_buffer.empty() ? nullptr : live_fallback_font_buffer.data();
+}
+
 bool ui_get_bounds(
     ui_handle_t handle,
     float* out_x,
@@ -751,6 +885,27 @@ bool ui_get_bounds(
     if (out_height != nullptr) {
         *out_height = node->layout_height;
     }
+    return true;
+}
+
+bool ui_get_visible_bounds(
+    ui_handle_t handle,
+    float* out_x,
+    float* out_y,
+    float* out_width,
+    float* out_height) {
+    const auto bounds = effindom::v2::ui::GetRuntime().GetVisibleBounds(handle);
+    if (!bounds.has_value() ||
+        out_x == nullptr ||
+        out_y == nullptr ||
+        out_width == nullptr ||
+        out_height == nullptr) {
+        return false;
+    }
+    *out_x = bounds->x;
+    *out_y = bounds->y;
+    *out_width = bounds->width;
+    *out_height = bounds->height;
     return true;
 }
 

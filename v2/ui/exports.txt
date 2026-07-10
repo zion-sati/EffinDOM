@@ -1,5 +1,6 @@
 _malloc
 _free
+_ui_get_abi_version
 _ui_reset
 _ui_arena_alloc
 _ui_alloc_unmanaged_buffer
@@ -80,10 +81,14 @@ _ui_set_text_overflow
 _ui_set_text_overflow_fade
 _ui_set_text_obscured
 _ui_set_interactive
+_ui_set_preserve_selection_on_pointer_down
+_ui_set_editor_command_keys
+_ui_set_editor_accepts_tab
 _ui_set_scroll_proxy_target
 _ui_set_scroll_enabled
 _ui_set_show_scrollbars
 _ui_set_scroll_friction
+_ui_set_smooth_scrolling
 _ui_set_focusable
 _ui_request_focus
 _ui_set_scroll_offset
@@ -92,6 +97,8 @@ _ui_needs_animation_frame
 _ui_has_pointer_autoscroll
 _ui_selection_autoscroll
 _ui_get_bounds
+_ui_get_visible_bounds
+_ui_get_text_metrics
 _ui_set_selectable
 _ui_set_selection_area
 _ui_set_selection_area_barrier
@@ -99,8 +106,9 @@ _ui_clear_selection
 _ui_retarget_selection
 _ui_is_point_in_selection
 _ui_set_text_selection_range
-_ui_get_text_scene_position_x
-_ui_get_text_scene_position_y
+_ui_select_word_at
+_ui_begin_selection_endpoint_drag
+_ui_preserves_selection_on_pointer_down
 _ui_get_text_snapshot_handle_count
 _ui_copy_text_snapshot_handles
 _ui_set_text_find_match
@@ -112,6 +120,7 @@ _ui_copy_text_document_utf8
 _ui_get_text_visible_bounds
 _ui_get_text_range_rect_count
 _ui_copy_text_range_rects
+_ui_copy_cross_selection_endpoint_rects
 _ui_reveal_text_range
 _ui_clear_current_selection
 _ui_copy_current_selection
@@ -126,16 +135,19 @@ _ui_paste_text
 _ui_select_all_text
 _ui_set_editable
 _ui_set_caret_color
-_ui_set_key_modifiers
 _ui_set_interaction_time
 _ui_on_pointer_event
 _ui_on_wheel_event
 _ui_touch_scroll_begin
 _ui_touch_scroll_update
+_ui_wheel_scroll_can_consume
+_ui_touch_scroll_can_consume
 _ui_touch_scroll_end
 _ui_clear_momentum_scroll
 _ui_touch_scroll_allows_pull_to_refresh
 _ui_set_coarse_pointer_mode
+_ui_prepare_node
+_ui_set_dynamic_text_charset
 _ui_set_platform_family
 _ui_on_key_event
 _ui_on_ime_update
@@ -146,3 +158,5 @@ _ui_commit_frame
 _ui_has_pending_visual_work
 _ui_get_command_buffer
 _ui_get_semantic_buffer
+_ui_get_debug_tree_buffer
+_ui_get_live_fallback_font_buffer

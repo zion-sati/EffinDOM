@@ -2,7 +2,9 @@ import { cloneSemanticTree, HiddenDomProjector, parseSemanticBuffer } from '../.
 import type { SemanticNode, UiModule } from '../../core-types';
 import type { BridgeInteractionState } from '../local-types';
 import { extractSemanticBuffer } from '../utils/heap';
-import { TextDocumentController } from './text-documents';
+import type { TextDocumentController } from './text-documents';
+import type { DebugTreeSnapshot } from '../../debug-tree';
+import { buildSemanticLightDomFields } from './editable-form-model';
 
 const SEMANTIC_ANNOUNCEMENT_DELAY_MS = 50;
 
@@ -20,6 +22,8 @@ export class SemanticController {
     private readonly ui: UiModule,
     private readonly interactionState: BridgeInteractionState,
     private readonly textDocuments: TextDocumentController,
+    private readonly getDebugTree: () => DebugTreeSnapshot,
+    private readonly getTextInputMetadata: (handle: string) => { readonly kind: 'text' | 'password' | 'email'; readonly hostAutofillHint: string | null } | null,
   ) {
     this.projector = new HiddenDomProjector(canvas);
   }
@@ -28,26 +32,34 @@ export class SemanticController {
     this.projector.syncSize(logicalWidth, logicalHeight);
   }
 
+  public syncViewportTransform(scale: number, offsetX: number, offsetY: number): void {
+    this.projector.syncViewportTransform(scale, offsetX, offsetY);
+  }
+
   public syncSemanticState(): void {
     this.semanticTree = parseSemanticBuffer(extractSemanticBuffer(this.ui));
-    for (const node of this.semanticTree) {
-      if (node.roleName !== 'textbox') {
-        continue;
-      }
-      if (this.interactionState.textByHandle[node.handle] !== undefined) {
-        continue;
-      }
-      if (node.label.length === 0) {
-        continue;
-      }
-      this.interactionState.textByHandle[node.handle] = node.label;
-    }
+    this.interactionState.reconcileLiveHandles(this.semanticTree.map((node) => node.handle));
     this.semanticTextLayoutsByHandle = this.buildSemanticTextLayouts();
+    const semanticLightDomFields = buildSemanticLightDomFields(
+      this.getDebugTree(),
+      this.semanticTree,
+      this.interactionState.textByHandle,
+      this.getTextInputMetadata,
+    );
+    const omittedHandles = new Set(semanticLightDomFields.map((field) => field.handle));
     this.projector.update(
       this.semanticTree,
       this.interactionState.textByHandle,
       this.semanticTextLayoutsByHandle,
+      omittedHandles,
     );
+    this.projector.updateLightDomSemanticForms(
+      semanticLightDomFields,
+      (handle, editor) => {
+        this.interactionState.registerSemanticTextEditor(handle, editor);
+      },
+    );
+    this.interactionState.syncActiveTextInputViewport();
     const focusedHandle = this.interactionState.getFocusedHandle();
     for (const handle of this.interactionState.consumePendingSemanticAnnouncements()) {
       if (focusedHandle !== null && focusedHandle === handle) {

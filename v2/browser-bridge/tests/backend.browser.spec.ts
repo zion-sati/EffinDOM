@@ -148,6 +148,19 @@ test('browser bridge honors ?backend=software', async ({ page }) => {
   await expect.poll(async () => (await readScenePixel(page, 160, 110)).red).toBeGreaterThan(220);
 });
 
+test('browser bridge boots on non-secure origins without SubtleCrypto', async ({ page }) => {
+  await page.addInitScript(() => {
+    Object.defineProperty(globalThis, 'crypto', {
+      configurable: true,
+      value: {},
+    });
+  });
+
+  await gotoBridgePage(page);
+
+  await expect.poll(async () => (await readScenePixel(page, 160, 110)).red).toBeGreaterThan(220);
+});
+
 test('ICU data fetch retries transient failures before the bridge becomes ready', async ({ page }) => {
   let icuFailures = 0;
   await page.route('**/icudt_minimal*.dat', async (route) => {

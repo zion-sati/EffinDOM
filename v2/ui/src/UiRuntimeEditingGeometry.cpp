@@ -200,10 +200,10 @@ std::size_t LineIndexForBoundaryNavigation(const UINode& node, std::uint32_t pos
 
 float UiRuntime::GetAlignedLineXOffset(const UINode& node, float line_width) const {
     const Rect text_bounds = ComputeTextContentBounds(node);
-    if (node.text_align == ALIGN_CENTER) {
+    if (node.text_align == UI_TEXT_ALIGN_CENTER) {
         return text_bounds.x + std::max(0.0f, (text_bounds.width - line_width) * 0.5f);
     }
-    if (node.text_align == ALIGN_RIGHT) {
+    if (node.text_align == UI_TEXT_ALIGN_RIGHT) {
         return text_bounds.x + std::max(0.0f, text_bounds.width - line_width);
     }
     return text_bounds.x;
@@ -215,10 +215,10 @@ float UiRuntime::GetAlignedTextYOffset(const UINode& node, float content_height)
     const float available_height = std::max(text_bounds.height, 0.0f);
     const float remaining = available_height - clamped_content_height;
     
-    if (node.text_vertical_align == VERTICAL_ALIGN_CENTER) {
+    if (node.text_vertical_align == UI_TEXT_VERTICAL_ALIGN_CENTER) {
         return text_bounds.y + (remaining * 0.5f);
     }
-    if (node.text_vertical_align == VERTICAL_ALIGN_BOTTOM) {
+    if (node.text_vertical_align == UI_TEXT_VERTICAL_ALIGN_BOTTOM) {
         return text_bounds.y + remaining;
     }
     return text_bounds.y;
@@ -226,7 +226,7 @@ float UiRuntime::GetAlignedTextYOffset(const UINode& node, float content_height)
 
 std::uint32_t UiRuntime::ResolveTextFadeMask(const UINode& node, const ParagraphLayout& paragraph) const {
     std::uint32_t fade_mask = ED_FADE_NONE;
-    if (node.text_overflow == OVERFLOW_FADE && paragraph.clipped) {
+    if (node.text_overflow == UI_TEXT_OVERFLOW_FADE && paragraph.clipped) {
         fade_mask |= ED_FADE_BOTTOM;
     }
     if (!node.text_overflow_fade_horizontal && !node.text_overflow_fade_vertical) {
@@ -327,7 +327,7 @@ float UiRuntime::GetTextboxViewportOffsetX(
     std::uint32_t line_end) const {
     const Rect text_bounds = ComputeTextContentBounds(node);
     const bool uses_horizontal_viewport =
-        node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines == 1;
+        IsSingleLineEditorTextNode(node);
     if (!uses_horizontal_viewport || text_bounds.width <= 0.0f) {
         return 0.0f;
     }
@@ -373,7 +373,7 @@ std::uint32_t UiRuntime::GetStringIndexFromPoint(const UINode& node, float local
     const float content_height = GetTextContentHeight(node, line_count);
     const float content_offset_y = GetAlignedTextYOffset(node, content_height);
     const float adjusted_local_y = local_y - content_offset_y;
-    const bool multiline_textbox = node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines != 1;
+    const bool multiline_textbox = IsMultilineEditorTextNode(node);
     if (multiline_textbox && adjusted_local_y >= content_height) {
         return static_cast<std::uint32_t>(node.text_content.size());
     }
@@ -384,7 +384,7 @@ std::uint32_t UiRuntime::GetStringIndexFromPoint(const UINode& node, float local
     const std::uint32_t end = range.end;
     const bool uses_fragment_geometry =
         !node.text_wrap &&
-        !(node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines == 1) &&
+        !(IsSingleLineEditorTextNode(node)) &&
         node.nonwrap_fragment_cache_valid;
     const float full_line_width =
         static_cast<std::size_t>(line_index) < node.line_widths.size()
@@ -504,6 +504,9 @@ std::pair<float, int> UiRuntime::GetLocalPositionFromIndex(
     const std::uint32_t clamped_index =
         std::min<std::uint32_t>(byte_index, static_cast<std::uint32_t>(node.text_content.size()));
     std::size_t line_index = LineIndexForPosition(node, clamped_index);
+    if (trailing_edge && line_index > 0U && IsSoftWrappedLineBoundary(node, clamped_index)) {
+        line_index -= 1U;
+    }
 
     LineByteRange range = GetLineByteRange(node, line_index);
     if (line_index > 0U && clamped_index < range.visible_start) {
@@ -515,7 +518,7 @@ std::pair<float, int> UiRuntime::GetLocalPositionFromIndex(
     const std::uint32_t local_index = std::clamp(clamped_index, start, end) - start;
     const bool uses_fragment_geometry =
         !node.text_wrap &&
-        !(node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines == 1) &&
+        !(IsSingleLineEditorTextNode(node)) &&
         node.nonwrap_fragment_cache_valid;
     const float full_line_width =
         line_index < node.line_widths.size()
@@ -585,25 +588,6 @@ std::pair<float, int> UiRuntime::GetLocalPositionFromIndex(
     const float viewport_offset_x = GetTextboxViewportOffsetX(node, shaped, start, end);
     return {GetAlignedLineXOffset(node, shaped.width) - viewport_offset_x + x, static_cast<int>(line_index)};
 }
-
-std::pair<float, float> UiRuntime::GetTextScenePositionFromIndex(std::uint64_t handle, std::uint32_t byte_index) const {
-    const UINode* node = Resolve(handle);
-    if (node == nullptr || !node->is_text_node) {
-        return {0.0f, 0.0f};
-    }
-
-    const auto [local_x, line_index] = GetLocalPositionFromIndex(*node, byte_index);
-    const std::size_t line_count = VisibleLineCount(*node);
-    const float line_height = GetLineHeightForIndex(*node, static_cast<std::size_t>(std::max(line_index, 0)));
-    const float content_offset_y = GetAlignedTextYOffset(*node, GetTextContentHeight(*node, line_count));
-    const float local_y =
-        content_offset_y +
-        GetLineTopForIndex(*node, static_cast<std::size_t>(std::max(line_index, 0))) +
-        (line_height * 0.5f);
-    return {node->scene_x + local_x, node->scene_y + local_y};
-}
-
-
 
 std::pair<std::uint32_t, std::uint32_t> UiRuntime::GetWordBoundaries(const UINode& node, std::uint32_t byte_index) const {
     if (!node.is_text_node || node.text_content.empty()) return {0U, 0U};
@@ -847,7 +831,7 @@ std::uint32_t UiRuntime::IndexForPageMove(const UINode& node, std::uint32_t pos,
 
     const float default_line_height = std::max(node.line_height, std::max(node.font_size, 1.0f));
     float viewport_height = std::max(ComputeContentBounds(node, 0.0f, 0.0f).height, default_line_height);
-    if (node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines != 1) {
+    if (IsMultilineEditorTextNode(node)) {
         const UINode* parent = Resolve(node.parent_handle);
         if (parent != nullptr && parent->is_scroll_view) {
             viewport_height = std::max(GetScrollViewportHeight(*parent), default_line_height);
@@ -891,6 +875,7 @@ void UiRuntime::EnsureTextCaretVisible(std::uint64_t handle, UINode& node) {
         return;
     }
 
+    const bool stop_after_nearest_scroll_ancestor = node.is_editable;
     const std::uint32_t caret_index =
         std::min<std::uint32_t>(node.selection_end, static_cast<std::uint32_t>(node.text_content.size()));
     const auto [caret_x, line_index] = GetLocalPositionFromIndex(node, caret_index);
@@ -941,6 +926,9 @@ void UiRuntime::EnsureTextCaretVisible(std::uint64_t handle, UINode& node) {
                 &target_top,
                 &target_right,
                 &target_bottom);
+            if (stop_after_nearest_scroll_ancestor) {
+                break;
+            }
         }
         current_handle = parent_handle;
     }
@@ -950,15 +938,30 @@ void UiRuntime::EnsureTextCaretVisible(std::uint64_t handle, UINode& node) {
 
 std::vector<Rect> UiRuntime::BuildSelectionRects(const UINode& node, std::uint32_t start, std::uint32_t end) const {
     std::vector<Rect> rects{};
-    if (!node.is_text_node || node.break_offsets.size() < 2U || start == end) {
+    if (!node.is_text_node || node.break_offsets.size() < 2U) {
+        return rects;
+    }
+
+    const std::size_t line_count = VisibleLineCount(node);
+    if (line_count == 0U) return rects;
+    const float content_offset_y = GetAlignedTextYOffset(node, GetTextContentHeight(node, line_count));
+    if (start == end) {
+        const auto [caret_x, caret_line] = GetLocalPositionFromIndex(node, start, false);
+        if (caret_line < 0 || static_cast<std::size_t>(caret_line) >= line_count) {
+            return rects;
+        }
+        const std::size_t line_index = static_cast<std::size_t>(caret_line);
+        rects.push_back(Rect{
+            caret_x,
+            content_offset_y + GetLineTopForIndex(node, line_index),
+            0.5f,
+            GetLineHeightForIndex(node, line_index),
+        });
         return rects;
     }
 
     const std::uint32_t selection_start = std::min(start, end);
     const std::uint32_t selection_end = std::max(start, end);
-    const std::size_t line_count = VisibleLineCount(node);
-    if (line_count == 0U) return rects;
-    const float content_offset_y = GetAlignedTextYOffset(node, GetTextContentHeight(node, line_count));
 
     rects.reserve(line_count);
     for (std::size_t line_index = 0; line_index < line_count; line_index += 1U) {
@@ -975,7 +978,7 @@ std::vector<Rect> UiRuntime::BuildSelectionRects(const UINode& node, std::uint32
         const std::string_view line_text(node.text_content.data() + line_start, static_cast<std::size_t>(line_end - line_start));
         const bool uses_fragment_geometry =
             !node.text_wrap &&
-            !(node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines == 1) &&
+            !(IsSingleLineEditorTextNode(node)) &&
             node.nonwrap_fragment_cache_valid;
         float viewport_offset_x = 0.0f;
         if (!uses_fragment_geometry &&
@@ -1007,7 +1010,7 @@ std::vector<Rect> UiRuntime::BuildSelectionRects(const UINode& node, std::uint32
 
 std::vector<Rect> UiRuntime::GetTextRangeSceneRects(std::uint64_t handle, std::uint32_t start, std::uint32_t end) const {
     std::vector<Rect> scene_rects{};
-    const UINode* node = ResolveTextSnapshotNode(handle);
+    const UINode* node = ResolveTextGeometryNode(handle);
     if (node == nullptr) {
         return scene_rects;
     }
@@ -1029,7 +1032,7 @@ std::vector<Rect> UiRuntime::GetTextRangeSceneRects(std::uint64_t handle, std::u
 }
 
 std::optional<Rect> UiRuntime::GetTextVisibleBounds(std::uint64_t handle) const {
-    const UINode* node = ResolveTextSnapshotNode(handle);
+    const UINode* node = ResolveTextGeometryNode(handle);
     if (node == nullptr) {
         return std::nullopt;
     }

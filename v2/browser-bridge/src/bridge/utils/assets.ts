@@ -1,11 +1,11 @@
-import { EdBackendType, EdDeviceState } from '../../core-types';
 import type {
   BridgeLoaderInfo,
   BridgeLogs,
   CoreModule,
-  UiFactory,
+  EdBackendType as EdBackendTypeValue,
   UiModule,
 } from '../../core-types';
+import { EdBackendType, EdDeviceState } from '../../core-types';
 import type {
   ArchitectureSelection,
   PreparedRuntimeAssets,
@@ -13,9 +13,8 @@ import type {
   RequestedRendererBackend,
   RuntimeManifest,
 } from '../local-types';
-import type { EdBackendType as EdBackendTypeValue } from '../../core-types';
+import { ASSET_FETCH_ATTEMPTS, fetchBinaryAsset, fetchScriptSource, fetchWithRetry, loadScriptResource, resolveAssetUrl } from './fetch';
 import { DEFAULT_BACKEND_LADDER } from './backends';
-import { fetchBinaryAsset, fetchScriptSource, fetchWithRetry, loadScriptResource, resolveAssetUrl, verifyFetchedIntegrity, ASSET_FETCH_ATTEMPTS } from './fetch';
 import { writeBytesToHeap } from './heap';
 
 declare const HEAPU8: Uint8Array | undefined;
@@ -24,6 +23,9 @@ declare const HEAPU32: Uint32Array | undefined;
 declare global {
   interface EffinDomRuntimeConfig {
     manifestUrl?: string;
+    buildMode?: 'debug' | 'release';
+    devToolsDomMirror?: 'disabled' | 'enabled' | 'on-requested';
+    pageZoom?: 'disabled' | 'enabled';
   }
 
   interface Window {
@@ -64,14 +66,6 @@ const SIMD_VALIDATION_MODULE_BYTES = new Uint8Array([
   0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
   0x1a, 0x0b,
 ]);
-
-function requireTextElement(id: string): HTMLElement {
-  const element = document.getElementById(id);
-  if (!(element instanceof HTMLElement)) {
-    throw new Error(`Expected #${id} element.`);
-  }
-  return element;
-}
 
 export function showIcuError(message: string): void {
   const errorBox = document.getElementById('icu-error');
@@ -140,11 +134,7 @@ export function resetBridgeLogs(logs: BridgeLogs): void {
 function supportsMemory64(): boolean {
   try {
     new WebAssembly.Memory({ initial: 1, maximum: 1, index: 'i64' } as WebAssembly.MemoryDescriptor & { index: 'i64' });
-    if (WebAssembly.validate !== undefined) {
-      return WebAssembly.validate(MEMORY64_VALIDATION_MODULE_BYTES);
-    }
-    void new WebAssembly.Module(MEMORY64_VALIDATION_MODULE_BYTES);
-    return true;
+    return WebAssembly.validate(MEMORY64_VALIDATION_MODULE_BYTES);
   } catch {
     return false;
   }
@@ -152,11 +142,7 @@ function supportsMemory64(): boolean {
 
 function supportsSimd(): boolean {
   try {
-    if (WebAssembly.validate !== undefined) {
-      return WebAssembly.validate(SIMD_VALIDATION_MODULE_BYTES);
-    }
-    void new WebAssembly.Module(SIMD_VALIDATION_MODULE_BYTES);
-    return true;
+    return WebAssembly.validate(SIMD_VALIDATION_MODULE_BYTES);
   } catch {
     return false;
   }
@@ -323,7 +309,7 @@ function prepareWasmAsset(url: string, integrity: string | null): PreparedWasmAs
     ASSET_FETCH_ATTEMPTS,
     async (response) => await response.arrayBuffer(),
     requestInit,
-  ).then(async (buffer) => await verifyFetchedIntegrity(url, buffer, integrity));
+  );
   return {
     url,
     integrity,
@@ -341,7 +327,8 @@ async function getCoreScriptRunner(scriptUrl: string, integrity: string | null |
   if (runnerPromise === undefined) {
     runnerPromise = fetchScriptSource(absoluteUrl, integrity).then((sourceText) => {
       const wrappedSource = `${sourceText}\n//# sourceURL=${absoluteUrl.replace(/\s/g, '%20')}`;
-      return new Function('Module', wrappedSource) as (module: CoreModule) => void;
+      const createRunner = globalThis.Function;
+      return createRunner('Module', wrappedSource) as (module: CoreModule) => void;
     });
     coreScriptRunnerCache.set(cacheKey, runnerPromise);
   }
@@ -407,10 +394,23 @@ export async function loadCoreModule(
       _ed_init_webgl: () => undefined,
       _ed_init_sw: () => undefined,
       _ed_resize: () => undefined,
+      _ed_set_viewport_size: () => undefined,
+      _ed_set_viewport_transform: () => undefined,
+      _ed_get_viewport_scale: () => 1.0,
+      _ed_get_viewport_offset_x: () => 0.0,
+      _ed_get_viewport_offset_y: () => 0.0,
+      _ed_set_viewport_zoom_from_scene_anchor: () => undefined,
+      _ed_pan_viewport_by: () => undefined,
+      _ed_begin_viewport_pan: () => undefined,
+      _ed_update_viewport_pan: () => undefined,
+      _ed_end_viewport_pan: () => undefined,
+      _ed_tick_viewport_pan_momentum: () => 0,
+      _ed_clear_viewport_pan_momentum: () => undefined,
       _ed_register_font: () => undefined,
       _ed_unregister_font: () => undefined,
       _ed_register_svg: () => undefined,
       _ed_register_texture_rgba: () => undefined,
+      _ed_register_texture_sub_rgba: () => undefined,
       _ed_unregister_texture: () => undefined,
       _ed_execute_command_buffer: () => undefined,
       _ed_reset_scene: () => undefined,
@@ -430,6 +430,7 @@ export async function loadCoreModule(
       _ed_canvas_scale: () => undefined,
       _ed_canvas_rotate: () => undefined,
       _ed_canvas_clip_rect: () => undefined,
+      _ed_canvas_clip_round_rect: () => undefined,
       _ed_canvas_draw_rect: () => undefined,
       _ed_canvas_draw_circle: () => undefined,
       _ed_canvas_draw_line: () => undefined,
@@ -444,13 +445,15 @@ export async function loadCoreModule(
       _ed_path_add_rect: () => undefined,
       _ed_path_add_circle: () => undefined,
       _ed_canvas_draw_path: () => undefined,
-      _ed_canvas_draw_text: () => undefined,
+      _ed_canvas_draw_text_node: () => undefined,
       _ed_canvas_draw_image: () => undefined,
       _ed_canvas_draw_svg: () => undefined,
+      _ed_canvas_draw_batch: () => undefined,
       _ed_canvas_create_offscreen: () => 0,
       _ed_canvas_get_offscreen_canvas: () => 0,
       _ed_canvas_read_offscreen_pixels: () => undefined,
       _ed_canvas_destroy_offscreen: () => undefined,
+      _ed_render_node_to_rgba: () => 0,
     };
     void getCoreScriptRunner(bundle.js, bundle.js_integrity ?? null).then((runCoreScript) => {
       runCoreScript(module);

@@ -4,7 +4,8 @@ import type {
   UiModule,
 } from '../../core-types';
 import type { FindOnPageDocument } from '../../find-on-page';
-import { handleToBigInt, toHeapPointer } from '../utils/encoding';
+import { handleToBigInt } from '../utils/encoding';
+import { copyBytesFromHeap, withHeapAllocation } from '../utils/heap';
 
 const INVALID_TEXT_DOCUMENT_LENGTH = 0xFFFFFFFF;
 const openCanvasTextDecoder = new TextDecoder();
@@ -62,27 +63,17 @@ export class TextDocumentController {
       };
     }
 
-    const textAllocation = toHeapPointer(this.ui, this.ui._malloc(meta.byteLength));
-    const textPtr = textAllocation.ptr;
-    const textOffset = textAllocation.offset;
-    if (textOffset === 0) {
-      throw new Error('ui text document malloc failed.');
-    }
-
-    try {
-      const copied = this.ui._ui_copy_text_document_utf8(meta.handleArg, textPtr, meta.byteLength);
-      this.ui.refreshHeapViews?.();
+    return withHeapAllocation(this.ui, meta.byteLength, (allocation) => {
+      const copied = this.ui._ui_copy_text_document_utf8(meta.handleArg, allocation.ptr, meta.byteLength);
       if (copied === 0) {
         return null;
       }
-      const text = openCanvasTextDecoder.decode(this.ui.HEAPU8.slice(textOffset, textOffset + meta.byteLength));
+      const text = openCanvasTextDecoder.decode(copyBytesFromHeap(this.ui, allocation.ptr, meta.byteLength));
       return {
         document: { handle, text },
         byteLength: meta.byteLength,
       };
-    } finally {
-      this.ui._free(textPtr);
-    }
+    });
   }
 
   public readVisibleTextBounds(handle: string): SemanticNode['bounds'] | null {
@@ -90,30 +81,23 @@ export class TextDocumentController {
     if (handleArg === null) {
       return null;
     }
-    const allocation = toHeapPointer(this.ui, this.ui._malloc(16));
-    if (allocation.offset === 0) {
-      throw new Error('ui visible text bounds malloc failed.');
-    }
-    const xPtr = allocation.ptr;
-    const yPtr = this.addPointerOffset(allocation.ptr, 4);
-    const widthPtr = this.addPointerOffset(allocation.ptr, 8);
-    const heightPtr = this.addPointerOffset(allocation.ptr, 12);
-    try {
+    return withHeapAllocation(this.ui, 16, (allocation) => {
+      const xPtr = allocation.ptr;
+      const yPtr = this.addPointerOffset(allocation.ptr, 4);
+      const widthPtr = this.addPointerOffset(allocation.ptr, 8);
+      const heightPtr = this.addPointerOffset(allocation.ptr, 12);
       const copied = this.ui._ui_get_text_visible_bounds(handleArg, xPtr, yPtr, widthPtr, heightPtr);
-      this.ui.refreshHeapViews?.();
       if (copied === 0) {
         return null;
       }
-      const base = allocation.offset >>> 2;
+      const words = new Float32Array(copyBytesFromHeap(this.ui, allocation.ptr, allocation.len).buffer);
       return {
-        x: this.ui.HEAPF32[base] ?? 0,
-        y: this.ui.HEAPF32[base + 1] ?? 0,
-        width: this.ui.HEAPF32[base + 2] ?? 0,
-        height: this.ui.HEAPF32[base + 3] ?? 0,
+        x: words[0] ?? 0,
+        y: words[1] ?? 0,
+        width: words[2] ?? 0,
+        height: words[3] ?? 0,
       };
-    } finally {
-      this.ui._free(allocation.ptr);
-    }
+    });
   }
 
   public readRangeRects(handle: string, start: number, end: number): SemanticNode['bounds'][] {
@@ -127,26 +111,18 @@ export class TextDocumentController {
       return [];
     }
 
-    const rectWordsAllocation = toHeapPointer(this.ui, this.ui._malloc(rectCount * 16));
-    const rectWordsPtr = rectWordsAllocation.ptr;
-    const rectWordsOffset = rectWordsAllocation.offset;
-    if (rectWordsOffset === 0) {
-      throw new Error('ui range rect malloc failed.');
-    }
-
-    try {
+    return withHeapAllocation(this.ui, rectCount * 16, (allocation) => {
       const copiedCount = this.ui._ui_copy_text_range_rects(
         range.handleArg,
         range.start,
         range.end,
-        rectWordsPtr,
+        allocation.ptr,
         rectCount,
       );
-      this.ui.refreshHeapViews?.();
       if (copiedCount === 0) {
         return [];
       }
-      const words = this.ui.HEAPF32.slice(rectWordsOffset >>> 2, (rectWordsOffset >>> 2) + (copiedCount * 4));
+      const words = new Float32Array(copyBytesFromHeap(this.ui, allocation.ptr, copiedCount * 16).buffer);
       const rects: SemanticNode['bounds'][] = [];
       for (let index = 0; index < copiedCount; index += 1) {
         const base = index * 4;
@@ -158,9 +134,7 @@ export class TextDocumentController {
         });
       }
       return rects;
-    } finally {
-      this.ui._free(rectWordsPtr);
-    }
+    });
   }
 
   public readFindDocuments(): FindOnPageDocument[] {
@@ -181,20 +155,12 @@ export class TextDocumentController {
       return [];
     }
 
-    const handleWordsAllocation = toHeapPointer(this.ui, this.ui._malloc(handleCount * 8));
-    const handleWordsPtr = handleWordsAllocation.ptr;
-    const handleWordsOffset = handleWordsAllocation.offset;
-    if (handleWordsOffset === 0) {
-      throw new Error('ui text snapshot handle malloc failed.');
-    }
-
-    try {
-      const copiedCount = this.ui._ui_copy_text_snapshot_handles(handleWordsPtr, handleCount);
-      this.ui.refreshHeapViews?.();
+    return withHeapAllocation(this.ui, handleCount * 8, (allocation) => {
+      const copiedCount = this.ui._ui_copy_text_snapshot_handles(allocation.ptr, handleCount);
       if (copiedCount === 0) {
         return [];
       }
-      const words = this.ui.HEAPU32.slice(handleWordsOffset >>> 2, (handleWordsOffset >>> 2) + (copiedCount * 2));
+      const words = new Uint32Array(copyBytesFromHeap(this.ui, allocation.ptr, copiedCount * 8).buffer);
       const handles: string[] = [];
       for (let index = 0; index < copiedCount; index += 1) {
         const low = words[index * 2] ?? 0;
@@ -202,9 +168,7 @@ export class TextDocumentController {
         handles.push(((BigInt(high) << 32n) | BigInt(low)).toString());
       }
       return handles;
-    } finally {
-      this.ui._free(handleWordsPtr);
-    }
+    });
   }
 
   private toUiHandleArgument(handle: string): bigint | null {

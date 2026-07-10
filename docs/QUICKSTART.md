@@ -25,7 +25,7 @@ You need:
 ### macOS
 
 ```bash
-brew install cmake ninja python3 node git bash
+brew install cmake ninja python3 node git bash binaryen
 xcode-select --install
 ```
 
@@ -33,7 +33,7 @@ xcode-select --install
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y cmake ninja-build python3 python3-pip git build-essential curl bash
+sudo apt-get install -y cmake ninja-build python3 python3-pip git build-essential curl bash binaryen
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
@@ -69,6 +69,8 @@ source "$HOME/.cargo/env"
 rustup target add wasm32-unknown-unknown
 ```
 
+`binaryen` provides `wasm-opt`, which `v2/fui-rs` uses when available to run a speed-oriented WebAssembly optimization pass after Rust builds.
+
 #### Linux (Debian / Ubuntu)
 
 ```bash
@@ -76,6 +78,8 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 source "$HOME/.cargo/env"
 rustup target add wasm32-unknown-unknown
 ```
+
+`binaryen` provides `wasm-opt`, which `v2/fui-rs` uses when available to run a speed-oriented WebAssembly optimization pass after Rust builds.
 
 ## 2. Build the whole v2 stack
 
@@ -101,6 +105,7 @@ This builds:
 - [v2 architecture positioning](./v2/core/ARCHITECTURE.md#positioning-why-this-is-not-a-game-engine-or-a-mobile-port-runtime)
 - [v2 UI quickstart](./v2/ui/QUICKSTART.md)
 - [v2 Browser Bridge quickstart](./v2/browser-bridge/QUICKSTART.md)
+- [v2 Browser Bridge DevTools DOM Mirror](./v2/browser-bridge/DEVTOOLS_DOM_MIRROR.md)
 - [v2 FUI AssemblyScript quickstart](./v2/fui-as/QUICKSTART.md)
 - [v2 FUI AssemblyScript app scaffolding (`npm create @effindomv2/fui-as-app`)](./v2/fui-as/QUICKSTART.md#scaffold-a-new-app)
 - [v2 FUI AssemblyScript SDK docs index](./v2/fui-as/SDK_INDEX.md)

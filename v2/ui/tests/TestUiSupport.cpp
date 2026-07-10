@@ -54,7 +54,7 @@ void RecordScrollChange(
 
 } // namespace test_ui_support
 
-extern "C" void as_on_pointer_event(ui_handle_t handle, uint32_t event_enum) {
+extern "C" void as_on_pointer_event(ui_handle_t handle, UiEvent event_enum) {
     if (test_ui_support::g_pointer_event_callback != nullptr) {
         test_ui_support::g_pointer_event_callback(handle, event_enum);
     }

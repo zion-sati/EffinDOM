@@ -1,5 +1,26 @@
 #include "TestUiSupport.h"
 
+namespace {
+
+void TouchPointerEvent(std::uint32_t event_enum, ui_handle_t handle, float logical_x, float logical_y) {
+    UiTestPointerEvent(
+        event_enum,
+        handle,
+        logical_x,
+        logical_y,
+        -1,
+        UI_POINTER_TYPE_TOUCH,
+        0,
+        0,
+        0.0f,
+        0.0f,
+        0.0f,
+        0,
+        0);
+}
+
+} // namespace
+
 TEST_CASE("v2 ui auto-scroll tick advances a dragged selection inside scroll views", "[v2][ui][text-edit]") {
     using effindom::v2::ui::GetRuntime;
 
@@ -49,12 +70,12 @@ TEST_CASE("v2 ui auto-scroll tick advances a dragged selection inside scroll vie
         (scroll_node->abs_y + scroll_node->layout_height - text_node->abs_y) - 1.0f);
 
     ui_set_interaction_time(500U);
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         text,
         text_node->abs_x + start_x + 0.5f,
         text_node->abs_y + (text_node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_MOVE,
         UI_INVALID_HANDLE,
         scroll_node->abs_x + (scroll_node->layout_width * 0.5f),
@@ -128,7 +149,7 @@ TEST_CASE("v2 ui selection auto-scroll stays inactive until the pointer drag cro
     const float edge_y = scroll_node->abs_y + scroll_node->layout_height + 24.0f;
 
     ui_set_interaction_time(500U);
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         text,
         text_node->abs_x + start_x + 0.5f,
@@ -140,7 +161,7 @@ TEST_CASE("v2 ui selection auto-scroll stays inactive until the pointer drag cro
     CHECK(GetRuntime().ResolveMutable(text)->selection_start == 0U);
     CHECK(GetRuntime().ResolveMutable(text)->selection_end == 0U);
 
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_MOVE,
         text,
         text_node->abs_x + start_x + 2.0f,
@@ -196,12 +217,12 @@ TEST_CASE("v2 ui selection and scroll drag autoscroll share the same edge-factor
     const float pointer_y = scroll_node->abs_y + scroll_node->layout_height - 3.0f;
 
     ui_set_interaction_time(500U);
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         text,
         scroll_node->abs_x + 48.0f,
         text_node->abs_y + (text_node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_MOVE,
         text,
         pointer_x,
@@ -217,6 +238,49 @@ TEST_CASE("v2 ui selection and scroll drag autoscroll share the same edge-factor
     CHECK(GetRuntime().auto_scroll_view_handle_ == scroll);
     CHECK(GetRuntime().auto_scroll_factor_x_ == Approx(selection_factor_x));
     CHECK(GetRuntime().auto_scroll_factor_y_ == Approx(selection_factor_y));
+}
+
+TEST_CASE("v2 ui collapsed text range returns caret geometry for selection handle crossover", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "selection crossover";
+    ui_set_root(root);
+    ui_resize_window(320.0f, 120.0f);
+    ui_set_width(root, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 280.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+
+    ui_commit_frame();
+
+    const auto* text_node = GetRuntime().Resolve(text);
+    REQUIRE(text_node != nullptr);
+    constexpr std::uint32_t kCaretIndex = 9U;
+    const auto [caret_x, caret_line] = GetRuntime().GetLocalPositionFromIndex(*text_node, kCaretIndex, false);
+    REQUIRE(caret_line >= 0);
+
+    REQUIRE(ui_get_text_range_rect_count(text, kCaretIndex, kCaretIndex) == 1U);
+    float rect_words[4] = {};
+    REQUIRE(ui_copy_text_range_rects(text, kCaretIndex, kCaretIndex, rect_words, 1U) == 1U);
+
+    CHECK(rect_words[0] == Approx(text_node->abs_x + caret_x));
+    CHECK(rect_words[1] == Approx(text_node->abs_y + GetRuntime().GetLineTopForIndex(*text_node, static_cast<std::size_t>(caret_line))));
+    CHECK(rect_words[2] == Approx(0.5f));
+    CHECK(rect_words[3] == Approx(GetRuntime().GetLineHeightForIndex(*text_node, static_cast<std::size_t>(caret_line))));
 }
 
 TEST_CASE("v2 ui cross-selection auto-scroll advances the endpoint as new text scrolls under the pointer", "[v2][ui][cross-selection]") {
@@ -273,12 +337,12 @@ TEST_CASE("v2 ui cross-selection auto-scroll advances the endpoint as new text s
 
     const auto [start_x, start_line] = GetRuntime().GetLocalPositionFromIndex(*first_node, 0U);
     REQUIRE(start_line == 0);
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         first,
         first_node->abs_x + start_x + 0.5f,
         first_node->abs_y + (first_node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_MOVE,
         first,
         scroll_node->abs_x + (scroll_node->layout_width * 0.5f),
@@ -296,6 +360,82 @@ TEST_CASE("v2 ui cross-selection auto-scroll advances the endpoint as new text s
     CHECK(GetRuntime().Resolve(scroll)->scroll_offset_y > 0.0f);
     CHECK(GetRuntime().end_node_handle_ == second);
     CHECK(GetRuntime().BuildCrossSelectionText().find('\n') != std::string::npos);
+}
+
+TEST_CASE("v2 ui cross-selection drag can escape a nested scroll view to visible sibling text", "[v2][ui][cross-selection][scroll]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t inner = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t inner_text = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t spacer = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t outside_text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(inner != UI_INVALID_HANDLE);
+    REQUIRE(inner_text != UI_INVALID_HANDLE);
+    REQUIRE(spacer != UI_INVALID_HANDLE);
+    REQUIRE(outside_text != UI_INVALID_HANDLE);
+
+    constexpr const char* kInner = "Inner selectable text";
+    constexpr const char* kOutside = "Outside selectable text";
+
+    ui_set_root(root);
+    ui_resize_window(240.0f, 140.0f);
+    ui_set_selection_area(root, true);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 140.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 40.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(spacer, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(spacer, 8.0f, UI_SIZE_UNIT_PIXEL);
+    for (const std::uint64_t handle : {inner_text, outside_text}) {
+        ui_set_width(handle, 180.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_font(handle, 1U, 20.0f);
+        ui_set_selectable(handle, true, 0x40007AFFU);
+        ui_set_interactive(handle, true);
+    }
+    ui_set_text(inner_text, reinterpret_cast<const std::uint8_t*>(kInner), static_cast<std::uint32_t>(std::strlen(kInner)));
+    ui_set_text(
+        outside_text,
+        reinterpret_cast<const std::uint8_t*>(kOutside),
+        static_cast<std::uint32_t>(std::strlen(kOutside)));
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, inner);
+    ui_node_add_child(inner, inner_text);
+    ui_node_add_child(root, spacer);
+    ui_node_add_child(root, outside_text);
+    ui_commit_frame();
+
+    const auto* inner_node = GetRuntime().Resolve(inner_text);
+    const auto* outside_node = GetRuntime().Resolve(outside_text);
+    const auto* scroll_node = GetRuntime().Resolve(scroll);
+    REQUIRE(inner_node != nullptr);
+    REQUIRE(outside_node != nullptr);
+    REQUIRE(scroll_node != nullptr);
+    REQUIRE(outside_node->abs_y > scroll_node->abs_y + scroll_node->layout_height);
+
+    const auto [inner_x, inner_line] = GetRuntime().GetLocalPositionFromIndex(*inner_node, 0U);
+    const auto [outside_x, outside_line] = GetRuntime().GetLocalPositionFromIndex(*outside_node, 7U);
+    REQUIRE(inner_line == 0);
+    REQUIRE(outside_line == 0);
+    const float inner_y = inner_node->abs_y + (inner_node->line_height * 0.5f);
+    const float outside_y = outside_node->abs_y + (outside_node->line_height * 0.5f);
+
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, inner_text, inner_node->abs_x + inner_x + 0.5f, inner_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, outside_text, outside_node->abs_x + outside_x + 0.5f, outside_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, outside_text, outside_node->abs_x + outside_x + 0.5f, outside_y);
+
+    CHECK(GetRuntime().cross_selection_active_);
+    CHECK(GetRuntime().start_node_handle_ == inner_text);
+    CHECK(GetRuntime().end_node_handle_ == outside_text);
+    CHECK(GetRuntime().BuildCrossSelectionText().find("Outside") != std::string::npos);
 }
 
 TEST_CASE("v2 ui clip-to-bounds emits clip ops and scroll views clip by default", "[v2][ui][unit]") {
@@ -603,20 +743,69 @@ TEST_CASE("v2 ui scroll view momentum decays across commit frames", "[v2][ui][un
     auto* scroll_node = const_cast<effindom::v2::ui::UINode*>(GetRuntime().Resolve(scroll));
     REQUIRE(scroll_node != nullptr);
     scroll_node->scroll_offset_y = 20.0f;
-    scroll_node->scroll_velocity_y = 10.0f;
+    scroll_node->scroll_velocity_y = 600.0f;
     scroll_node->friction = 0.5f;
 
     ui_commit_frame();
     CHECK(scroll_node->scroll_offset_y == Approx(30.0f));
-    CHECK(scroll_node->scroll_velocity_y == Approx(5.0f));
+    CHECK(scroll_node->scroll_velocity_y == Approx(300.0f));
 
     ui_commit_frame();
     CHECK(scroll_node->scroll_offset_y == Approx(35.0f));
-    CHECK(scroll_node->scroll_velocity_y == Approx(2.5f));
+    CHECK(scroll_node->scroll_velocity_y == Approx(150.0f));
 
     scroll_node->scroll_velocity_y = 0.05f;
     ui_commit_frame();
     CHECK(scroll_node->scroll_velocity_y == Approx(0.0f));
+}
+
+TEST_CASE("v2 ui scroll view momentum is independent of animation frame cadence", "[v2][ui][unit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    const auto run_momentum = [](bool split_frame) {
+        ui_reset();
+
+        const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+        const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+        const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+        REQUIRE(root != UI_INVALID_HANDLE);
+        REQUIRE(scroll != UI_INVALID_HANDLE);
+        REQUIRE(content != UI_INVALID_HANDLE);
+
+        ui_set_root(root);
+        ui_set_width(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_height(root, 60.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_width(scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_height(scroll, 60.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_width(content, 120.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_height(content, 200.0f, UI_SIZE_UNIT_PIXEL);
+        ui_node_add_child(root, scroll);
+        ui_node_add_child(scroll, content);
+
+        auto& runtime = GetRuntime();
+        runtime.CommitFrame(0.0);
+
+        auto* scroll_node = const_cast<effindom::v2::ui::UINode*>(runtime.Resolve(scroll));
+        REQUIRE(scroll_node != nullptr);
+        scroll_node->scroll_offset_y = 20.0f;
+        scroll_node->scroll_velocity_y = 600.0f;
+        scroll_node->friction = 0.5f;
+
+        if (split_frame) {
+            runtime.CommitFrame(1000.0 / 120.0);
+            runtime.CommitFrame(1000.0 / 60.0);
+        } else {
+            runtime.CommitFrame(1000.0 / 60.0);
+        }
+
+        return std::pair<float, float>{scroll_node->scroll_offset_y, scroll_node->scroll_velocity_y};
+    };
+
+    const auto [single_offset, single_velocity] = run_momentum(false);
+    const auto [split_offset, split_velocity] = run_momentum(true);
+
+    CHECK(split_offset == Approx(single_offset));
+    CHECK(split_velocity == Approx(single_velocity));
 }
 
 TEST_CASE("v2 ui scroll helpers cover ancestor lookup, edge detection, and drag scrolling", "[v2][ui][input]") {
@@ -686,19 +875,19 @@ TEST_CASE("v2 ui scroll helpers cover ancestor lookup, edge detection, and drag 
     runtime->UpdateAutoScrollState(content, scroll_node->abs_x - 20.0f, scroll_node->abs_y + 50.0f);
     CHECK(runtime->auto_scroll_factor_x_ == Approx(-3.0f));
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, content, 30.0f, 60.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, content, 30.0f, 60.0f);
     CHECK(runtime->active_scroll_handle_ == scroll);
     ui_commit_frame();
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, UI_INVALID_HANDLE, 30.0f, 20.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, UI_INVALID_HANDLE, 30.0f, 20.0f);
     CHECK(runtime->active_scroll_dragged_);
     CHECK(runtime->Resolve(scroll)->scroll_offset_y == Approx(40.0f));
-    CHECK(runtime->Resolve(scroll)->scroll_velocity_y == Approx(40.0f));
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, content, 30.0f, 20.0f);
+    CHECK(runtime->Resolve(scroll)->scroll_velocity_y == Approx(2400.0f));
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, content, 30.0f, 20.0f);
     CHECK(runtime->active_scroll_handle_ == UI_INVALID_HANDLE);
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, content, 30.0f, 40.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, content, 30.0f, 40.0f);
     CHECK(runtime->active_scroll_handle_ == scroll);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, content, 30.0f, 40.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, content, 30.0f, 40.0f);
     CHECK(runtime->Resolve(scroll)->scroll_velocity_y == Approx(0.0f));
 
     runtime->auto_scroll_active_ = true;
@@ -730,7 +919,7 @@ TEST_CASE("v2 ui routes hover click focus and html-style tab traversal", "[v2][u
     ui_set_root(root);
     ui_set_width(root, 300.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
 
     for (const std::uint64_t child : {child_a, child_b, child_c, child_d}) {
         ui_set_width(child, 40.0f, UI_SIZE_UNIT_PIXEL);
@@ -755,14 +944,14 @@ TEST_CASE("v2 ui routes hover click focus and html-style tab traversal", "[v2][u
     CHECK(interactive_flags.at(child_c));
 
     ResetInteractionLogs();
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, child_a, 5.0f, 5.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, child_a, 5.0f, 5.0f);
     REQUIRE(g_pointer_events.size() == 2U);
     CHECK(g_pointer_events[0].handle == child_a);
     CHECK(g_pointer_events[0].event == UI_EVENT_POINTER_ENTER);
     CHECK(g_pointer_events[1].handle == child_a);
     CHECK(g_pointer_events[1].event == UI_EVENT_POINTER_MOVE);
 
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, child_b, 10.0f, 5.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, child_b, 10.0f, 5.0f);
     REQUIRE(g_pointer_events.size() == 5U);
     CHECK(g_pointer_events[2].handle == child_a);
     CHECK(g_pointer_events[2].event == UI_EVENT_POINTER_LEAVE);
@@ -772,7 +961,7 @@ TEST_CASE("v2 ui routes hover click focus and html-style tab traversal", "[v2][u
     CHECK(g_pointer_events[4].event == UI_EVENT_POINTER_MOVE);
 
     ResetInteractionLogs();
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, child_a, 5.0f, 5.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, child_a, 5.0f, 5.0f);
     REQUIRE(g_focus_events.size() == 1U);
     CHECK(g_focus_events[0].handle == child_a);
     CHECK(g_focus_events[0].is_focused);
@@ -899,7 +1088,7 @@ TEST_CASE("v2 ui Tab focus scrolls a focusable target into view inside a scroll 
     ui_set_height(scroll, 60.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(content, 120.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(content, 160.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(content, 0U);
+    ui_set_flex_direction(content, UI_FLEX_DIRECTION_COLUMN);
     ui_set_width(spacer, 120.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(spacer, 120.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(target, 120.0f, UI_SIZE_UNIT_PIXEL);
@@ -954,7 +1143,7 @@ TEST_CASE("v2 ui Shift+Tab scrolls a focusable target back into view inside a sc
     ui_set_height(scroll, 60.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(content, 120.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(content, 160.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(content, 0U);
+    ui_set_flex_direction(content, UI_FLEX_DIRECTION_COLUMN);
     ui_set_width(first, 120.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(first, 20.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_interactive(first, true);
@@ -1024,8 +1213,8 @@ TEST_CASE("v2 ui mouse focus does not scroll a partially visible target into vie
     ui_commit_frame();
 
     ResetInteractionLogs();
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, target, 10.0f, 10.0f);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, target, 10.0f, 10.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, target, 10.0f, 10.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, target, 10.0f, 10.0f);
 
     REQUIRE(g_focus_events.size() == 1U);
     CHECK(g_focus_events[0].handle == target);
@@ -1059,7 +1248,7 @@ TEST_CASE("v2 ui coarse pointer focus does not scroll a focused target into view
     ui_set_height(scroll, 60.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(content, 120.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(content, 160.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(content, 0U);
+    ui_set_flex_direction(content, UI_FLEX_DIRECTION_COLUMN);
     ui_set_width(spacer, 120.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(spacer, 120.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(target, 120.0f, UI_SIZE_UNIT_PIXEL);
@@ -1108,7 +1297,7 @@ TEST_CASE("v2 ui scroll-only commits reuse glyph runs and shift hit bounds with 
     ui_set_scroll_enabled(scroll, true, false);
     ui_set_width(content, 220.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(content, 40.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(content, 1U);
+    ui_set_flex_direction(content, UI_FLEX_DIRECTION_ROW);
     ui_set_width(spacer, 80.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(spacer, 40.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(text, 100.0f, UI_SIZE_UNIT_PIXEL);
@@ -1176,7 +1365,7 @@ TEST_CASE("v2 ui scroll views cull fully clipped text until it enters the viewpo
     ui_set_scroll_enabled(scroll, true, false);
     ui_set_width(content, 260.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(content, 40.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(content, 1U);
+    ui_set_flex_direction(content, UI_FLEX_DIRECTION_ROW);
     ui_set_width(spacer, 160.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(spacer, 40.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(text, 100.0f, UI_SIZE_UNIT_PIXEL);
@@ -2196,6 +2385,7 @@ TEST_CASE("v2 ui textbox set_text clamps each hard line independently", "[v2][ui
         const std::uint64_t handle = ui_create_node(UI_NODE_TEXT);
         REQUIRE(handle != UI_INVALID_HANDLE);
         ui_set_semantic_role(handle, UI_SEMANTIC_TEXTBOX);
+        ui_set_editable(handle, true);
         ui_set_font(handle, 1U, 16.0f);
         ui_set_text_limits(handle, std::numeric_limits<std::int32_t>::max(), 0);
         ui_set_text_wrapping(handle, wrap);
@@ -2357,7 +2547,7 @@ TEST_CASE("v2 ui wrapped near-cap paste uses the single-line tail patch fast pat
     CHECK(node->wrapped_single_line_tail_patch_generation == initial_tail_patch_generation + 1U);
 }
 
-TEST_CASE("v2 ui becoming a textbox clamps each hard line without imposing a total cap", "[v2][ui][unit][text]") {
+TEST_CASE("v2 ui becoming an editor clamps each hard line without imposing a total cap", "[v2][ui][unit][text]") {
     using effindom::v2::ui::GetRuntime;
 
     ui_reset();
@@ -2374,7 +2564,7 @@ TEST_CASE("v2 ui becoming a textbox clamps each hard line without imposing a tot
     REQUIRE(before != nullptr);
     REQUIRE(before->text_content.size() == long_text.size());
 
-    ui_set_semantic_role(handle, UI_SEMANTIC_TEXTBOX);
+    ui_set_editable(handle, true);
 
     const auto* after = GetRuntime().Resolve(handle);
     REQUIRE(after != nullptr);
@@ -2438,7 +2628,7 @@ TEST_CASE("v2 ui text snapshots expose realized static text and range rects", "[
 
     ui_set_editable(text, true);
     CHECK(ui_get_text_document_utf8_length(text) == std::numeric_limits<std::uint32_t>::max());
-    CHECK_FALSE(ui_get_text_visible_bounds(text, &visible_x, &visible_y, &visible_width, &visible_height));
+    CHECK(ui_get_text_visible_bounds(text, &visible_x, &visible_y, &visible_width, &visible_height));
     CHECK(ui_get_text_document_utf8_length(UI_INVALID_HANDLE) == std::numeric_limits<std::uint32_t>::max());
     CHECK_FALSE(ui_get_text_visible_bounds(UI_INVALID_HANDLE, &visible_x, &visible_y, &visible_width, &visible_height));
 }
@@ -3320,9 +3510,9 @@ TEST_CASE("v2 ui selectable single-line drag emits selection callback and highli
     REQUIRE(end_line == 0);
 
     ui_set_interaction_time(111U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + start_x + 0.5f, node->abs_y + (node->line_height * 0.5f));
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, text, node->abs_x + end_x, node->abs_y + (node->line_height * 0.5f));
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + end_x, node->abs_y + (node->line_height * 0.5f));
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + start_x + 0.5f, node->abs_y + (node->line_height * 0.5f));
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, node->abs_x + end_x, node->abs_y + (node->line_height * 0.5f));
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + end_x, node->abs_y + (node->line_height * 0.5f));
 
     REQUIRE(g_selection_changes.size() == 1U);
     CHECK(g_selection_changes[0].handle == text);
@@ -3375,13 +3565,13 @@ TEST_CASE("v2 ui selectable multiline drag emits multi-rect highlight", "[v2][ui
     REQUIRE(end_line == 2);
 
     ui_set_interaction_time(222U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + start_x + 0.5f, node->abs_y + (node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + start_x + 0.5f, node->abs_y + (node->line_height * 0.5f));
+    UiTestPointerEvent(
         UI_EVENT_POINTER_MOVE,
         text,
         node->abs_x + end_x + 0.5f,
         node->abs_y + (static_cast<float>(end_line) * node->line_height) + (node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_UP,
         text,
         node->abs_x + end_x + 0.5f,
@@ -3434,23 +3624,661 @@ TEST_CASE("v2 ui double click selects word and emits highlight", "[v2][ui][text-
     const float click_y = node->abs_y + (node->line_height * 0.5f);
 
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
     ResetInteractionLogs();
 
     ui_set_interaction_time(450U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
 
-    REQUIRE(g_selection_changes.size() == 1U);
-    CHECK(g_selection_changes[0].handle == text);
-    CHECK(g_selection_changes[0].start == expected.first);
-    CHECK(g_selection_changes[0].end == expected.second);
+    REQUIRE_FALSE(g_selection_changes.empty());
+    CHECK(g_selection_changes.back().handle == text);
+    CHECK(g_selection_changes.back().start == expected.first);
+    CHECK(g_selection_changes.back().end == expected.second);
 
     ui_commit_frame();
     const auto highlights = ReadHighlights(ReadCommandBuffer());
     REQUIRE(highlights.find(text) != highlights.end());
     CHECK(highlights.at(text).rects.size() >= 1U);
+}
+
+TEST_CASE("v2 ui select word at point selects the clicked word", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto expected = GetRuntime().GetWordBoundaries(*node, 8U);
+    const auto [click_x, click_line] = GetRuntime().GetLocalPositionFromIndex(*node, 8U);
+    REQUIRE(click_line == 0);
+    const float click_y = node->abs_y + (node->line_height * 0.5f);
+
+    CHECK(ui_select_word_at(text, node->abs_x + click_x + 0.5f, click_y));
+
+    REQUIRE_FALSE(g_selection_changes.empty());
+    CHECK(g_selection_changes.back().handle == text);
+    CHECK(g_selection_changes.back().start == expected.first);
+    CHECK(g_selection_changes.back().end == expected.second);
+}
+
+TEST_CASE("v2 ui touch double tap does not select the clicked word", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [click_x, click_line] = GetRuntime().GetLocalPositionFromIndex(*node, 8U);
+    REQUIRE(click_line == 0);
+    const float click_y = node->abs_y + (node->line_height * 0.5f);
+    ui_set_interaction_time(100U);
+    TouchPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    TouchPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    ResetInteractionLogs();
+
+    ui_set_interaction_time(450U);
+    TouchPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    TouchPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+
+    CHECK(g_selection_changes.empty());
+    const auto* final_node = GetRuntime().Resolve(text);
+    REQUIRE(final_node != nullptr);
+    CHECK(final_node->selection_start == final_node->selection_end);
+}
+
+TEST_CASE("v2 ui touch tap on editable text places the caret", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_editable(text, true);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [tap_x, tap_line] = GetRuntime().GetLocalPositionFromIndex(*node, 8U);
+    REQUIRE(tap_line == 0);
+    const float tap_y = node->abs_y + (node->line_height * 0.5f);
+
+    TouchPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + tap_x + 0.5f, tap_y);
+    TouchPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + tap_x + 0.5f, tap_y);
+
+    const auto* final_node = GetRuntime().Resolve(text);
+    REQUIRE(final_node != nullptr);
+    CHECK(GetRuntime().focused_handle_ == text);
+    CHECK(final_node->selection_start == 8U);
+    CHECK(final_node->selection_end == 8U);
+    REQUIRE_FALSE(g_selection_changes.empty());
+    CHECK(g_selection_changes.back().handle == text);
+    CHECK(g_selection_changes.back().start == 8U);
+    CHECK(g_selection_changes.back().end == 8U);
+}
+
+TEST_CASE("v2 ui touch drag does not create a text range selection", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [start_x, start_line] = GetRuntime().GetLocalPositionFromIndex(*node, 1U);
+    const auto [end_x, end_line] = GetRuntime().GetLocalPositionFromIndex(*node, 12U);
+    REQUIRE(start_line == 0);
+    REQUIRE(end_line == 0);
+    const float y = node->abs_y + (node->line_height * 0.5f);
+    TouchPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + start_x + 0.5f, y);
+    TouchPointerEvent(UI_EVENT_POINTER_MOVE, text, node->abs_x + end_x + 0.5f, y);
+    TouchPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + end_x + 0.5f, y);
+
+    CHECK(g_selection_changes.empty());
+    const auto* final_node = GetRuntime().Resolve(text);
+    REQUIRE(final_node != nullptr);
+    CHECK(final_node->selection_start == final_node->selection_end);
+}
+
+TEST_CASE("v2 ui touch swipe over selected cross-selection text preserves the selection", "[v2][ui][cross-selection][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_selection_area(root, true);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto expected = GetRuntime().GetWordBoundaries(*node, 8U);
+    const auto [start_x, start_line] = GetRuntime().GetLocalPositionFromIndex(*node, expected.first);
+    const auto [end_x, end_line] = GetRuntime().GetLocalPositionFromIndex(*node, expected.second);
+    REQUIRE(start_line == 0);
+    REQUIRE(end_line == 0);
+    const float y = node->abs_y + (node->line_height * 0.5f);
+
+    REQUIRE(ui_select_word_at(text, node->abs_x + start_x + 2.0f, y));
+    REQUIRE(GetRuntime().cross_selection_active_);
+    REQUIRE_FALSE(g_cross_selection_changes.empty());
+    CHECK(g_cross_selection_changes.back().text == "brave");
+    ResetInteractionLogs();
+    TouchPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + start_x + 2.0f, y);
+    TouchPointerEvent(UI_EVENT_POINTER_MOVE, text, node->abs_x + end_x + 24.0f, y);
+    TouchPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + end_x + 24.0f, y);
+
+    REQUIRE(GetRuntime().cross_selection_active_);
+    CHECK(GetRuntime().selection_area_handle_ == root);
+    CHECK(GetRuntime().start_node_handle_ == text);
+    CHECK(GetRuntime().end_node_handle_ == text);
+    CHECK(GetRuntime().start_index_ == expected.first);
+    CHECK(GetRuntime().end_index_ == expected.second);
+    REQUIRE_FALSE(g_cross_selection_changes.empty());
+    CHECK(g_cross_selection_changes.back().handle == root);
+    CHECK(g_cross_selection_changes.back().text == "brave");
+}
+
+TEST_CASE("v2 ui touch tap outside selected cross-selection text clears the selection", "[v2][ui][cross-selection][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_selection_area(root, true);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto selected = GetRuntime().GetWordBoundaries(*node, 8U);
+    const auto [selected_x, selected_line] = GetRuntime().GetLocalPositionFromIndex(*node, selected.first);
+    const auto [tap_x, tap_line] = GetRuntime().GetLocalPositionFromIndex(*node, 1U);
+    REQUIRE(selected_line == 0);
+    REQUIRE(tap_line == 0);
+    const float y = node->abs_y + (node->line_height * 0.5f);
+
+    REQUIRE(ui_select_word_at(text, node->abs_x + selected_x + 2.0f, y));
+    REQUIRE(GetRuntime().cross_selection_active_);
+    ResetInteractionLogs();
+    TouchPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + tap_x + 0.5f, y);
+    TouchPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + tap_x + 0.5f, y);
+
+    CHECK_FALSE(GetRuntime().cross_selection_active_);
+    REQUIRE_FALSE(g_cross_selection_changes.empty());
+    CHECK(g_cross_selection_changes.back().handle == root);
+    CHECK(g_cross_selection_changes.back().text.empty());
+}
+
+TEST_CASE("v2 ui touch tap inside selected cross-selection text preserves the selection", "[v2][ui][cross-selection][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_selection_area(root, true);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto expected = GetRuntime().GetWordBoundaries(*node, 8U);
+    const auto [tap_x, tap_line] = GetRuntime().GetLocalPositionFromIndex(*node, 8U);
+    REQUIRE(tap_line == 0);
+    const float y = node->abs_y + (node->line_height * 0.5f);
+
+    REQUIRE(ui_select_word_at(text, node->abs_x + tap_x + 0.5f, y));
+    REQUIRE(GetRuntime().cross_selection_active_);
+    ResetInteractionLogs();
+    TouchPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + tap_x + 0.5f, y);
+    TouchPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + tap_x + 0.5f, y);
+
+    REQUIRE(GetRuntime().cross_selection_active_);
+    CHECK(GetRuntime().start_index_ == expected.first);
+    CHECK(GetRuntime().end_index_ == expected.second);
+    REQUIRE_FALSE(g_cross_selection_changes.empty());
+    CHECK(g_cross_selection_changes.back().text == "brave");
+}
+
+TEST_CASE("v2 ui selection endpoint drag updates a single text selection through pointer events", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [word_x, word_line] = GetRuntime().GetLocalPositionFromIndex(*node, 8U);
+    const auto [drag_x, drag_line] = GetRuntime().GetLocalPositionFromIndex(*node, 1U);
+    REQUIRE(word_line == 0);
+    REQUIRE(drag_line == 0);
+    const float y = node->abs_y + (node->line_height * 0.5f);
+    constexpr float kSelectionHandleDragAnchorYOffset = 20.0f;
+    const float handle_drag_y = y + (node->line_height * 0.5f) + kSelectionHandleDragAnchorYOffset;
+
+    REQUIRE(ui_select_word_at(text, node->abs_x + word_x + 0.5f, y));
+    REQUIRE_FALSE(g_selection_changes.empty());
+    ResetInteractionLogs();
+
+    REQUIRE(ui_begin_selection_endpoint_drag(text, 0U));
+    TouchPointerEvent(UI_EVENT_POINTER_MOVE, UI_INVALID_HANDLE, node->abs_x + drag_x + 0.5f, handle_drag_y);
+    TouchPointerEvent(UI_EVENT_POINTER_UP, UI_INVALID_HANDLE, node->abs_x + drag_x + 0.5f, handle_drag_y);
+
+    const auto* final_node = GetRuntime().Resolve(text);
+    REQUIRE(final_node != nullptr);
+    CHECK(final_node->selection_start == 1U);
+    CHECK(final_node->selection_end == 11U);
+    REQUIRE_FALSE(g_selection_changes.empty());
+    CHECK(g_selection_changes.back().handle == text);
+    CHECK(g_selection_changes.back().start == 1U);
+    CHECK(g_selection_changes.back().end == 11U);
+}
+
+TEST_CASE("v2 ui reverse mouse selection keeps the visual start as the keyboard focus edge", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [anchor_x, anchor_line] = GetRuntime().GetLocalPositionFromIndex(*node, 11U);
+    const auto [focus_x, focus_line] = GetRuntime().GetLocalPositionFromIndex(*node, 6U);
+    REQUIRE(anchor_line == 0);
+    REQUIRE(focus_line == 0);
+    const float y = node->abs_y + (node->line_height * 0.5f);
+
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + anchor_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, node->abs_x + focus_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + focus_x + 0.5f, y);
+
+    auto* selected_node = GetRuntime().ResolveMutable(text);
+    REQUIRE(selected_node != nullptr);
+    CHECK(GetRuntime().focused_handle_ == text);
+    CHECK(selected_node->selection_start == 11U);
+    CHECK(selected_node->selection_end == 6U);
+
+    GetRuntime().HandleKeyEvent(
+        UI_KEY_EVENT_DOWN,
+        reinterpret_cast<const std::uint8_t*>("ArrowLeft"),
+        9U,
+        UI_KEY_MOD_SHIFT);
+
+    CHECK(selected_node->selection_start == 11U);
+    CHECK(selected_node->selection_end == 5U);
+}
+
+TEST_CASE("v2 ui reverse mouse cross-selection keeps the visual start as the keyboard focus edge", "[v2][ui][cross-selection][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_selection_area(root, true);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [anchor_x, anchor_line] = GetRuntime().GetLocalPositionFromIndex(*node, 11U);
+    const auto [focus_x, focus_line] = GetRuntime().GetLocalPositionFromIndex(*node, 6U);
+    REQUIRE(anchor_line == 0);
+    REQUIRE(focus_line == 0);
+    const float y = node->abs_y + (node->line_height * 0.5f);
+
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + anchor_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, node->abs_x + focus_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + focus_x + 0.5f, y);
+
+    REQUIRE(GetRuntime().cross_selection_active_);
+    CHECK(GetRuntime().focused_handle_ == text);
+    CHECK(GetRuntime().start_node_handle_ == text);
+    CHECK(GetRuntime().start_index_ == 11U);
+    CHECK(GetRuntime().end_node_handle_ == text);
+    CHECK(GetRuntime().end_index_ == 6U);
+
+    GetRuntime().HandleKeyEvent(
+        UI_KEY_EVENT_DOWN,
+        reinterpret_cast<const std::uint8_t*>("ArrowLeft"),
+        9U,
+        UI_KEY_MOD_SHIFT);
+
+    CHECK(GetRuntime().start_node_handle_ == text);
+    CHECK(GetRuntime().start_index_ == 11U);
+    CHECK(GetRuntime().end_node_handle_ == text);
+    CHECK(GetRuntime().end_index_ == 5U);
+}
+
+TEST_CASE("v2 ui selection handle pointer down preserves single text selection", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t handle = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+    REQUIRE(handle != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(handle, 40.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(handle, 40.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_interactive(handle, true);
+    ui_set_preserve_selection_on_pointer_down(handle, true);
+    ui_node_add_child(root, text);
+    ui_node_add_child(root, handle);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [word_x, word_line] = GetRuntime().GetLocalPositionFromIndex(*node, 8U);
+    REQUIRE(word_line == 0);
+    const float y = node->abs_y + (node->line_height * 0.5f);
+
+    REQUIRE(ui_select_word_at(text, node->abs_x + word_x + 0.5f, y));
+    ResetInteractionLogs();
+    TouchPointerEvent(UI_EVENT_POINTER_DOWN, handle, 5.0f, 5.0f);
+
+    const auto* final_node = GetRuntime().Resolve(text);
+    REQUIRE(final_node != nullptr);
+    CHECK(final_node->selection_start == 6U);
+    CHECK(final_node->selection_end == 11U);
+    CHECK(g_selection_changes.empty());
+}
+
+TEST_CASE("v2 ui selection endpoint drag updates cross-selection through pointer events", "[v2][ui][cross-selection][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_selection_area(root, true);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [word_x, word_line] = GetRuntime().GetLocalPositionFromIndex(*node, 8U);
+    const auto [drag_x, drag_line] = GetRuntime().GetLocalPositionFromIndex(*node, 1U);
+    REQUIRE(word_line == 0);
+    REQUIRE(drag_line == 0);
+    const float y = node->abs_y + (node->line_height * 0.5f);
+    constexpr float kSelectionHandleDragAnchorYOffset = 20.0f;
+    const float handle_drag_y = y + kSelectionHandleDragAnchorYOffset;
+
+    REQUIRE(ui_select_word_at(text, node->abs_x + word_x + 0.5f, y));
+    REQUIRE(GetRuntime().cross_selection_active_);
+    ResetInteractionLogs();
+
+    REQUIRE(ui_begin_selection_endpoint_drag(root, 0U));
+    TouchPointerEvent(UI_EVENT_POINTER_MOVE, UI_INVALID_HANDLE, node->abs_x + drag_x + 0.5f, handle_drag_y);
+    TouchPointerEvent(UI_EVENT_POINTER_UP, UI_INVALID_HANDLE, node->abs_x + drag_x + 0.5f, handle_drag_y);
+
+    REQUIRE(GetRuntime().cross_selection_active_);
+    CHECK(GetRuntime().start_node_handle_ == text);
+    CHECK(GetRuntime().end_node_handle_ == text);
+    CHECK(GetRuntime().start_index_ == 1U);
+    CHECK(GetRuntime().end_index_ == 11U);
+    REQUIRE_FALSE(g_cross_selection_changes.empty());
+    CHECK(g_cross_selection_changes.back().handle == root);
+    CHECK(g_cross_selection_changes.back().text == "ello brave");
+}
+
+TEST_CASE("v2 ui selection handle pointer down preserves cross-selection", "[v2][ui][cross-selection][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t handle = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+    REQUIRE(handle != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "Hello brave world";
+    ui_set_root(root);
+    ui_resize_window(220.0f, 100.0f);
+    ui_set_selection_area(root, true);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(handle, 40.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(handle, 40.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_interactive(handle, true);
+    ui_set_preserve_selection_on_pointer_down(handle, true);
+    ui_node_add_child(root, text);
+    ui_node_add_child(root, handle);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [word_x, word_line] = GetRuntime().GetLocalPositionFromIndex(*node, 8U);
+    REQUIRE(word_line == 0);
+    const float y = node->abs_y + (node->line_height * 0.5f);
+
+    REQUIRE(ui_select_word_at(text, node->abs_x + word_x + 0.5f, y));
+    REQUIRE(GetRuntime().cross_selection_active_);
+    ResetInteractionLogs();
+    TouchPointerEvent(UI_EVENT_POINTER_DOWN, handle, 5.0f, 5.0f);
+
+    CHECK(GetRuntime().cross_selection_active_);
+    CHECK(GetRuntime().start_node_handle_ == text);
+    CHECK(GetRuntime().end_node_handle_ == text);
+    CHECK(GetRuntime().start_index_ == 6U);
+    CHECK(GetRuntime().end_index_ == 11U);
+    CHECK(g_cross_selection_changes.empty());
 }
 
 TEST_CASE("v2 ui triple click selects the clicked newline-delimited paragraph", "[v2][ui][text-edit]") {
@@ -3488,16 +4316,16 @@ TEST_CASE("v2 ui triple click selects the clicked newline-delimited paragraph", 
     const float click_y = node->abs_y + ((static_cast<float>(click_line) + 0.5f) * node->line_height);
 
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
     ui_set_interaction_time(250U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
     ResetInteractionLogs();
 
     ui_set_interaction_time(400U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
 
     REQUIRE(g_selection_changes.size() == 1U);
     CHECK(g_selection_changes[0].handle == text);
@@ -3538,13 +4366,13 @@ TEST_CASE("v2 ui selection-area double click selects the clicked word", "[v2][ui
     const float click_y = node->abs_y + (node->line_height * 0.5f);
 
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
     ResetInteractionLogs();
 
     ui_set_interaction_time(450U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
 
     REQUIRE(GetRuntime().cross_selection_active_);
     CHECK(GetRuntime().selection_area_handle_ == root);
@@ -3594,16 +4422,16 @@ TEST_CASE("v2 ui selection-area triple click selects the clicked newline-delimit
     const float click_y = node->abs_y + ((static_cast<float>(click_line) + 0.5f) * node->line_height);
 
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
     ui_set_interaction_time(250U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
     ResetInteractionLogs();
 
     ui_set_interaction_time(400U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
 
     REQUIRE(GetRuntime().cross_selection_active_);
     CHECK(GetRuntime().selection_area_handle_ == root);
@@ -3657,15 +4485,39 @@ TEST_CASE("v2 ui shift click extends selection from prior caret", "[v2][ui][text
     const float click_y = node->abs_y + (node->line_height * 0.5f);
 
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + anchor_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + anchor_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + anchor_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + anchor_x + 0.5f, click_y);
     ResetInteractionLogs();
 
-    ui_set_key_modifiers(UI_KEY_MOD_SHIFT);
     ui_set_interaction_time(300U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + extend_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + extend_x + 0.5f, click_y);
-    ui_set_key_modifiers(0U);
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_DOWN,
+        text,
+        node->abs_x + extend_x + 0.5f,
+        click_y,
+        -1,
+        UI_POINTER_TYPE_MOUSE,
+        0,
+        0,
+        0.0f,
+        0.0f,
+        0.0f,
+        0,
+        UI_KEY_MOD_SHIFT);
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_UP,
+        text,
+        node->abs_x + extend_x + 0.5f,
+        click_y,
+        -1,
+        UI_POINTER_TYPE_MOUSE,
+        0,
+        0,
+        0.0f,
+        0.0f,
+        0.0f,
+        0,
+        UI_KEY_MOD_SHIFT);
 
     REQUIRE(g_selection_changes.size() == 1U);
     CHECK(g_selection_changes[0].handle == text);
@@ -3711,13 +4563,13 @@ TEST_CASE("v2 ui plain click without shift places caret", "[v2][ui][text-edit]")
     const float click_y = node->abs_y + (node->line_height * 0.5f);
 
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + first_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + first_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + first_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + first_x + 0.5f, click_y);
     ResetInteractionLogs();
 
     ui_set_interaction_time(300U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + second_x + 0.5f, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + second_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + second_x + 0.5f, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + second_x + 0.5f, click_y);
 
     REQUIRE(g_selection_changes.size() == 1U);
     CHECK(g_selection_changes[0].start == 2U);
@@ -3772,13 +4624,13 @@ TEST_CASE("v2 ui non-text clicks clear an existing text selection", "[v2][ui][te
     REQUIRE(end_line == 0);
     const float text_y = text_node->abs_y + (text_node->line_height * 0.5f);
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, text_node->abs_x + start_x + 0.5f, text_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, text, text_node->abs_x + end_x + 0.5f, text_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, text_node->abs_x + end_x + 0.5f, text_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, text_node->abs_x + start_x + 0.5f, text_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, text_node->abs_x + end_x + 0.5f, text_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, text_node->abs_x + end_x + 0.5f, text_y);
     REQUIRE_FALSE(g_selection_changes.empty());
     ResetInteractionLogs();
 
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         button,
         button_node->abs_x + (button_node->layout_width * 0.5f),
@@ -3802,7 +4654,7 @@ TEST_CASE("v2 ui non-text clicks clear an existing text selection", "[v2][ui][te
     GetRuntime().SetFocus(text);
     ResetInteractionLogs();
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, UI_INVALID_HANDLE, -10.0f, -10.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, UI_INVALID_HANDLE, -10.0f, -10.0f);
     REQUIRE(g_selection_changes.size() == 1U);
     CHECK(g_selection_changes[0].handle == text);
     CHECK(g_selection_changes[0].start == 5U);
@@ -3858,15 +4710,15 @@ TEST_CASE("v2 ui focusing another editable text clears the previous text selecti
     const float first_y = first_node->abs_y + (first_node->line_height * 0.5f);
     const float second_y = second_node->abs_y + (second_node->line_height * 0.5f);
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + first_start_x + 0.5f, first_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, first, first_node->abs_x + first_end_x + 0.5f, first_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, first, first_node->abs_x + first_end_x + 0.5f, first_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + first_start_x + 0.5f, first_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, first, first_node->abs_x + first_end_x + 0.5f, first_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, first, first_node->abs_x + first_end_x + 0.5f, first_y);
     REQUIRE_FALSE(g_selection_changes.empty());
     REQUIRE(GetRuntime().focused_handle_ == first);
     ResetInteractionLogs();
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, second, second_node->abs_x + second_click_x + 0.5f, second_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, second, second_node->abs_x + second_click_x + 0.5f, second_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, second, second_node->abs_x + second_click_x + 0.5f, second_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, second, second_node->abs_x + second_click_x + 0.5f, second_y);
 
     REQUIRE(g_selection_changes.size() == 2U);
     CHECK(g_selection_changes[0].handle == first);

@@ -57,6 +57,39 @@ export interface OpenCanvasTextDocument {
   readonly text: string;
 }
 
+export type OpenCanvasAutofillHint = string | null;
+
+export type OpenCanvasEditableTextKind =
+  | 'text'
+  | 'password'
+  | 'email';
+
+export type OpenCanvasFormPurpose =
+  | 'generic'
+  | 'sign-in'
+  | 'sign-up'
+  | 'change-password';
+
+export interface OpenCanvasForm {
+  readonly handle: OpenCanvasHandle;
+  readonly stableName: string | null;
+  readonly purpose: OpenCanvasFormPurpose;
+  readonly fieldHandles: readonly OpenCanvasHandle[];
+  readonly submitHandle: OpenCanvasHandle | null;
+}
+
+export interface OpenCanvasEditableTextDocument extends OpenCanvasTextDocument {
+  readonly selectionStart: number;
+  readonly selectionEnd: number;
+  readonly multiline: boolean;
+  readonly readOnly: boolean;
+  readonly disabled: boolean;
+  readonly kind: OpenCanvasEditableTextKind;
+  readonly autofillHint: OpenCanvasAutofillHint;
+  readonly stableFieldName: string | null;
+  readonly formHandle: OpenCanvasHandle | null;
+}
+
 export interface OpenCanvasFindMatch {
   readonly handle: OpenCanvasHandle;
   readonly start: number;
@@ -96,9 +129,14 @@ export interface OpenCanvasFindState extends OpenCanvasFindResults {
  */
 export interface OpenCanvasApi {
   getSemanticTree(): SemanticNode[];
+  getForms(): OpenCanvasForm[];
+  getForm(handle: OpenCanvasHandle): OpenCanvasForm | null;
+  getFocusedHandle(): OpenCanvasHandle | null;
+  getActiveTextHandle(): OpenCanvasHandle | null;
   getBoundingBox(handle: OpenCanvasHandle): SemanticBounds | null;
   getTextVisibleBounds(handle: OpenCanvasHandle): SemanticBounds | null;
   getTextDocument(handle: OpenCanvasHandle): OpenCanvasTextDocument | null;
+  getEditableTextDocument(handle: OpenCanvasHandle): OpenCanvasEditableTextDocument | null;
   getRangeRects(handle: OpenCanvasHandle, start: number, end: number): readonly SemanticBounds[];
   findText(query: string, options?: OpenCanvasFindOptions): OpenCanvasFindResults;
   setFindState(state: OpenCanvasFindState | null, revealActive?: boolean): boolean;

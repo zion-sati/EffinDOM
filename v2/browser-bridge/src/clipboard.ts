@@ -1,4 +1,4 @@
-import type { ClipboardRichTextPart, ClipboardRichTextPayload, ClipboardWritePayload } from './core-types';
+import type { ClipboardRichTextPart,ClipboardRichTextPayload,ClipboardWritePayload } from './core-types';
 
 export const EFFINDOM_RICH_TEXT_CLIPBOARD_MIME = 'web application/x-effindom-richtext+json';
 
@@ -100,14 +100,53 @@ export function enrichClipboardPayload(
 }
 
 async function tryWriteClipboardItems(items: Record<string, Blob>): Promise<boolean> {
-  if (navigator.clipboard === undefined || navigator.clipboard.write === undefined || typeof ClipboardItem === 'undefined') {
+  const clipboard = (navigator as Omit<Navigator, 'clipboard'> & { clipboard?: Clipboard }).clipboard;
+  if (clipboard?.write === undefined || typeof ClipboardItem === 'undefined') {
     return false;
   }
   try {
-    await navigator.clipboard.write([new ClipboardItem(items)]);
+    await clipboard.write([new ClipboardItem(items)]);
     return true;
   } catch {
     return false;
+  }
+}
+
+interface LegacyClipboardDocument {
+  readonly body: HTMLElement;
+  readonly activeElement: Element | null;
+  createElement(tagName: 'textarea'): HTMLTextAreaElement;
+  execCommand(commandId: 'copy'): boolean;
+}
+
+function fallbackWritePlainText(plainText: string): boolean {
+  const legacyDocument = document as unknown as LegacyClipboardDocument;
+  if (typeof legacyDocument.execCommand !== 'function') {
+    return false;
+  }
+  const activeElement = document.activeElement;
+  const textArea = document.createElement('textarea');
+  textArea.value = plainText;
+  textArea.setAttribute('readonly', '');
+  Object.assign(textArea.style, {
+    position: 'fixed',
+    top: '0',
+    left: '0',
+    width: '1px',
+    height: '1px',
+    opacity: '0',
+    pointerEvents: 'none',
+  });
+  document.body.appendChild(textArea);
+  textArea.focus({ preventScroll: true });
+  textArea.select();
+  try {
+    return legacyDocument.execCommand('copy');
+  } finally {
+    textArea.remove();
+    if (activeElement instanceof HTMLElement) {
+      activeElement.focus({ preventScroll: true });
+    }
   }
 }
 
@@ -133,7 +172,17 @@ export async function writeClipboardPayload(payload: ClipboardWritePayload): Pro
       return;
     }
   }
-  if (navigator.clipboard !== undefined && navigator.clipboard.writeText !== undefined) {
-    await navigator.clipboard.writeText(plainText);
+  const clipboard = (navigator as Omit<Navigator, 'clipboard'> & { clipboard?: Clipboard }).clipboard;
+  if (window.isSecureContext && clipboard?.writeText !== undefined) {
+    try {
+      await clipboard.writeText(plainText);
+      return;
+    } catch {
+      // Permission can still be denied on secure origins. Fall back to the
+      // user-activation path desktop browsers historically used.
+    }
+  }
+  if (!fallbackWritePlainText(plainText)) {
+    throw new Error('Clipboard write failed.');
   }
 }

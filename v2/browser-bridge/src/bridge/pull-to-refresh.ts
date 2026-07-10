@@ -51,7 +51,7 @@ function ensurePullToRefreshElements(): PullToRefreshElements {
   icon.style.transform = 'rotate(0deg)';
   icon.style.transition = 'transform 90ms linear';
   root.appendChild(icon);
-  (document.body ?? document.documentElement).appendChild(root);
+  document.body.appendChild(root);
   return { root, icon };
 }
 
@@ -80,10 +80,10 @@ export function createPullToRefreshOverlay(): PullToRefreshOverlay {
       root.dataset.visible = 'true';
       root.dataset.armed = normalized >= 1 ? 'true' : 'false';
       root.style.transition = 'none';
-      root.style.opacity = distance <= 0 ? '0' : `${0.15 + (normalized * 0.85)}`;
-      root.style.transform = `translate(-50%, ${travel - 18}px)`;
+      root.style.opacity = distance <= 0 ? '0' : String(0.15 + (normalized * 0.85));
+      root.style.transform = `translate(-50%, ${String(travel - 18)}px)`;
       root.style.background = normalized >= 1 ? 'rgba(219, 234, 254, 0.98)' : 'rgba(248, 250, 252, 0.96)';
-      icon.style.transform = `rotate(${Math.round(normalized * 360)}deg)`;
+      icon.style.transform = `rotate(${String(Math.round(normalized * 360))}deg)`;
     },
     hide(immediate = false): void {
       if (!visible && root.hidden) {

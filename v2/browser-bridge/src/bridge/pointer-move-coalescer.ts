@@ -19,6 +19,10 @@ export class PointerMoveCoalescer<T> {
     this.pendingMove = null;
   }
 
+  private hasPendingMove(): boolean {
+    return this.pendingMove !== null;
+  }
+
   private scheduleFlush(): void {
     if (this.frameScheduled) {
       return;
@@ -32,10 +36,9 @@ export class PointerMoveCoalescer<T> {
         return;
       }
       this.flushMove(pending);
-      if (this.pendingMove !== null) {
+      if (this.hasPendingMove()) {
         this.scheduleFlush();
       }
     });
   }
 }
-

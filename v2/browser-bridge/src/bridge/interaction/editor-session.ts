@@ -1,28 +1,27 @@
 import type {
-  BridgeLogs,
-  BridgeRuntime,
-  FocusEventLog,
-  SelectionChangeLog,
-  WasmHandleLike,
+BridgeLogs,
+BridgeRuntime,
+FocusEventLog,
+SelectionChangeLog,
+WasmHandleLike,
 } from '../../core-types';
-import type { BridgeInteractionState } from '../local-types';
-import { codeUnitIndexToUtf8ByteOffset, utf8ByteLength } from './text-encoding';
-import {
-  applyUtf8ByteReplacementEdit,
-  buildClampedTextboxEdit,
-  buildHiddenEditorWindow,
-  clearHiddenTextEditor,
-  createHiddenTextEditor,
-  type HiddenEditorWindow,
-  type HiddenTextEditor,
-  type PendingLocalReplacementEcho,
-  type PendingLocalSelectionEcho,
-  summarizeTextChange,
-  utf8ByteOffsetToCodeUnitIndex,
-} from './editor-model';
-import { createEditorMutationController } from './editor-mutations';
+import type { BridgeInteractionState, EditorDomTarget } from '../local-types';
 import { handleToBigInt } from '../utils/encoding';
 import { writeUtf8ToHeap } from '../utils/heap';
+import {
+applyUtf8ByteReplacementEdit,
+buildClampedTextboxEdit,
+buildHiddenEditorWindow,
+createSingleHiddenEditorTarget,
+type HiddenEditorWindow,
+type HiddenTextEditor,
+type PendingLocalReplacementEcho,
+type PendingLocalSelectionEcho,
+summarizeTextChange,
+utf8ByteOffsetToCodeUnitIndex,
+} from './editor-model';
+import { createEditorMutationController } from './editor-mutations';
+import { codeUnitIndexToUtf8ByteOffset,utf8ByteLength } from './text-encoding';
 
 export interface EditorSession extends BridgeInteractionState {
   handleClipboardRead(handle: WasmHandleLike): void;
@@ -45,8 +44,7 @@ export function createEditorSession(
 ): EditorSession {
   const textByHandle = Object.create(null) as Record<string, string>;
   const selectionsByHandle = Object.create(null) as Record<string, { start: number; end: number }>;
-  const hiddenInput = createHiddenTextEditor(false) as HTMLInputElement;
-  const hiddenTextarea = createHiddenTextEditor(true) as HTMLTextAreaElement;
+  const domTarget: EditorDomTarget = createSingleHiddenEditorTarget();
   let activeTextHandle: bigint | null = null;
   let lastPointerClientX: number | null = null;
   let lastPointerClientY: number | null = null;
@@ -65,6 +63,7 @@ export function createEditorSession(
   let pendingCaretRevealFrame: number | null = null;
   let pendingLocalReplacementEcho: PendingLocalReplacementEcho | null = null;
   let pendingLocalSelectionEcho: PendingLocalSelectionEcho | null = null;
+  let pendingProjectedReplacementEcho: (PendingLocalReplacementEcho & { nextText: string }) | null = null;
   let deferredTouchFocusHandle: string | null = null;
   let caretBlinkTimer: ReturnType<typeof setTimeout> | null = null;
   let focusedHandle: string | null = null;
@@ -74,7 +73,22 @@ export function createEditorSession(
   window.__bridgeSelectionsByHandle = selectionsByHandle;
   window.__bridgeActiveEditorWindow = { handle: null, ...activeEditorWindow };
 
-  const getActiveEditor = (): HiddenTextEditor => (activeTextMultiline ? hiddenTextarea : hiddenInput);
+  const getActiveEditor = (): HiddenTextEditor => domTarget.getEditor(activeTextHandle?.toString() ?? null, activeTextMultiline);
+
+  const shouldWaitForProjectedEditor = (): boolean => {
+    if (activeTextHandle === null) {
+      return false;
+    }
+    const runtime = runtimeRef.current;
+    if (runtime === null) {
+      return false;
+    }
+    const document = runtime.openCanvasApi.getEditableTextDocument(activeTextHandle.toString());
+    if (document?.autofillHint === null || document?.autofillHint === undefined || document.formHandle === null) {
+      return false;
+    }
+    return !domTarget.hasSemanticTextEditor(activeTextHandle.toString());
+  };
 
   const isActiveEditorFocused = (): boolean => document.activeElement === getActiveEditor();
 
@@ -155,7 +169,7 @@ export function createEditorSession(
       pendingCaretRevealFrame = null;
     }
     for (const key of Object.keys(pendingCaretRevealByHandle)) {
-      delete pendingCaretRevealByHandle[key];
+      Reflect.deleteProperty(pendingCaretRevealByHandle, key);
     }
   };
 
@@ -171,8 +185,11 @@ export function createEditorSession(
   };
 
   const detachBridgeTextInput = (): void => {
-    hiddenInput.blur();
-    hiddenTextarea.blur();
+    domTarget.detach();
+  };
+
+  const syncActiveTextInputViewport = (): void => {
+    void 0;
   };
 
   const getTextboxState = (
@@ -182,14 +199,14 @@ export function createEditorSession(
     if (runtime === null) {
       return { isTextbox: false, isEditable: false, isMultiline: false };
     }
-    const node = runtime.getSemanticTree().find((entry) => entry.handle === handleKey);
-    if (node?.roleName !== 'textbox') {
+    const document = runtime.openCanvasApi.getEditableTextDocument(handleKey);
+    if (document === null) {
       return { isTextbox: false, isEditable: false, isMultiline: false };
     }
     return {
       isTextbox: true,
-      isEditable: node.state.readonly !== true,
-      isMultiline: node.state.multiline === true,
+      isEditable: !document.readOnly && !document.disabled,
+      isMultiline: document.multiline,
     };
   };
 
@@ -198,15 +215,16 @@ export function createEditorSession(
       clearCaretBlinkTimer();
       clearActiveEditorWindow();
       detachBridgeTextInput();
-      clearHiddenTextEditor(hiddenInput);
-      clearHiddenTextEditor(hiddenTextarea);
+      domTarget.clearAll();
       return;
     }
 
     const activeEditor = getActiveEditor();
     const handleKey = activeTextHandle.toString();
-    const text = textByHandle[handleKey] ?? '';
+    const document = runtimeRef.current?.openCanvasApi.getEditableTextDocument(handleKey) ?? null;
+    const text = textByHandle[handleKey] ?? document?.text ?? '';
     const textByteLength = textByteLengthsByHandle[handleKey] ?? utf8ByteLength(text);
+    textByHandle[handleKey] ??= text;
     textByteLengthsByHandle[handleKey] = textByteLength;
     const selection = selectionsByHandle[handleKey] ?? { start: textByteLength, end: textByteLength };
     const { start: startByte, end: endByte } = clampSelectionToText(textByteLength, selection);
@@ -219,11 +237,23 @@ export function createEditorSession(
     syncActiveEditorWindowDebug(handleKey);
     const localStart = normalizedStart - activeEditorWindow.textStart;
     const localEnd = normalizedEnd - activeEditorWindow.textStart;
+    syncActiveEditorDomAttributes();
     if (activeEditor.value !== activeEditorWindow.text) {
       activeEditor.value = activeEditorWindow.text;
     }
-    activeEditor.readOnly = !activeTextEditable;
-    activeEditor.setSelectionRange(localStart, localEnd, direction);
+    if (activeEditor.readOnly !== !activeTextEditable) {
+      activeEditor.readOnly = !activeTextEditable;
+    }
+    const currentSelectionStart = activeEditor.selectionStart ?? 0;
+    const currentSelectionEnd = activeEditor.selectionEnd ?? currentSelectionStart;
+    const currentSelectionDirection = activeEditor.selectionDirection ?? 'none';
+    if (
+      currentSelectionStart !== localStart ||
+      currentSelectionEnd !== localEnd ||
+      currentSelectionDirection !== direction
+    ) {
+      activeEditor.setSelectionRange(localStart, localEnd, direction);
+    }
     updateCaretBlinkTimer();
   };
 
@@ -243,6 +273,9 @@ export function createEditorSession(
     setPendingLocalSelectionEcho: (value) => {
       pendingLocalSelectionEcho = value;
     },
+    setPendingProjectedReplacementEcho: (value) => {
+      pendingProjectedReplacementEcho = value;
+    },
     syncFocusedInputState,
     updateActiveEditorWindowText,
   });
@@ -251,8 +284,74 @@ export function createEditorSession(
     mutationController.clearPendingTextMutations();
   };
 
+  const resetHiddenEditorDomAttributes = (editor: HiddenTextEditor): void => {
+    if (editor instanceof HTMLInputElement) {
+      editor.type = 'text';
+    }
+    editor.setAttribute('autocomplete', 'off');
+    editor.removeAttribute('name');
+    editor.removeAttribute('id');
+  };
+
+  const applyHiddenEditorDomAttributes = (
+    editor: HiddenTextEditor,
+    kind: 'text' | 'password' | 'email',
+    autofillHint: string | null,
+    stableFieldName: string | null,
+  ): void => {
+    if (editor instanceof HTMLInputElement && editor.type !== kind) {
+      editor.type = kind;
+    }
+    const autocompleteValue = autofillHint ?? 'off';
+    if (editor.getAttribute('autocomplete') !== autocompleteValue) {
+      editor.setAttribute('autocomplete', autocompleteValue);
+    }
+    if (autofillHint !== null && stableFieldName !== null) {
+      if (editor.getAttribute('name') !== stableFieldName) {
+        editor.setAttribute('name', stableFieldName);
+      }
+      if (editor.getAttribute('id') !== stableFieldName) {
+        editor.setAttribute('id', stableFieldName);
+      }
+      return;
+    }
+    if (editor.hasAttribute('name')) {
+      editor.removeAttribute('name');
+    }
+    if (editor.hasAttribute('id')) {
+      editor.removeAttribute('id');
+    }
+  };
+
+  const syncActiveEditorDomAttributes = (): void => {
+    const activeEditor = activeTextHandle === null ? null : getActiveEditor();
+    if (domTarget.singleLineEditor !== activeEditor) {
+      resetHiddenEditorDomAttributes(domTarget.singleLineEditor);
+    }
+    if (domTarget.multiLineEditor !== activeEditor) {
+      resetHiddenEditorDomAttributes(domTarget.multiLineEditor);
+    }
+    if (activeTextHandle === null) {
+      return;
+    }
+    const runtime = runtimeRef.current;
+    if (runtime === null) {
+      return;
+    }
+    const handleKey = activeTextHandle.toString();
+    const document = runtime.openCanvasApi.getEditableTextDocument(handleKey);
+    if (document === null || activeEditor === null) {
+      return;
+    }
+    applyHiddenEditorDomAttributes(activeEditor, document.kind, document.autofillHint, document.stableFieldName);
+  };
+
   const focusHiddenEditorNow = (): void => {
-    getActiveEditor().focus({ preventScroll: true });
+    if (shouldWaitForProjectedEditor()) {
+      return;
+    }
+    syncFocusedInputState();
+    domTarget.focus(activeTextHandle?.toString() ?? null, activeTextMultiline, { preventScroll: true });
     syncFocusedInputState();
     updateCaretBlinkTimer(true);
   };
@@ -310,7 +409,7 @@ export function createEditorSession(
       if (!pendingCaretRevealByHandle[handleKey] || activeTextHandle?.toString() !== handleKey) {
         return;
       }
-      delete pendingCaretRevealByHandle[handleKey];
+      Reflect.deleteProperty(pendingCaretRevealByHandle, handleKey);
       const runtime = runtimeRef.current;
       if (runtime === null) {
         return;
@@ -319,13 +418,13 @@ export function createEditorSession(
       const textByteLength = utf8ByteLength(text);
       const selection = selectionsByHandle[handleKey] ?? { start: textByteLength, end: textByteLength };
       const { start, end } = clampSelectionToText(textByteLength, selection);
-      runtime.ui._ui_set_text_selection_range(handleToBigInt(handleKey), start, end);
+      runtime.ui._ui_reveal_text_range(handleToBigInt(handleKey), start, end);
     });
   };
 
   const clearRecordMap = <T>(record: Record<string, T>): void => {
     for (const key of Object.keys(record)) {
-      delete record[key];
+      Reflect.deleteProperty(record, key);
     }
   };
 
@@ -338,6 +437,7 @@ export function createEditorSession(
     mutationController.reset();
     pendingLocalReplacementEcho = null;
     pendingLocalSelectionEcho = null;
+    pendingProjectedReplacementEcho = null;
     deferredTouchFocusHandle = null;
     clearCaretBlinkTimer();
     activeTextHandle = null;
@@ -348,14 +448,17 @@ export function createEditorSession(
     pendingSemanticAnnouncements.clear();
     lastInteractivePointerHandle = null;
     capturedPointerHandle = null;
-    hiddenInput.value = '';
-    hiddenInput.setSelectionRange(0, 0, 'none');
-    hiddenTextarea.value = '';
-    hiddenTextarea.setSelectionRange(0, 0, 'none');
+    domTarget.singleLineEditor.value = '';
+    domTarget.singleLineEditor.setSelectionRange(0, 0, 'none');
+    domTarget.multiLineEditor.value = '';
+    domTarget.multiLineEditor.setSelectionRange(0, 0, 'none');
+    resetHiddenEditorDomAttributes(domTarget.singleLineEditor);
+    resetHiddenEditorDomAttributes(domTarget.multiLineEditor);
     detachBridgeTextInput();
   };
-  mutationController.attachHiddenEditorListeners(hiddenInput);
-  mutationController.attachHiddenEditorListeners(hiddenTextarea);
+  domTarget.attachListeners((editor) => {
+    mutationController.attachHiddenEditorListeners(editor);
+  });
 
   const handleFocusChanged = (handle: WasmHandleLike, isFocused: boolean): void => {
     const handleKey = handle.toString();
@@ -370,7 +473,7 @@ export function createEditorSession(
       const textboxState = getTextboxState(handleKey);
       if (!textboxState.isTextbox) {
         deferredTouchFocusHandle = null;
-        delete pendingCaretRevealByHandle[handleKey];
+        Reflect.deleteProperty(pendingCaretRevealByHandle, handleKey);
         activeTextHandle = null;
         activeTextEditable = false;
         activeTextMultiline = false;
@@ -398,9 +501,10 @@ export function createEditorSession(
         updateCaretBlinkTimer();
         return;
       }
-      deferredTouchFocusHandle = null;
+      mutationController.flushPendingTextMutationsToRuntime();
       runtimeRef.current?.flushPendingCommit();
-      delete pendingCaretRevealByHandle[handleKey];
+      deferredTouchFocusHandle = null;
+      Reflect.deleteProperty(pendingCaretRevealByHandle, handleKey);
       pendingLocalReplacementEcho = null;
       pendingLocalSelectionEcho = null;
       clearPendingTextMutations();
@@ -408,6 +512,7 @@ export function createEditorSession(
       activeTextEditable = false;
       activeTextMultiline = false;
       syncFocusedInputState();
+      runtimeRef.current?.flushPendingCommit();
     }
     updateCaretBlinkTimer();
     if (isFocused) {
@@ -439,6 +544,32 @@ export function createEditorSession(
     queueSemanticAnnouncement(handle.toString());
   };
 
+  const reconcileLiveHandles = (handles: readonly string[]): void => {
+    const liveHandles = new Set(handles);
+    if (focusedHandle !== null && !liveHandles.has(focusedHandle)) {
+      focusedHandle = null;
+    }
+    if (deferredTouchFocusHandle !== null && !liveHandles.has(deferredTouchFocusHandle)) {
+      deferredTouchFocusHandle = null;
+    }
+    if (activeTextHandle === null) {
+      return;
+    }
+    const activeHandleKey = activeTextHandle.toString();
+    if (liveHandles.has(activeHandleKey)) {
+      return;
+    }
+    Reflect.deleteProperty(pendingCaretRevealByHandle, activeHandleKey);
+    pendingLocalReplacementEcho = null;
+    pendingLocalSelectionEcho = null;
+    clearPendingTextMutations();
+    activeTextHandle = null;
+    activeTextEditable = false;
+    activeTextMultiline = false;
+    syncFocusedInputState();
+    updateCaretBlinkTimer();
+  };
+
   const handleTextReplaced = (handle: WasmHandleLike, start: number, end: number, text: string): void => {
     const handleKey = handle.toString();
     const previousText = textByHandle[handleKey] ?? '';
@@ -451,15 +582,26 @@ export function createEditorSession(
       && activeTextHandle !== null
       && activeTextHandle.toString() === handleKey
       && isActiveEditorFocused();
+    const isProjectedEcho = pendingProjectedReplacementEcho !== null
+      && pendingProjectedReplacementEcho.handle === handleKey
+      && pendingProjectedReplacementEcho.start === start
+      && pendingProjectedReplacementEcho.end === end
+      && pendingProjectedReplacementEcho.text === text;
+    const projectedReplacementEcho = pendingProjectedReplacementEcho;
     const nextText = isLocalEcho
       ? previousText
-      : applyUtf8ByteReplacementEdit(previousText, start, end, text);
-    if (!isLocalEcho) {
+      : (isProjectedEcho
+        ? (projectedReplacementEcho === null ? previousText : projectedReplacementEcho.nextText)
+        : applyUtf8ByteReplacementEdit(previousText, start, end, text));
+    if (!isLocalEcho && !isProjectedEcho) {
       textByHandle[handleKey] = nextText;
       textByteLengthsByHandle[handleKey] = previousTextByteLength - (end - start) + utf8ByteLength(text);
     }
     if (isLocalEcho) {
       pendingLocalReplacementEcho = null;
+    }
+    if (isProjectedEcho) {
+      pendingProjectedReplacementEcho = null;
     }
     logs.textChanges.push(summarizeTextChange(handleKey, nextText));
     if (activeTextHandle !== null && activeTextHandle.toString() === handleKey) {
@@ -574,8 +716,11 @@ export function createEditorSession(
     logs,
     textByHandle,
     selectionsByHandle,
-    hasPendingTextMutations: mutationController.hasPendingTextMutations,
-    materializePendingTextMutations: mutationController.materializePendingTextMutations,
+    flushPendingTextMutationsToRuntime: () => {
+      mutationController.flushPendingTextMutationsToRuntime();
+    },
+    hasPendingTextMutations: () => mutationController.hasPendingTextMutations(),
+    materializePendingTextMutations: () => mutationController.materializePendingTextMutations(),
     getActiveTextEditable: () => activeTextEditable,
     getActiveTextHandle: () => activeTextHandle,
     getActiveTextMultiline: () => activeTextMultiline,
@@ -586,12 +731,43 @@ export function createEditorSession(
     getLastInteractivePointerHandle: () => lastInteractivePointerHandle,
     isActiveTextInputFocused: isActiveEditorFocused,
     isPointerInsideCanvas: () => pointerInsideCanvas,
-    applyActiveTextDeletion: mutationController.applyActiveTextDeletion,
+    applyActiveTextDeletion: (forward) => mutationController.applyActiveTextDeletion(forward),
+    replaceActiveTextSelectionWithText: (text) => mutationController.replaceActiveSelectionWithText(text),
+    syncActiveTextSelectionFromDom: () => {
+      mutationController.syncActiveSelectionFromDom();
+    },
     beginTouchTextFocusDeferral,
     cancelTouchTextFocusDeferral,
     commitTouchTextFocusDeferral,
     refocusActiveTextInput,
     resetAppSession,
+    reconcileLiveHandles,
+    syncActiveTextInputViewport,
+    registerSemanticTextEditor: (handle: string, editor: HiddenTextEditor | null): void => {
+      domTarget.registerSemanticTextEditor(handle, editor);
+      if (editor === null) {
+        return;
+      }
+      const targetHandle = activeTextHandle?.toString() ?? focusedHandle;
+      if (targetHandle !== handle) {
+        return;
+      }
+      if (activeTextHandle === null) {
+        const textboxState = getTextboxState(handle);
+        if (!textboxState.isTextbox) {
+          return;
+        }
+        activeTextHandle = handleToBigInt(handle);
+        activeTextEditable = textboxState.isEditable;
+        activeTextMultiline = textboxState.isMultiline;
+      }
+      window.setTimeout(() => {
+        if (activeTextHandle?.toString() !== handle) {
+          return;
+        }
+        focusHiddenEditorNow();
+      }, 0);
+    },
     consumePendingSemanticAnnouncements: () => {
       const handles = Array.from(pendingSemanticAnnouncements.values());
       pendingSemanticAnnouncements.clear();

@@ -1,10 +1,10 @@
 import {
-  BUILT_IN_FONT_BODY,
-  BUILT_IN_FONT_BODY_BOLD_ITALIC,
-  BUILT_IN_FONT_BODY_ITALIC,
-  BUILT_IN_FONT_HEADING,
-  BUILT_IN_FONT_MONO,
-  BUILT_IN_FONT_MONO_BOLD,
+BUILT_IN_FONT_BODY,
+BUILT_IN_FONT_BODY_BOLD_ITALIC,
+BUILT_IN_FONT_BODY_ITALIC,
+BUILT_IN_FONT_HEADING,
+BUILT_IN_FONT_MONO,
+BUILT_IN_FONT_MONO_BOLD,
 } from './font-catalog';
 
 export const UI_MISSING_FONT_COVERAGE_UNKNOWN = 0;
@@ -134,25 +134,29 @@ function resolveCjkRequests(sampleText: string): readonly ResolvedIncrementalFon
   }
 
   const requests: ResolvedIncrementalFontShardRequest[] = [];
+  const pushShardRequest = (
+    packageKey: string,
+    coverageKind: number,
+    shardKey: string,
+    googleFamily: string,
+    text: readonly string[],
+  ): void => {
+    const request = buildShardRequest(packageKey, coverageKind, shardKey, googleFamily, text);
+    if (request !== null) {
+      requests.push(request);
+    }
+  };
   if (kana.length > 0) {
-    requests.push(
-      buildShardRequest('cjk-sans', UI_MISSING_FONT_COVERAGE_CJK, 'cjk-jp', 'Noto Sans JP', [...kana, ...han, ...punctuation])!,
-    );
+    pushShardRequest('cjk-sans', UI_MISSING_FONT_COVERAGE_CJK, 'cjk-jp', 'Noto Sans JP', [...kana, ...han, ...punctuation]);
   }
   if (hangul.length > 0) {
-    requests.push(
-      buildShardRequest('cjk-sans', UI_MISSING_FONT_COVERAGE_CJK, 'cjk-kr', 'Noto Sans KR', [...hangul, ...(kana.length === 0 ? han : []), ...punctuation])!,
-    );
+    pushShardRequest('cjk-sans', UI_MISSING_FONT_COVERAGE_CJK, 'cjk-kr', 'Noto Sans KR', [...hangul, ...(kana.length === 0 ? han : []), ...punctuation]);
   }
   if (han.length > 0 && kana.length === 0 && hangul.length === 0) {
-    requests.push(
-      buildShardRequest('cjk-sans', UI_MISSING_FONT_COVERAGE_CJK, 'cjk-sc', 'Noto Sans SC', [...han, ...punctuation])!,
-    );
+    pushShardRequest('cjk-sans', UI_MISSING_FONT_COVERAGE_CJK, 'cjk-sc', 'Noto Sans SC', [...han, ...punctuation]);
   }
   if (requests.length === 0 && punctuation.length > 0) {
-    requests.push(
-      buildShardRequest('cjk-sans', UI_MISSING_FONT_COVERAGE_CJK, 'cjk-sc', 'Noto Sans SC', punctuation)!,
-    );
+    pushShardRequest('cjk-sans', UI_MISSING_FONT_COVERAGE_CJK, 'cjk-sc', 'Noto Sans SC', punctuation);
   }
   return requests;
 }
@@ -197,14 +201,12 @@ export function resolveIncrementalFontPackageRequests(
     return [];
   }
   if (coverageKind === UI_MISSING_FONT_COVERAGE_ARABIC) {
-    return [
-      buildShardRequest('arabic-sans', coverageKind, 'arabic-core', 'Noto Naskh Arabic', Array.from(uniqueText))!,
-    ];
+    const request = buildShardRequest('arabic-sans', coverageKind, 'arabic-core', 'Noto Naskh Arabic', Array.from(uniqueText));
+    return request === null ? [] : [request];
   }
   if (coverageKind === UI_MISSING_FONT_COVERAGE_THAI) {
-    return [
-      buildShardRequest('thai-sans', coverageKind, 'thai-core', 'Noto Sans Thai', Array.from(uniqueText))!,
-    ];
+    const request = buildShardRequest('thai-sans', coverageKind, 'thai-core', 'Noto Sans Thai', Array.from(uniqueText));
+    return request === null ? [] : [request];
   }
   if (coverageKind === UI_MISSING_FONT_COVERAGE_CJK) {
     return resolveCjkRequests(uniqueText);

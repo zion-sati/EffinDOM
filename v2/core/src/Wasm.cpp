@@ -313,6 +313,11 @@ void RenderSoftwareFrame(double current_time_ms) {
 extern "C" {
 
 EMSCRIPTEN_KEEPALIVE
+std::uint32_t ed_get_abi_version(void) {
+    return ED_ABI_VERSION;
+}
+
+EMSCRIPTEN_KEEPALIVE
 void ed_init(std::uint32_t physical_w, std::uint32_t physical_h, float dpr) {
     g_state.engine.Init(physical_w, physical_h, dpr);
     StartWebGlInit();
@@ -339,6 +344,66 @@ void ed_resize(std::uint32_t physical_w, std::uint32_t physical_h, float dpr) {
 }
 
 EMSCRIPTEN_KEEPALIVE
+void ed_set_viewport_size(float logical_w, float logical_h) {
+    g_state.engine.SetViewportSize(logical_w, logical_h);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_set_viewport_transform(float scale, float offset_x, float offset_y) {
+    g_state.engine.SetViewportTransform(scale, offset_x, offset_y);
+}
+
+EMSCRIPTEN_KEEPALIVE
+float ed_get_viewport_scale() {
+    return g_state.engine.ViewportScale();
+}
+
+EMSCRIPTEN_KEEPALIVE
+float ed_get_viewport_offset_x() {
+    return g_state.engine.ViewportOffsetX();
+}
+
+EMSCRIPTEN_KEEPALIVE
+float ed_get_viewport_offset_y() {
+    return g_state.engine.ViewportOffsetY();
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_set_viewport_zoom_from_scene_anchor(float scale, float anchor_scene_x, float anchor_scene_y, float screen_x, float screen_y) {
+    g_state.engine.SetViewportZoomFromSceneAnchor(scale, anchor_scene_x, anchor_scene_y, screen_x, screen_y);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_pan_viewport_by(float delta_x, float delta_y) {
+    g_state.engine.PanViewportBy(delta_x, delta_y);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_begin_viewport_pan(double timestamp_ms) {
+    g_state.engine.BeginViewportPan(timestamp_ms);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_update_viewport_pan(float delta_x, float delta_y, double timestamp_ms) {
+    g_state.engine.UpdateViewportPan(delta_x, delta_y, timestamp_ms);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_end_viewport_pan(double timestamp_ms) {
+    g_state.engine.EndViewportPan(timestamp_ms);
+}
+
+EMSCRIPTEN_KEEPALIVE
+bool ed_tick_viewport_pan_momentum(double timestamp_ms) {
+    return g_state.engine.TickViewportPanMomentum(timestamp_ms);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_clear_viewport_pan_momentum() {
+    g_state.engine.ClearViewportPanMomentum();
+}
+
+EMSCRIPTEN_KEEPALIVE
 void ed_register_font(std::uint32_t font_id, const std::uint8_t* bytes, std::uint32_t len) {
     g_state.engine.RegisterFont(font_id, bytes, len);
 }
@@ -361,6 +426,19 @@ void ed_register_texture_rgba(
     std::uint32_t height,
     std::uint32_t byte_length) {
     g_state.engine.RegisterTextureRgba(texture_id, rgba, width, height, static_cast<std::size_t>(byte_length));
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_register_texture_sub_rgba(
+    std::uint32_t texture_id,
+    const std::uint8_t* sub_rgba,
+    std::uint32_t sub_x,
+    std::uint32_t sub_y,
+    std::uint32_t sub_w,
+    std::uint32_t sub_h,
+    std::uint32_t full_w,
+    std::uint32_t full_h) {
+    g_state.engine.RegisterTextureSubRgba(texture_id, sub_rgba, sub_x, sub_y, sub_w, sub_h, full_w, full_h);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -441,12 +519,15 @@ void ed_notify_webgl_context_lost(void) {
 }
 
 EMSCRIPTEN_KEEPALIVE
-void effindom_v2_custom_draw(std::uint32_t handle_lo, std::uint32_t handle_hi, std::uint32_t canvas_ptr) {
+void effindom_v2_custom_draw(std::uint32_t handle_lo, std::uint32_t handle_hi, std::uintptr_t canvas_ptr) {
+    const std::uint64_t canvas_ptr_value = static_cast<std::uint64_t>(canvas_ptr);
+    const std::uint32_t canvas_ptr_lo = static_cast<std::uint32_t>(canvas_ptr_value & 0xFFFFFFFFULL);
+    const std::uint32_t canvas_ptr_hi = static_cast<std::uint32_t>(canvas_ptr_value >> 32U);
     EM_ASM({
         if (typeof window !== 'undefined' && typeof window['__effindomV2CustomDraw'] === 'function') {
-            window['__effindomV2CustomDraw']($0, $1, $2 >>> 0);
+            window['__effindomV2CustomDraw']($0, $1, $2 >>> 0, $3 >>> 0);
         }
-    }, handle_lo, handle_hi, canvas_ptr);
+    }, handle_lo, handle_hi, canvas_ptr_lo, canvas_ptr_hi);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -486,6 +567,13 @@ void ed_canvas_rotate(void* canvas, float degrees) {
 EMSCRIPTEN_KEEPALIVE
 void ed_canvas_clip_rect(void* canvas, float x, float y, float w, float h) {
     effindom::v2::EdCanvasClipRect(static_cast<SkCanvas*>(canvas), x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_clip_round_rect(void* canvas, float x, float y, float w, float h,
+                               float top_left, float top_right, float bottom_right, float bottom_left) {
+    effindom::v2::EdCanvasClipRoundRect(
+        static_cast<SkCanvas*>(canvas), x, y, w, h, top_left, top_right, bottom_right, bottom_left);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -570,17 +658,17 @@ void ed_canvas_draw_path(void* canvas, uint32_t path_id,
 }
 
 EMSCRIPTEN_KEEPALIVE
-void ed_canvas_draw_text(void* canvas, const uint8_t* utf8, uint32_t len,
-                         float x, float y, uint32_t font_id, float font_size, uint32_t color) {
-    g_state.engine.CanvasDrawText(
-        static_cast<SkCanvas*>(canvas), utf8, len, x, y, font_id, font_size, color);
+void ed_canvas_draw_text_node(void* canvas, uint32_t handle_lo, uint32_t handle_hi, float x, float y) {
+    const uint64_t handle = (static_cast<uint64_t>(handle_hi) << 32U) | static_cast<uint64_t>(handle_lo);
+    g_state.engine.CanvasDrawTextNode(static_cast<SkCanvas*>(canvas), handle, x, y);
 }
 
 EMSCRIPTEN_KEEPALIVE
 void ed_canvas_draw_image(void* canvas, uint32_t texture_id,
-                          float x, float y, float w, float h) {
+                          float x, float y, float w, float h,
+                          uint32_t sampling_kind, uint32_t max_aniso) {
     g_state.engine.CanvasDrawImage(
-        static_cast<SkCanvas*>(canvas), texture_id, x, y, w, h);
+        static_cast<SkCanvas*>(canvas), texture_id, x, y, w, h, sampling_kind, max_aniso);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -588,6 +676,11 @@ void ed_canvas_draw_svg(void* canvas, uint32_t svg_id,
                         float x, float y, float w, float h) {
     g_state.engine.CanvasDrawSvg(
         static_cast<SkCanvas*>(canvas), svg_id, x, y, w, h);
+}
+
+EMSCRIPTEN_KEEPALIVE
+void ed_canvas_draw_batch(void* canvas, const uint32_t* words, uint32_t word_count) {
+    g_state.engine.CanvasDrawBatch(static_cast<SkCanvas*>(canvas), words, word_count);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -608,6 +701,13 @@ void ed_canvas_read_offscreen_pixels(uint32_t offscreen_id, uint8_t* out_rgba) {
 EMSCRIPTEN_KEEPALIVE
 void ed_canvas_destroy_offscreen(uint32_t offscreen_id) {
     g_state.engine.DestroyOffscreenSurface(offscreen_id);
+}
+
+EMSCRIPTEN_KEEPALIVE
+uint32_t ed_render_node_to_rgba(uint64_t handle, uint32_t width, uint32_t height,
+                                uint8_t* out_pixels, uint32_t out_capacity,
+                                float scale, float x, float y) {
+    return g_state.engine.RenderNodeToRgba(handle, width, height, out_pixels, out_capacity, scale, x, y);
 }
 
 } // extern "C"

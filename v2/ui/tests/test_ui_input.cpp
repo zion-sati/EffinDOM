@@ -69,13 +69,64 @@ TEST_CASE("v2 ui pointer move without button does not drag stale scroll state", 
     runtime.last_pointer_logical_x_ = 40.0f;
     runtime.last_pointer_logical_y_ = 40.0f;
 
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, content, 48.0f, 54.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, content, 48.0f, 54.0f);
 
     const auto* scroll_node = runtime.Resolve(scroll);
     REQUIRE(scroll_node != nullptr);
     CHECK(scroll_node->scroll_offset_y == Approx(60.0f));
     CHECK(scroll_node->scroll_velocity_x == Approx(0.0f));
     CHECK(scroll_node->scroll_velocity_y == Approx(0.0f));
+}
+
+TEST_CASE("v2 ui touch endpoint drag suppresses stale editable caret drag", "[v2][ui][text-selection]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_root(text);
+    ui_set_width(text, 260.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(text, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_editable(text, true);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("alpha beta gamma"), 16U);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    auto* node = runtime.ResolveMutable(text);
+    REQUIRE(node != nullptr);
+    node->selection_start = 6U;
+    node->selection_end = 10U;
+    runtime.active_selection_handle_ = text;
+    runtime.active_selection_dragged_ = false;
+    runtime.touch_text_tap_handle_ = text;
+    runtime.touch_text_tap_moved_ = true;
+
+    REQUIRE(runtime.BeginSelectionEndpointDrag(text, 0U));
+    CHECK(runtime.touch_text_tap_handle_ == UI_INVALID_HANDLE);
+    CHECK_FALSE(runtime.touch_text_tap_moved_);
+    CHECK(runtime.selection_handle_drag_active_);
+
+    runtime.primary_pointer_down_ = true;
+    const auto [target_x, target_line] = runtime.GetLocalPositionFromIndex(*node, 0U);
+    REQUIRE(target_line == 0);
+    const float target_y = node->abs_y + (node->line_height * 0.5f);
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_MOVE,
+        text,
+        node->abs_x + target_x + 0.5f,
+        target_y,
+        41,
+        UI_POINTER_TYPE_TOUCH);
+
+    CHECK(node->selection_start == 0U);
+    CHECK(node->selection_end == 10U);
+    CHECK(runtime.selection_handle_drag_active_);
 }
 
 
@@ -111,7 +162,26 @@ TEST_CASE("v2 ui wheel events scroll the hovered scroll view", "[v2][ui][input]"
 
     const auto* scroll_node = runtime.Resolve(scroll);
     REQUIRE(scroll_node != nullptr);
-    CHECK(scroll_node->scroll_offset_y == Approx(28.0f));
+    CHECK(scroll_node->scroll_offset_y == Approx(0.0f));
+    CHECK(scroll_node->smooth_scroll_target_y == Approx(28.0f));
+    CHECK(runtime.NeedsAnimationFrame());
+
+    ui_on_wheel_event(0.0f, 28.0f);
+    CHECK(scroll_node->smooth_scroll_target_y == Approx(56.0f));
+
+    ui_commit_frame(0.0);
+    CHECK(scroll_node->scroll_offset_y > 0.0f);
+    CHECK(scroll_node->scroll_offset_y < 56.0f);
+
+    for (int frame = 1; frame <= 60 && runtime.NeedsAnimationFrame(); frame += 1) {
+        ui_commit_frame(static_cast<double>(frame) * (1000.0 / 60.0));
+    }
+    CHECK(scroll_node->scroll_offset_y == Approx(56.0f));
+    CHECK_FALSE(runtime.NeedsAnimationFrame());
+
+    ui_set_smooth_scrolling(scroll, false);
+    ui_on_wheel_event(0.0f, 20.0f);
+    CHECK(scroll_node->scroll_offset_y == Approx(76.0f));
 }
 
 
@@ -134,7 +204,7 @@ TEST_CASE("v2 ui wheel events do not latch onto a sibling scroll view outside it
     ui_set_root(root);
     ui_set_width(root, 176.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
 
     ui_set_width(scroll, 160.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
@@ -190,10 +260,10 @@ TEST_CASE("v2 ui wheel and touch scroll share scroll-box proxy routing", "[v2][u
     ui_set_root(root);
     ui_set_width(root, 176.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
     ui_set_width(scroll_box, 176.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(scroll_box, 80.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(scroll_box, 1U);
+    ui_set_flex_direction(scroll_box, UI_FLEX_DIRECTION_ROW);
     ui_set_width(scroll, 160.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(content, 160.0f, UI_SIZE_UNIT_PIXEL);
@@ -203,6 +273,7 @@ TEST_CASE("v2 ui wheel and touch scroll share scroll-box proxy routing", "[v2][u
     ui_set_width(track, 8.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(track, 80.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_scroll_proxy_target(scroll_box, scroll);
+    ui_set_smooth_scrolling(scroll, false);
 
     ui_node_add_child(root, scroll_box);
     ui_node_add_child(scroll_box, scroll);
@@ -227,11 +298,11 @@ TEST_CASE("v2 ui wheel and touch scroll share scroll-box proxy routing", "[v2][u
 
     ui_touch_scroll_update(0.0f, 16.0f);
     CHECK(runtime.Resolve(scroll)->scroll_offset_y == Approx(36.0f));
-    CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(16.0f));
+    CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(960.0f));
 
     ui_touch_scroll_end();
     CHECK(runtime.active_scroll_handle_ == UI_INVALID_HANDLE);
-    CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(16.0f));
+    CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(960.0f));
 }
 
 
@@ -271,6 +342,8 @@ TEST_CASE("v2 ui nested scroll-box proxy hands wheel and touch scrolling to an a
     ui_set_width(spacer, 200.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(spacer, 240.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_scroll_proxy_target(scroll_box, inner_scroll);
+    ui_set_smooth_scrolling(outer_scroll, false);
+    ui_set_smooth_scrolling(inner_scroll, false);
 
     ui_node_add_child(root, outer_scroll);
     ui_node_add_child(outer_scroll, outer_content);
@@ -355,6 +428,8 @@ TEST_CASE("v2 ui clipped overflow does not retarget wheel scrolling through a sc
     ui_set_width(spacer, 200.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(spacer, 240.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_scroll_proxy_target(scroll_box, inner_scroll);
+    ui_set_smooth_scrolling(outer_scroll, false);
+    ui_set_smooth_scrolling(inner_scroll, false);
 
     ui_node_add_child(root, outer_scroll);
     ui_node_add_child(outer_scroll, outer_content);
@@ -411,6 +486,8 @@ TEST_CASE("v2 ui horizontal wheel and touch fall back to an ancestor that can sc
     ui_set_height(inner_content, 220.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_scroll_enabled(outer_scroll, true, false);
     ui_set_scroll_enabled(inner_scroll, false, true);
+    ui_set_smooth_scrolling(outer_scroll, false);
+    ui_set_smooth_scrolling(inner_scroll, false);
 
     ui_node_add_child(root, outer_scroll);
     ui_node_add_child(outer_scroll, outer_content);
@@ -469,6 +546,8 @@ TEST_CASE("v2 ui vertical wheel and touch fall back to an ancestor once the nest
     ui_set_height(inner_content, 220.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_scroll_enabled(outer_scroll, false, true);
     ui_set_scroll_enabled(inner_scroll, false, true);
+    ui_set_smooth_scrolling(outer_scroll, false);
+    ui_set_smooth_scrolling(inner_scroll, false);
 
     ui_node_add_child(root, outer_scroll);
     ui_node_add_child(outer_scroll, outer_content);
@@ -545,6 +624,8 @@ TEST_CASE("v2 ui horizontal wheel and touch fall back to an ancestor when the ne
     ui_set_height(inner_content, 80.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_scroll_enabled(outer_scroll, true, false);
     ui_set_scroll_enabled(inner_scroll, true, false);
+    ui_set_smooth_scrolling(outer_scroll, false);
+    ui_set_smooth_scrolling(inner_scroll, false);
 
     ui_node_add_child(root, outer_scroll);
     ui_node_add_child(outer_scroll, outer_content);
@@ -633,21 +714,21 @@ TEST_CASE("v2 ui touch scroll can split diagonal movement across horizontal and 
     REQUIRE(runtime.Resolve(outer_scroll) != nullptr);
     REQUIRE(runtime.Resolve(inner_scroll) != nullptr);
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(30.0f));
-    CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_x == Approx(30.0f));
+    CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_x == Approx(1800.0f));
     CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_y == Approx(0.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(24.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_x == Approx(0.0f));
-    CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_y == Approx(24.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_y == Approx(1440.0f));
 
     runtime.CommitFrame();
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(30.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(24.0f));
-    CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_x == Approx(30.0f));
-    CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_y == Approx(24.0f));
+    CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_x == Approx(1800.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_y == Approx(1440.0f));
 
     ui_touch_scroll_end();
-    CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_x == Approx(30.0f));
-    CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_y == Approx(24.0f));
+    CHECK(runtime.Resolve(outer_scroll)->scroll_velocity_x == Approx(1800.0f));
+    CHECK(runtime.Resolve(inner_scroll)->scroll_velocity_y == Approx(1440.0f));
 }
 
 
@@ -681,16 +762,16 @@ TEST_CASE("v2 ui touch scroll updates a scroll view and preserves fling velocity
     ui_touch_scroll_update(0.0f, 28.0f);
     REQUIRE(GetRuntime().Resolve(scroll) != nullptr);
     CHECK(GetRuntime().Resolve(scroll)->scroll_offset_y == Approx(28.0f));
-    CHECK(GetRuntime().Resolve(scroll)->scroll_velocity_y == Approx(28.0f));
+    CHECK(GetRuntime().Resolve(scroll)->scroll_velocity_y == Approx(1680.0f));
     CHECK_FALSE(ui_touch_scroll_allows_pull_to_refresh());
 
     ui_touch_scroll_end();
     CHECK(GetRuntime().active_scroll_handle_ == UI_INVALID_HANDLE);
-    CHECK(GetRuntime().Resolve(scroll)->scroll_velocity_y == Approx(28.0f));
+    CHECK(GetRuntime().Resolve(scroll)->scroll_velocity_y == Approx(1680.0f));
 
     ui_commit_frame();
     CHECK(GetRuntime().Resolve(scroll)->scroll_offset_y == Approx(56.0f));
-    CHECK(GetRuntime().Resolve(scroll)->scroll_velocity_y == Approx(26.6f));
+    CHECK(GetRuntime().Resolve(scroll)->scroll_velocity_y == Approx(1596.0f));
 }
 
 
@@ -735,8 +816,8 @@ TEST_CASE("v2 ui touch fling default friction uses platform-specific coarse-poin
     const float android_velocity = run_touch_fling(static_cast<std::uint32_t>(PlatformFamily::Linux));
     const float apple_velocity = run_touch_fling(static_cast<std::uint32_t>(PlatformFamily::Apple));
 
-    CHECK(android_velocity == Approx(28.0f * 0.982f));
-    CHECK(apple_velocity == Approx(28.0f * 0.988f));
+    CHECK(android_velocity == Approx(1680.0f * 0.955f));
+    CHECK(apple_velocity == Approx(1680.0f * 0.960f));
     CHECK(apple_velocity > android_velocity);
 }
 
@@ -782,16 +863,16 @@ TEST_CASE("v2 ui cross-node selection covers intermediate nodes and clears on em
     const auto [start_x, _] = GetRuntime().GetLocalPositionFromIndex(*first_node, 0U);
     const auto [end_x, __] = GetRuntime().GetLocalPositionFromIndex(*last_node, 5U);
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, last, last_node->abs_x + end_x, last_node->abs_y + (last_node->line_height * 0.5f));
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, last, last_node->abs_x + end_x, last_node->abs_y + (last_node->line_height * 0.5f));
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, last, last_node->abs_x + end_x, last_node->abs_y + (last_node->line_height * 0.5f));
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, last, last_node->abs_x + end_x, last_node->abs_y + (last_node->line_height * 0.5f));
 
     ui_commit_frame();
     auto highlights = ReadHighlights(ReadCommandBuffer());
     REQUIRE(highlights.find(middle) != highlights.end());
     CHECK_FALSE(highlights.at(middle).rects.empty());
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, root, 2.0f, 2.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, root, 2.0f, 2.0f);
     CHECK_FALSE(GetRuntime().cross_selection_active_);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
@@ -855,12 +936,12 @@ TEST_CASE("v2 ui selection-area select-all uses cross-selection and clears on cl
 
     const auto [click_x, click_line] = GetRuntime().GetLocalPositionFromIndex(*text_node, 4U);
     REQUIRE(click_line == 0U);
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         text,
         text_node->abs_x + click_x + 0.5f,
         text_node->abs_y + (text_node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_UP,
         text,
         text_node->abs_x + click_x + 0.5f,
@@ -920,17 +1001,17 @@ TEST_CASE("v2 ui mouse drag cross-selection keeps its anchor for shift horizonta
     REQUIRE(start_line == 0);
     REQUIRE(end_line == 0);
 
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         first,
         first_node->abs_x + start_x + 0.5f,
         first_node->abs_y + (first_node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_MOVE,
         second,
         second_node->abs_x + end_x + 0.5f,
         second_node->abs_y + (second_node->line_height * 0.5f));
-    ui_on_pointer_event(
+    UiTestPointerEvent(
         UI_EVENT_POINTER_UP,
         second,
         second_node->abs_x + end_x + 0.5f,
@@ -951,5 +1032,3 @@ TEST_CASE("v2 ui mouse drag cross-selection keeps its anchor for shift horizonta
     CHECK(GetRuntime().end_index_ == 4U);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
 }
-
-

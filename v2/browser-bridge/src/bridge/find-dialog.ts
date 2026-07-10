@@ -1,11 +1,11 @@
 import type {
-  BridgeRuntime,
-  OpenCanvasFindMatch,
-  OpenCanvasFindState,
-  OpenCanvasResolvedFindOptions,
+BridgeRuntime,
+OpenCanvasFindMatch,
+OpenCanvasFindState,
+OpenCanvasResolvedFindOptions,
 } from '../core-types';
 import { DEFAULT_OPEN_CANVAS_FIND_OPTIONS } from './find-session';
-import { isMobileBrowser, isPlatformShortcutKey } from './platform';
+import { isMobileBrowser,isPlatformShortcutKey } from './platform';
 
 type FindOptionKey = keyof OpenCanvasResolvedFindOptions;
 type FindIconKind = 'chevronUp' | 'chevronDown' | 'filter' | 'close';
@@ -103,11 +103,9 @@ function createIconButton(
   button.style.background = 'transparent';
   button.style.outline = 'none';
   button.style.appearance = 'none';
-  button.style.webkitAppearance = 'none';
   button.style.boxShadow = 'none';
   button.style.cursor = 'pointer';
   button.style.userSelect = 'none';
-  button.style.webkitUserSelect = 'none';
   button.style.flex = '0 0 auto';
   button.style.transition = 'background 120ms ease, color 120ms ease, opacity 120ms ease';
   button.dataset.edHovered = '0';
@@ -143,9 +141,9 @@ export class DesktopFindDialogController {
     this.syncThemeUi();
   };
 
-  public constructor(runtime: BridgeRuntime, _canvas: HTMLCanvasElement) {
+  public constructor(runtime: BridgeRuntime) {
     this.runtime = runtime;
-    const parent = document.body ?? document.documentElement;
+    const parent = document.body;
     if (!(parent instanceof HTMLElement)) {
       throw new Error('Expected document root for desktop Find dialog.');
     }
@@ -412,7 +410,7 @@ export class DesktopFindDialogController {
     this.themeMedia = typeof window.matchMedia === 'function'
       ? window.matchMedia('(prefers-color-scheme: dark)')
       : null;
-    this.themeMedia?.addEventListener?.('change', this.handleThemeChange);
+    this.themeMedia?.addEventListener('change', this.handleThemeChange);
     this.syncOptionUi();
     this.syncThemeUi();
   }
@@ -455,7 +453,7 @@ export class DesktopFindDialogController {
   }
 
   public destroy(): void {
-    this.themeMedia?.removeEventListener?.('change', this.handleThemeChange);
+    this.themeMedia?.removeEventListener('change', this.handleThemeChange);
     this.root.remove();
   }
 

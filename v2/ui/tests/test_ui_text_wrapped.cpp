@@ -100,6 +100,8 @@ TEST_CASE("v2 ui focused empty editable text emits a full-height caret", "[v2][u
         ui_set_font(text, 1U, 20.0f);
         ui_set_semantic_role(text, UI_SEMANTIC_TEXTBOX);
         ui_set_selectable(text, true, 0x40007AFFU);
+        ui_set_editable(text, true);
+        ui_set_editable(text, false);
         ui_set_caret_color(text, 0xFF335577U);
         ui_node_add_child(root, text);
         ui_commit_frame();
@@ -156,8 +158,8 @@ TEST_CASE("v2 ui focused empty editable text emits a full-height caret", "[v2][u
     const float click_x = node->abs_x + node->line_widths[0] - 1.0f;
     const float click_y = node->abs_y + (node->line_height * 0.5f);
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, click_x, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, click_x, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, click_x, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, click_x, click_y);
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("!"), 1U, 0U);
 
     CHECK(GetRuntime().Resolve(text)->text_content == "Line one!\nLine two\nLine three");
@@ -204,8 +206,8 @@ TEST_CASE("v2 ui wrapped multiline edits at a hard-line end keep later line star
     const float click_x = node->abs_x + node->line_widths[0] - 1.0f;
     const float click_y = node->abs_y + (node->line_height * 0.5f);
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, click_x, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, click_x, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, click_x, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, click_x, click_y);
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("t"), 1U, 0U);
     ui_commit_frame();
 
@@ -284,8 +286,8 @@ TEST_CASE("v2 ui clicking the end of a wrapped visual line then pressing Enter m
     const float click_x = node->abs_x + node->layout_width - 1.0f;
     const float click_y = node->abs_y + (node->line_height * 3.5f);
     ui_set_interaction_time(200U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, click_x, click_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, click_x, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, click_x, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, click_x, click_y);
 
     node = GetRuntime().ResolveMutable(text);
     REQUIRE(node != nullptr);
@@ -325,6 +327,95 @@ TEST_CASE("v2 ui clicking the end of a wrapped visual line then pressing Enter m
     CHECK(node->total_line_count == expected_layout.total_line_count);
 }
 
+TEST_CASE("v2 ui soft wrap boundary caret has a virtual arrow stop", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    const std::string wrapped_text =
+        "alpha beta gamma delta epsilon zeta eta theta iota kappa lambda mu nu xi omicron pi rho sigma tau upsilon";
+
+    ui_set_root(root);
+    ui_resize_window(220.0f, 180.0f);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 96.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(text, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text_wrapping(text, true);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(wrapped_text.data()), static_cast<std::uint32_t>(wrapped_text.size()));
+    ui_set_text_limits(text, std::numeric_limits<std::int32_t>::max(), 0);
+    ui_set_semantic_role(text, UI_SEMANTIC_TEXTBOX);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_editable(text, true);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    GetRuntime().SetFocus(text);
+    ui_commit_frame();
+
+    auto* node = GetRuntime().ResolveMutable(text);
+    REQUIRE(node != nullptr);
+    REQUIRE(node->visual_line_shape_cache_valid);
+    REQUIRE(node->visual_line_shapes.size() == node->total_line_count);
+    REQUIRE(node->total_line_count >= 5U);
+
+    const std::size_t wrapped_line = 3U;
+    const std::uint32_t boundary_index = node->visual_line_shapes[wrapped_line].end;
+    const auto [trailing_x, trailing_line] = GetRuntime().GetLocalPositionFromIndex(*node, boundary_index, true);
+    const auto [leading_x, leading_line] = GetRuntime().GetLocalPositionFromIndex(*node, boundary_index, false);
+    REQUIRE(trailing_line == static_cast<int>(wrapped_line));
+    REQUIRE(leading_line == static_cast<int>(wrapped_line + 1U));
+
+    const float click_x = node->abs_x + node->layout_width - 1.0f;
+    const float click_y =
+        node->abs_y +
+        GetRuntime().GetLineTopForIndex(*node, wrapped_line) +
+        (GetRuntime().GetLineHeightForIndex(*node, wrapped_line) * 0.5f);
+    ui_set_interaction_time(200U);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, click_x, click_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, click_x, click_y);
+    ui_commit_frame();
+
+    node = GetRuntime().ResolveMutable(text);
+    REQUIRE(node != nullptr);
+    CHECK(node->selection_start == boundary_index);
+    CHECK(node->selection_end == boundary_index);
+    CHECK(node->caret_trailing_edge);
+    auto carets = ReadCarets(ReadCommandBuffer());
+    REQUIRE(carets.find(text) != carets.end());
+    CHECK(carets.at(text).x == Approx(node->abs_x + trailing_x).margin(0.75f));
+
+    ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowRight"), 10U, 0U);
+    ui_commit_frame();
+
+    node = GetRuntime().ResolveMutable(text);
+    REQUIRE(node != nullptr);
+    CHECK(node->selection_start == boundary_index);
+    CHECK(node->selection_end == boundary_index);
+    CHECK_FALSE(node->caret_trailing_edge);
+    carets = ReadCarets(ReadCommandBuffer());
+    REQUIRE(carets.find(text) != carets.end());
+    CHECK(carets.at(text).x == Approx(node->abs_x + leading_x).margin(0.75f));
+
+    ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowRight"), 10U, 0U);
+    ui_commit_frame();
+    node = GetRuntime().ResolveMutable(text);
+    REQUIRE(node != nullptr);
+    CHECK(node->selection_start > boundary_index);
+    CHECK(node->selection_end > boundary_index);
+}
+
 TEST_CASE("v2 ui moving focus away from editable text transfers the caret to focused read-only textbox text", "[v2][ui][text-edit]") {
     using effindom::v2::ui::GetRuntime;
 
@@ -357,6 +448,8 @@ TEST_CASE("v2 ui moving focus away from editable text transfers the caret to foc
     ui_set_text(readonly, reinterpret_cast<const std::uint8_t*>("Read only"), 9U);
     ui_set_semantic_role(readonly, UI_SEMANTIC_TEXTBOX);
     ui_set_selectable(readonly, true, 0x40007AFFU);
+    ui_set_editable(readonly, true);
+    ui_set_editable(readonly, false);
     ui_set_caret_color(readonly, 0xFF335577U);
     ui_node_add_child(root, editable);
     ui_node_add_child(root, readonly);
@@ -417,6 +510,86 @@ TEST_CASE("v2 ui focused selectable text without textbox semantics does not rend
     CHECK_FALSE(GetRuntime().NeedsAnimationFrame());
 }
 
+TEST_CASE("v2 ui textbox semantics without editor behavior does not render a caret", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(220.0f, 80.0f);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("Semantic only"), 13U);
+    ui_set_semantic_role(text, UI_SEMANTIC_TEXTBOX);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_caret_color(text, 0xFF224466U);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    ui_set_interaction_time(334U);
+    GetRuntime().SetFocus(text);
+    ui_commit_frame();
+
+    const auto carets = ReadCarets(ReadCommandBuffer());
+    CHECK(carets.find(text) == carets.end());
+}
+
+TEST_CASE("v2 ui editor behavior without textbox semantics renders a caret", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(220.0f, 80.0f);
+    ui_set_width(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("Editor only"), 11U);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_editable(text, true);
+    ui_set_editable(text, false);
+    ui_set_caret_color(text, 0xFF224466U);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    auto* node = GetRuntime().ResolveMutable(text);
+    REQUIRE(node != nullptr);
+    node->selection_start = 3U;
+    node->selection_end = 3U;
+    ui_set_interaction_time(335U);
+    GetRuntime().SetFocus(text);
+    ui_commit_frame();
+
+    const auto carets = ReadCarets(ReadCommandBuffer());
+    REQUIRE(carets.find(text) != carets.end());
+    ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowRight"), 10U, 0U);
+    CHECK(node->selection_start == 4U);
+    CHECK(node->selection_end == 4U);
+}
+
 TEST_CASE("v2 ui read-only textbox keeps keyboard caret movement and selection extension", "[v2][ui][text-edit]") {
     using effindom::v2::ui::GetRuntime;
 
@@ -442,6 +615,8 @@ TEST_CASE("v2 ui read-only textbox keeps keyboard caret movement and selection e
     ui_set_text_limits(text, std::numeric_limits<std::int32_t>::max(), 1);
     ui_set_semantic_role(text, UI_SEMANTIC_TEXTBOX);
     ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_editable(text, true);
+    ui_set_editable(text, false);
     ui_set_interactive(text, true);
     ui_set_caret_color(text, 0xFF224466U);
     ui_node_add_child(root, text);
@@ -613,9 +788,9 @@ TEST_CASE("v2 ui mouse drag selection keeps its anchor for shift horizontal keys
     const float y = node->abs_y + (node->line_height * 0.5f);
 
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + anchor_x + 0.5f, y);
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, text, node->abs_x + focus_x + 0.5f, y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + focus_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + anchor_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, node->abs_x + focus_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + focus_x + 0.5f, y);
 
     auto* mutable_node = GetRuntime().ResolveMutable(text);
     REQUIRE(mutable_node != nullptr);
@@ -671,9 +846,9 @@ TEST_CASE("v2 ui backward mouse drag selection keeps its anchor for shift horizo
     const float y = node->abs_y + (node->line_height * 0.5f);
 
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + anchor_x + 0.5f, y);
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, text, node->abs_x + focus_x + 0.5f, y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + focus_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + anchor_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, node->abs_x + focus_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + focus_x + 0.5f, y);
 
     auto* mutable_node = GetRuntime().ResolveMutable(text);
     REQUIRE(mutable_node != nullptr);
@@ -771,9 +946,9 @@ TEST_CASE("v2 ui wrapped mouse drag selection on a large document deletes the fu
     GetRuntime().SetFocus(text);
     ResetInteractionLogs();
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, text_node->abs_x + start_x + 0.5f, start_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, text, text_node->abs_x + end_x + 0.5f, end_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, text_node->abs_x + end_x + 0.5f, end_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, text_node->abs_x + start_x + 0.5f, start_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, text_node->abs_x + end_x + 0.5f, end_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, text_node->abs_x + end_x + 0.5f, end_y);
 
     text_node = GetRuntime().ResolveMutable(text);
     REQUIRE(text_node != nullptr);
@@ -868,9 +1043,9 @@ TEST_CASE("v2 ui wrapped mouse drag selection stays exact after pasting a large 
 
     ResetInteractionLogs();
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, text_node->abs_x + start_x + 0.5f, start_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, text, text_node->abs_x + end_x + 0.5f, end_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, text_node->abs_x + end_x + 0.5f, end_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, text_node->abs_x + start_x + 0.5f, start_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, text_node->abs_x + end_x + 0.5f, end_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, text_node->abs_x + end_x + 0.5f, end_y);
 
     text_node = GetRuntime().ResolveMutable(text);
     REQUIRE(text_node != nullptr);
@@ -996,9 +1171,9 @@ TEST_CASE("v2 ui wrapped reverse mouse drag deletes the full selected multiline 
     GetRuntime().SetFocus(text);
     ResetInteractionLogs();
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, text_node->abs_x + end_x + 0.5f, end_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, text, text_node->abs_x + start_x + 0.5f, start_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, text_node->abs_x + start_x + 0.5f, start_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, text_node->abs_x + end_x + 0.5f, end_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, text_node->abs_x + start_x + 0.5f, start_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, text_node->abs_x + start_x + 0.5f, start_y);
 
     text_node = GetRuntime().ResolveMutable(text);
     REQUIRE(text_node != nullptr);
@@ -1427,8 +1602,8 @@ TEST_CASE("v2 ui wrapped shift-up selection after pasting a large document delet
     ResetInteractionLogs();
     ui_set_interaction_time(100U);
     const float caret_click_x = text_node->abs_x + caret_x + 0.5f;
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, caret_click_x, caret_y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, caret_click_x, caret_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, caret_click_x, caret_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, caret_click_x, caret_y);
     text_node = GetRuntime().ResolveMutable(text);
     REQUIRE(text_node != nullptr);
     CHECK(text_node->selection_start == selection_end);
@@ -1562,8 +1737,8 @@ TEST_CASE("v2 ui pointer up without drag keeps a collapsed selection at the poin
     const float y = node->abs_y + (node->line_height * 0.5f);
 
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + down_x + 0.5f, y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + up_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + down_x + 0.5f, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + up_x + 0.5f, y);
 
     auto* mutable_node = GetRuntime().ResolveMutable(text);
     REQUIRE(mutable_node != nullptr);
@@ -1627,8 +1802,8 @@ TEST_CASE("v2 ui single-line textbox keeps its horizontal viewport when clicking
     const float y = node->abs_y + (node->line_height * 0.5f);
 
     ui_set_interaction_time(100U);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, text, node->abs_x + visible_local_x, y);
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, text, node->abs_x + visible_local_x, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + visible_local_x, y);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + visible_local_x, y);
 
     CHECK(node->selection_start == visible_index);
     CHECK(node->selection_end == visible_index);

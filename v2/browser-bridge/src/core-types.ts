@@ -1,5 +1,8 @@
+import type { BuildMode, DevToolsDomMirrorMode, PageZoomMode } from './runtime-config';
+import type { DebugTreeSnapshot } from './debug-tree';
 import type {
   OpenCanvasApi,
+  OpenCanvasEditableTextKind,
   OpenCanvasFindMatch,
   OpenCanvasFindState,
   OpenCanvasTextDocument,
@@ -7,7 +10,23 @@ import type {
 } from './open-canvas';
 
 export type {
+  DebugTreeBehaviorFlags,
+  DebugTreeBounds,
+  DebugTreeFlags,
+  DebugTreeInsets,
+  DebugTreeNode,
+  DebugTreeScrollMetrics,
+  DebugTreeSnapshot,
+  DebugTreeStyle,
+} from './debug-tree';
+
+export type {
   OpenCanvasApi,
+  OpenCanvasAutofillHint,
+  OpenCanvasEditableTextDocument,
+  OpenCanvasEditableTextKind,
+  OpenCanvasForm,
+  OpenCanvasFormPurpose,
   OpenCanvasFindMatch,
   OpenCanvasFindOptions,
   OpenCanvasFindResults,
@@ -61,10 +80,29 @@ export interface CoreModule {
   onRuntimeInitialized?: () => void;
   _malloc(size: number): WasmHandleLike;
   _free(ptr: WasmHandleLike): void;
+  _ed_get_abi_version?(): number;
   _ed_init(width: number, height: number, dpr: number): void;
   _ed_init_webgl(width: number, height: number, dpr: number): void;
   _ed_init_sw(width: number, height: number, dpr: number): void;
   _ed_resize(width: number, height: number, dpr: number): void;
+  _ed_set_viewport_size(logicalWidth: number, logicalHeight: number): void;
+  _ed_set_viewport_transform(scale: number, offsetX: number, offsetY: number): void;
+  _ed_get_viewport_scale(): number;
+  _ed_get_viewport_offset_x(): number;
+  _ed_get_viewport_offset_y(): number;
+  _ed_set_viewport_zoom_from_scene_anchor(
+    scale: number,
+    anchorSceneX: number,
+    anchorSceneY: number,
+    screenX: number,
+    screenY: number,
+  ): void;
+  _ed_pan_viewport_by(deltaX: number, deltaY: number): void;
+  _ed_begin_viewport_pan(timestampMs: number): void;
+  _ed_update_viewport_pan(deltaX: number, deltaY: number, timestampMs: number): void;
+  _ed_end_viewport_pan(timestampMs: number): void;
+  _ed_tick_viewport_pan_momentum(timestampMs: number): number;
+  _ed_clear_viewport_pan_momentum(): void;
   _ed_register_font(fontId: number, bytesPtr: WasmHandleLike, len: number): void;
   _ed_unregister_font(fontId: number): void;
   _ed_register_svg(svgId: number, bytesPtr: WasmHandleLike, len: number): void;
@@ -75,6 +113,16 @@ export interface CoreModule {
     width: number,
     height: number,
     byteLength: number,
+  ): void;
+  _ed_register_texture_sub_rgba(
+    textureId: number,
+    subRgbaPtr: WasmHandleLike,
+    subX: number,
+    subY: number,
+    subW: number,
+    subH: number,
+    fullW: number,
+    fullH: number,
   ): void;
   _ed_unregister_texture(textureId: number): void;
   _ed_reset_scene(): void;
@@ -90,19 +138,21 @@ export interface CoreModule {
   _ed_debug_simulate_device_lost?(): void;
 
   /* Canvas drawing API */
-  _ed_canvas_save(canvasPtr: number): void;
-  _ed_canvas_restore(canvasPtr: number): void;
-  _ed_canvas_translate(canvasPtr: number, x: number, y: number): void;
-  _ed_canvas_scale(canvasPtr: number, sx: number, sy: number): void;
-  _ed_canvas_rotate(canvasPtr: number, degrees: number): void;
-  _ed_canvas_clip_rect(canvasPtr: number, x: number, y: number, w: number, h: number): void;
-  _ed_canvas_draw_rect(canvasPtr: number, x: number, y: number, w: number, h: number,
+  _ed_canvas_save(canvasPtr: WasmHandleLike): void;
+  _ed_canvas_restore(canvasPtr: WasmHandleLike): void;
+  _ed_canvas_translate(canvasPtr: WasmHandleLike, x: number, y: number): void;
+  _ed_canvas_scale(canvasPtr: WasmHandleLike, sx: number, sy: number): void;
+  _ed_canvas_rotate(canvasPtr: WasmHandleLike, degrees: number): void;
+  _ed_canvas_clip_rect(canvasPtr: WasmHandleLike, x: number, y: number, w: number, h: number): void;
+  _ed_canvas_clip_round_rect(canvasPtr: WasmHandleLike, x: number, y: number, w: number, h: number,
+    topLeftRadius: number, topRightRadius: number, bottomRightRadius: number, bottomLeftRadius: number): void;
+  _ed_canvas_draw_rect(canvasPtr: WasmHandleLike, x: number, y: number, w: number, h: number,
     fillColor: number, strokeColor: number, strokeWidth: number): void;
-  _ed_canvas_draw_circle(canvasPtr: number, cx: number, cy: number, radius: number,
+  _ed_canvas_draw_circle(canvasPtr: WasmHandleLike, cx: number, cy: number, radius: number,
     fillColor: number, strokeColor: number, strokeWidth: number): void;
-  _ed_canvas_draw_line(canvasPtr: number, x1: number, y1: number, x2: number, y2: number,
+  _ed_canvas_draw_line(canvasPtr: WasmHandleLike, x1: number, y1: number, x2: number, y2: number,
     color: number, strokeWidth: number): void;
-  _ed_canvas_draw_round_rect(canvasPtr: number, x: number, y: number, w: number, h: number,
+  _ed_canvas_draw_round_rect(canvasPtr: WasmHandleLike, x: number, y: number, w: number, h: number,
     rx: number, ry: number, fillColor: number, strokeColor: number, strokeWidth: number): void;
   _ed_path_create(): number;
   _ed_path_destroy(pathId: number): void;
@@ -114,18 +164,20 @@ export interface CoreModule {
   _ed_path_close(pathId: number): void;
   _ed_path_add_rect(pathId: number, x: number, y: number, w: number, h: number): void;
   _ed_path_add_circle(pathId: number, cx: number, cy: number, r: number): void;
-  _ed_canvas_draw_path(canvasPtr: number, pathId: number,
+  _ed_canvas_draw_path(canvasPtr: WasmHandleLike, pathId: number,
     fillColor: number, strokeColor: number, strokeWidth: number): void;
-  _ed_canvas_draw_text(canvasPtr: number, utf8Ptr: number, utf8Len: number,
-    x: number, y: number, fontId: number, fontSize: number, color: number): void;
-  _ed_canvas_draw_image(canvasPtr: number, textureId: number,
+  _ed_canvas_draw_text_node(canvasPtr: WasmHandleLike, handleLo: number, handleHi: number, x: number, y: number): void;
+  _ed_canvas_draw_image(canvasPtr: WasmHandleLike, textureId: number,
+    x: number, y: number, w: number, h: number, samplingKind: number, maxAniso: number): void;
+  _ed_canvas_draw_svg(canvasPtr: WasmHandleLike, svgId: number,
     x: number, y: number, w: number, h: number): void;
-  _ed_canvas_draw_svg(canvasPtr: number, svgId: number,
-    x: number, y: number, w: number, h: number): void;
+  _ed_canvas_draw_batch(canvasPtr: WasmHandleLike, wordsPtr: WasmHandleLike, wordCount: number): void;
   _ed_canvas_create_offscreen(width: number, height: number): number;
-  _ed_canvas_get_offscreen_canvas(offscreenId: number): number;
-  _ed_canvas_read_offscreen_pixels(offscreenId: number, outRgbaPtr: number): void;
+  _ed_canvas_get_offscreen_canvas(offscreenId: number): WasmHandleLike;
+  _ed_canvas_read_offscreen_pixels(offscreenId: number, outRgbaPtr: WasmHandleLike): void;
   _ed_canvas_destroy_offscreen(offscreenId: number): void;
+  _ed_render_node_to_rgba(handle: WasmHandleLike, width: number, height: number,
+    outPixelsPtr: number | bigint, outCapacity: number, scale: number, x: number, y: number): number;
 }
 
 export const EdBackendType = {
@@ -154,6 +206,7 @@ export interface UiModule {
   refreshHeapViews?(): void;
   _malloc(size: number): WasmHandleLike;
   _free(ptr: WasmHandleLike): void;
+  _ui_get_abi_version?(): number;
   _ui_reset(): void;
   _ui_arena_alloc(size: number): WasmHandleLike;
   _ui_register_icu_data(ptr: WasmHandleLike, len: number): void;
@@ -203,6 +256,8 @@ export interface UiModule {
   _ui_set_is_shared_size_scope(handle: WasmHandleLike, isScope: number): void;
   _ui_set_custom_drawable(handle: WasmHandleLike, flag: number): void;
   _ui_set_flex_wrap(handle: WasmHandleLike, wrap: number): void;
+  _ui_prepare_node(handle: WasmHandleLike): number;
+  _ui_set_dynamic_text_charset(handle: WasmHandleLike, strPtr: WasmHandleLike, len: number): void;
   _ui_grid_set_columns(handle: WasmHandleLike, count: number, valuesPtr: WasmHandleLike, typesPtr: WasmHandleLike): void;
   _ui_grid_set_rows(handle: WasmHandleLike, count: number, valuesPtr: WasmHandleLike, typesPtr: WasmHandleLike): void;
   _ui_grid_set_column_shared_size_group(handle: WasmHandleLike, index: number, strPtr: WasmHandleLike, len: number): void;
@@ -232,7 +287,7 @@ export interface UiModule {
   ): void;
   _ui_set_layer_effect(handle: WasmHandleLike, opacity: number, blurSigma: number, blendMode: number): void;
   _ui_set_background_blur(handle: WasmHandleLike, blurSigma: number): void;
-  _ui_set_image(handle: WasmHandleLike, textureId: number, objectFit: number): void;
+  _ui_set_image(handle: WasmHandleLike, textureId: number, objectFit: number, samplingKind: number, maxAniso: number): void;
   _ui_set_image_nine(
     handle: WasmHandleLike,
     textureId: number,
@@ -240,8 +295,10 @@ export interface UiModule {
     insetTop: number,
     insetRight: number,
     insetBottom: number,
+    samplingKind: number,
+    maxAniso: number,
   ): void;
-  _ui_set_svg(handle: WasmHandleLike, svgId: number, tintColor: number): void;
+  _ui_set_svg(handle: WasmHandleLike, svgId: number, tintColor: number, samplingKind: number, maxAniso: number): void;
   _ui_set_linear_gradient(
     handle: WasmHandleLike,
     startX: number,
@@ -278,6 +335,21 @@ export interface UiModule {
     outWidth: WasmHandleLike,
     outHeight: WasmHandleLike,
   ): number;
+  _ui_get_visible_bounds(
+    handle: WasmHandleLike,
+    outX: WasmHandleLike,
+    outY: WasmHandleLike,
+    outWidth: WasmHandleLike,
+    outHeight: WasmHandleLike,
+  ): number;
+  _ui_get_text_metrics(
+    handle: WasmHandleLike,
+    outWidth: WasmHandleLike,
+    outHeight: WasmHandleLike,
+    outBaseline: WasmHandleLike,
+    outLineCount: WasmHandleLike,
+    outMaxLineWidth: WasmHandleLike,
+  ): number;
   _ui_set_selectable(handle: WasmHandleLike, selectable: number, color: number): void;
   _ui_set_selection_area(handle: WasmHandleLike, isArea: number): void;
   _ui_set_selection_area_barrier(handle: WasmHandleLike, isBarrier: number): void;
@@ -285,8 +357,9 @@ export interface UiModule {
   _ui_retarget_selection(fromHandle: WasmHandleLike, toHandle: WasmHandleLike): void;
   _ui_is_point_in_selection(x: number, y: number): number;
   _ui_set_text_selection_range(handle: WasmHandleLike, selectionStart: number, selectionEnd: number): void;
-  _ui_get_text_scene_position_x(handle: WasmHandleLike, byteIndex: number): number;
-  _ui_get_text_scene_position_y(handle: WasmHandleLike, byteIndex: number): number;
+  _ui_select_word_at(this: void, handle: WasmHandleLike, x: number, y: number): number;
+  _ui_begin_selection_endpoint_drag(this: void, handle: WasmHandleLike, endpoint: number): number;
+  _ui_preserves_selection_on_pointer_down?(this: void, handle: WasmHandleLike): number;
   _ui_get_text_snapshot_handle_count(): number;
   _ui_copy_text_snapshot_handles(outPtr: WasmHandleLike, maxHandleCount: number): number;
   _ui_set_text_find_match(handle: WasmHandleLike, start: number, end: number): number;
@@ -310,6 +383,7 @@ export interface UiModule {
     outPtr: WasmHandleLike,
     maxRectCount: number,
   ): number;
+  _ui_copy_cross_selection_endpoint_rects(this: void, areaHandle: WasmHandleLike, outPtr: WasmHandleLike): number;
   _ui_reveal_text_range(handle: WasmHandleLike, start: number, end: number): number;
   _ui_clear_current_selection(): void;
   _ui_copy_current_selection(): void;
@@ -323,30 +397,51 @@ export interface UiModule {
   _ui_paste_text(handle: WasmHandleLike): void;
   _ui_select_all_text(handle: WasmHandleLike): void;
   _ui_set_interactive(handle: WasmHandleLike, interactive: number): void;
+  _ui_set_preserve_selection_on_pointer_down(this: void, handle: WasmHandleLike, preserve: number): void;
+  _ui_set_editor_command_keys(this: void, handle: WasmHandleLike, enabled: number): void;
+  _ui_set_editor_accepts_tab(this: void, handle: WasmHandleLike, enabled: number): void;
   _ui_set_scroll_proxy_target(handle: WasmHandleLike, scrollHandle: WasmHandleLike): void;
   _ui_set_scroll_enabled(handle: WasmHandleLike, enabledX: number, enabledY: number): void;
   _ui_set_show_scrollbars(handle: WasmHandleLike, showScrollbars: number): void;
   _ui_set_scroll_friction(handle: WasmHandleLike, friction: number): void;
+  _ui_set_smooth_scrolling(handle: WasmHandleLike, smoothScrolling: number): void;
   _ui_set_scroll_content_size(handle: WasmHandleLike, contentWidth: number, contentHeight: number): void;
   _ui_set_editable(handle: WasmHandleLike, editable: number): void;
   _ui_set_caret_color(handle: WasmHandleLike, color: number): void;
   _ui_set_focusable(handle: WasmHandleLike, focusable: number, tabIndex: number): void;
   _ui_request_focus(handle: WasmHandleLike): void;
-  _ui_commit_frame(): void;
+  _ui_commit_frame(timestampMs?: number): void;
   _ui_get_command_buffer(outLenPtr: WasmHandleLike): WasmHandleLike;
   _ui_get_semantic_buffer(outLenPtr: WasmHandleLike): WasmHandleLike;
+  _ui_get_debug_tree_buffer(outLenPtr: WasmHandleLike): WasmHandleLike;
+  _ui_get_live_fallback_font_buffer(outLenPtr: WasmHandleLike): WasmHandleLike;
   _ui_resize_window(w: number, h: number): void;
-  _ui_set_key_modifiers(modifiers: number): void;
-  _ui_on_pointer_event(event: number, handle: WasmHandleLike, x: number, y: number): void;
+  _ui_on_pointer_event(
+    event: number,
+    handle: WasmHandleLike,
+    x: number,
+    y: number,
+    pointerId: number,
+    pointerType: number,
+    button: number,
+    buttons: number,
+    pressure: number,
+    width: number,
+    height: number,
+    clickCount: number,
+    modifiers: number,
+  ): void;
   _ui_on_wheel_event(deltaX: number, deltaY: number): void;
-  _ui_touch_scroll_begin(handle: WasmHandleLike, x: number, y: number): void;
-  _ui_touch_scroll_update(deltaX: number, deltaY: number): void;
-  _ui_touch_scroll_end(): void;
+  _ui_touch_scroll_begin(handle: WasmHandleLike, x: number, y: number, timestampMs?: number): void;
+  _ui_touch_scroll_update(deltaX: number, deltaY: number, timestampMs?: number): void;
+  _ui_wheel_scroll_can_consume(deltaX: number, deltaY: number): number;
+  _ui_touch_scroll_can_consume(deltaX: number, deltaY: number): number;
+  _ui_touch_scroll_end(timestampMs?: number): void;
   _ui_clear_momentum_scroll(): void;
   _ui_touch_scroll_allows_pull_to_refresh(): number;
   _ui_set_coarse_pointer_mode(coarsePointerMode: number): void;
   _ui_set_platform_family(platformFamily: number): void;
-  _ui_on_key_event(type: number, strPtr: WasmHandleLike, len: number, mods: number): void;
+  _ui_on_key_event(type: number, strPtr: WasmHandleLike, len: number, mods: number): number;
   _ui_on_ime_update(handle: WasmHandleLike, strPtr: WasmHandleLike, len: number, caretIdx: number): void;
   _ui_replace_text_range(
     handle: WasmHandleLike,
@@ -377,6 +472,33 @@ export interface UiModule {
 export interface PointerEventLog {
   readonly handle: string;
   readonly eventType: number;
+  readonly x?: number;
+  readonly y?: number;
+  readonly modifiers?: number;
+  readonly pointerId?: number;
+  readonly pointerType?: number;
+  readonly button?: number;
+  readonly buttons?: number;
+  readonly pressure?: number;
+  readonly width?: number;
+  readonly height?: number;
+  readonly clickCount?: number;
+}
+
+export interface PendingPointerMetadata {
+  readonly eventType: number;
+  readonly handle: WasmHandleLike;
+  readonly x: number;
+  readonly y: number;
+  readonly modifiers: number;
+  readonly pointerId: number;
+  readonly pointerType: number;
+  readonly button: number;
+  readonly buttons: number;
+  readonly pressure: number;
+  readonly width: number;
+  readonly height: number;
+  readonly clickCount: number;
 }
 
 export interface FocusEventLog {
@@ -497,6 +619,10 @@ export interface BridgeRuntime {
   readonly core: CoreModule;
   readonly ui: UiModule;
   readonly canvas: HTMLCanvasElement;
+  readonly buildMode: BuildMode;
+  readonly devToolsDomMirrorMode: DevToolsDomMirrorMode;
+  readonly pageZoomMode: PageZoomMode;
+  readonly devTools: BridgeDevToolsApi;
   readonly openCanvasApi: OpenCanvasApi;
   readonly logs: BridgeLogs;
   updateCanvasSize(): void;
@@ -505,13 +631,43 @@ export interface BridgeRuntime {
   syncCommandBufferToCore(): Uint32Array;
   flushPendingCommit(): Uint32Array | null;
   hasPendingCommit(): boolean;
-  commitFrame(): void;
+  commitFrame(timestampMs?: number): void;
   requestFrame(): void;
   setFrameRequester(requester: (() => void) | null): void;
   getSemanticTree(): readonly SemanticNode[];
+  getDebugTree(): DebugTreeSnapshot;
+  setTextInputMetadata(
+    handle: string,
+    metadata: {
+      readonly kind: OpenCanvasEditableTextKind;
+      readonly hostAutofillHint: string | null;
+    },
+  ): void;
+  getTextInputMetadata(handle: string): {
+    readonly kind: OpenCanvasEditableTextKind;
+    readonly hostAutofillHint: string | null;
+  } | null;
+  clearTextInputMetadata(): void;
   getActiveTextHandle(): bigint | null;
   getCapturedPointerHandle(): bigint | null;
   setCapturedPointerHandle(handle: bigint | null): void;
+  getPageZoom(): { readonly scale: number; readonly offsetX: number; readonly offsetY: number };
+  isPageZoomEnabled(): boolean;
+  setPageZoom(scale: number, offsetX: number, offsetY: number): void;
+  setPageZoomFromSceneAnchor(
+    scale: number,
+    anchorSceneX: number,
+    anchorSceneY: number,
+    screenX: number,
+    screenY: number,
+  ): { readonly scale: number; readonly offsetX: number; readonly offsetY: number };
+  panPageZoomBy(deltaX: number, deltaY: number): { readonly scale: number; readonly offsetX: number; readonly offsetY: number };
+  beginPageZoomPan(timestampMs: number): void;
+  updatePageZoomPan(deltaX: number, deltaY: number, timestampMs: number): { readonly scale: number; readonly offsetX: number; readonly offsetY: number };
+  endPageZoomPan(timestampMs: number): void;
+  clearPageZoomPanMomentum(): void;
+  resetPageZoom(): void;
+  screenToScenePoint(x: number, y: number): { readonly x: number; readonly y: number };
   setAppFrameHandler(handler: ((timestampMs: number) => void) | null): void;
   runAppFrameHandler(timestampMs: number): void;
   uiHasPendingVisualWork(): boolean;
@@ -546,11 +702,29 @@ export interface BridgeRuntime {
   resetAppSession(): void;
 }
 
+export interface BridgeDevToolsApi {
+  enableDomMirror(): boolean;
+  disableDomMirror(): boolean;
+  toggleDomMirror(): boolean;
+  isDomMirrorEnabled(): boolean;
+  selectHandle(handle: WasmHandleLike): boolean;
+  clearSelection(): void;
+  getSelectedHandle(): string | null;
+  openDebugDialog(): boolean;
+  closeDebugDialog(): boolean;
+  toggleDebugDialog(): boolean;
+  isDebugDialogOpen(): boolean;
+}
+
 export interface BridgeState {
   readonly ready: Promise<BridgeRuntime>;
+  readonly devTools: BridgeDevToolsApi;
   getRuntime(): BridgeRuntime | null;
   recreateRuntime(): Promise<BridgeRuntime>;
   resetLogs(): void;
+  getPageZoom(): { readonly scale: number; readonly offsetX: number; readonly offsetY: number };
+  setPageZoom(scale: number, offsetX?: number, offsetY?: number): void;
+  resetPageZoom(): void;
   handleToBigInt(handle: WasmHandleLike): bigint;
   handleToString(handle: WasmHandleLike): string;
   pointerToHeapOffset(pointer: WasmHandleLike): number;
@@ -583,9 +757,59 @@ export interface BridgeLoaderInfo {
 export interface EffinDomCallbacks {
   onPointerEvent?: (handle: WasmHandleLike, eventType: number) => void;
   onPointerEventWithCoords?: (eventType: number, handle: WasmHandleLike, x: number, y: number, modifiers?: number) => void;
+  onPointerEventWithMetadata?: (
+    eventType: number,
+    handle: WasmHandleLike,
+    x: number,
+    y: number,
+    modifiers: number,
+    pointerId: number,
+    pointerType: number,
+    button: number,
+    buttons: number,
+    pressure: number,
+    width: number,
+    height: number,
+    clickCount: number,
+  ) => boolean | undefined;
+  onWheelEventWithCoords?: (
+    handle: WasmHandleLike,
+    x: number,
+    y: number,
+    deltaX: number,
+    deltaY: number,
+    deltaMode: number,
+    modifiers: number,
+  ) => boolean | undefined;
+  resolveGestureOwner?: (handle: WasmHandleLike) => WasmHandleLike | null | undefined;
+  getGestureIntent?: (handle: WasmHandleLike) => number | undefined;
+  onGestureEventWithCoords?: (
+    handle: WasmHandleLike,
+    phase: number,
+    kind: number,
+    x: number,
+    y: number,
+    deltaX: number,
+    deltaY: number,
+    scale: number,
+    pointerCount: number,
+  ) => boolean | undefined;
+  resolveLongPressOwner?: (handle: WasmHandleLike) => WasmHandleLike | null | undefined;
+  getLongPressMinimumDurationMs?: (handle: WasmHandleLike) => number | undefined;
+  getLongPressMovementTolerance?: (handle: WasmHandleLike) => number | undefined;
+  onLongPressEventWithCoords?: (
+    handle: WasmHandleLike,
+    x: number,
+    y: number,
+    pointerId: number,
+    pointerType: number,
+    modifiers: number,
+    durationMs: number,
+  ) => boolean | undefined;
   onBeforeContextMenuHitTest?: () => void;
   onContextMenu?: (handle: WasmHandleLike, x: number, y: number) => void;
-  onKeyEventWithKey?: (eventType: number, key: string, modifiers: number) => boolean | void;
+  canShowContextMenu?: (handle: WasmHandleLike) => boolean | undefined;
+  onKeyEventWithKey?: (eventType: number, key: string, modifiers: number) => boolean | undefined;
   onFocusChanged?: (handle: WasmHandleLike, isFocused: boolean) => void;
   onTextChanged?: (handle: WasmHandleLike, text: string) => void;
   onTextReplaced?: (handle: WasmHandleLike, start: number, end: number, text: string) => void;
@@ -605,6 +829,7 @@ export interface EffinDomCallbacks {
   onRequestFontLoad?: (fontId: number, url: string) => void;
   onMissingFontCoverage?: (fontId: number, coverageKind: number, sampleText: string) => void;
   onRequestSemanticAnnouncement?: (handle: WasmHandleLike) => void;
+  onFontLoaded?: (fontId: number) => void;
 }
 
 export type UiFactory = (module?: object) => Promise<UiModule>;
@@ -634,6 +859,8 @@ declare global {
     __bridgeFindState?: OpenCanvasFindState | null;
     __bridgeSemanticTree?: readonly SemanticNode[];
     __bridgeLoaderInfo?: BridgeLoaderInfo;
+    __effindomPendingPointerMetadata?: PendingPointerMetadata;
+    __effindomLastPointerEventHandled?: boolean;
     __OPEN_CANVAS_API__?: OpenCanvasApi;
     EffinDomBrowserBridge?: BridgeState;
     __bridgeDebug?: { forceDeviceLost(): void };

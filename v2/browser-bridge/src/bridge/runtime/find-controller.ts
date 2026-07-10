@@ -1,7 +1,7 @@
-import { FindOnPageProjector, type ResolvedFindSelection } from '../../find-on-page';
-import type { OpenCanvasFindMatch, OpenCanvasFindState, OpenCanvasTextDocument, UiModule } from '../../core-types';
-import { DEFAULT_OPEN_CANVAS_FIND_OPTIONS, normalizeOpenCanvasFindOptions } from '../find-session';
-import { TextDocumentController } from './text-documents';
+import type { OpenCanvasFindMatch,OpenCanvasFindState,OpenCanvasTextDocument,UiModule } from '../../core-types';
+import { FindOnPageProjector,type ResolvedFindSelection } from '../../find-on-page';
+import { DEFAULT_OPEN_CANVAS_FIND_OPTIONS,normalizeOpenCanvasFindOptions } from '../find-session';
+import type { TextDocumentController } from './text-documents';
 
 const OPEN_CANVAS_FIND_BACKGROUND_COLOR = 0xFFEB3B38;
 
@@ -19,6 +19,7 @@ export class FindController {
   private activeFindState: OpenCanvasFindState | null = null;
   private selectionPollTimer: ReturnType<typeof setInterval> | null = null;
   private selectionClearTimer: number | null = null;
+  private readonly findDialogObserver: MutationObserver | null = null;
 
   public constructor(private readonly options: FindControllerOptions) {
     const runtimeCanvasId = `ed-canvas-${Math.random().toString(36).slice(2, 10)}`;
@@ -30,20 +31,29 @@ export class FindController {
       this.handleSelectionChange();
     };
     document.addEventListener('selectionchange', handleDocumentSelectionChange);
-    this.selectionPollTimer = setInterval(() => {
-      if (document.hidden) {
-        return;
-      }
-      this.handleSelectionChange();
-    }, 100);
+    const handleVisibilityChange = () => {
+      this.syncSelectionPolling();
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    this.findDialogObserver = typeof MutationObserver === 'undefined'
+      ? null
+      : new MutationObserver(() => {
+          this.syncSelectionPolling();
+        });
+    this.findDialogObserver?.observe(document.documentElement, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      attributeFilter: ['data-ed-open'],
+    });
+    this.syncSelectionPolling();
 
     this.destroy = (() => {
-      if (this.selectionPollTimer !== null) {
-        clearInterval(this.selectionPollTimer);
-        this.selectionPollTimer = null;
-      }
+      this.stopSelectionPolling();
       this.cancelPendingFindClear();
       document.removeEventListener('selectionchange', handleDocumentSelectionChange);
+      document.removeEventListener('visibilitychange', handleVisibilityChange);
+      this.findDialogObserver?.disconnect();
       this.storeFindState(null);
       this.storeFindMatch(null);
       this.findProjector.destroy();
@@ -52,6 +62,10 @@ export class FindController {
 
   public syncSize(logicalWidth: number, logicalHeight: number): void {
     this.findProjector.syncSize(logicalWidth, logicalHeight);
+  }
+
+  public syncViewportTransform(scale: number, offsetX: number, offsetY: number): void {
+    this.findProjector.syncViewportTransform(scale, offsetX, offsetY);
   }
 
   public syncDocuments(): void {
@@ -90,10 +104,37 @@ export class FindController {
     return this.applyRetainedFindMatch(null, false);
   }
 
-  public destroy(): void {}
+  public destroy(): void {
+    this.cancelPendingFindClear();
+  }
 
   private isBridgeFindDialogOpen(): boolean {
     return document.querySelector('[data-ed-find-dialog="1"][data-ed-open="1"]') !== null;
+  }
+
+  private stopSelectionPolling(): void {
+    if (this.selectionPollTimer === null) {
+      return;
+    }
+    clearInterval(this.selectionPollTimer);
+    this.selectionPollTimer = null;
+  }
+
+  private syncSelectionPolling(): void {
+    if (document.hidden || !this.isBridgeFindDialogOpen()) {
+      this.stopSelectionPolling();
+      return;
+    }
+    if (this.selectionPollTimer !== null) {
+      return;
+    }
+    this.selectionPollTimer = setInterval(() => {
+      if (document.hidden || !this.isBridgeFindDialogOpen()) {
+        this.stopSelectionPolling();
+        return;
+      }
+      this.handleSelectionChange();
+    }, 100);
   }
 
   private cancelPendingFindClear(): void {
@@ -159,7 +200,7 @@ export class FindController {
       return false;
     }
 
-    const normalizedMatches: Array<{ readonly handleArg: number | bigint; readonly match: ResolvedFindSelection }> = [];
+    const normalizedMatches: { readonly handleArg: number | bigint; readonly match: ResolvedFindSelection }[] = [];
     for (const match of state.matches) {
       const range = this.options.textDocuments.resolveTextRange(match.handle, match.start, match.end);
       if (range === null) {

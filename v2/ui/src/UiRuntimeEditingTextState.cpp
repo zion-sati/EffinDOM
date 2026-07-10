@@ -54,6 +54,10 @@ bool ComputeIncrementalTextReplace(
 }
 #endif
 
+bool ContainsTab(std::string_view text) {
+    return text.find('\t') != std::string_view::npos;
+}
+
 bool IsLineBreakByte(char ch) {
     return ch == '\n' || ch == '\r';
 }
@@ -160,7 +164,7 @@ void ClampSelectionToText(UINode& node) {
 }
 
 bool ShouldClampTextboxText(const UINode& node) {
-    return node.is_text_node && node.semantic_role == UI_SEMANTIC_TEXTBOX;
+    return node.is_text_node && IsEditorTextNode(node);
 }
 
 void CollectTextboxHardLineClampRanges(std::string_view text, std::vector<TextClampRange>& out_ranges) {
@@ -210,11 +214,19 @@ std::uint32_t MapClampedTextIndex(std::uint32_t index, const std::vector<TextCla
 
 } // namespace
 
-void UiRuntime::NotifyTextStateChangedImpl(std::uint64_t handle, UINode& node, const std::string* previous_text) {
+void UiRuntime::NotifyTextStateChangedImpl(
+    std::uint64_t handle,
+    UINode& node,
+    const std::string* previous_text,
+    const ExactTextReplaceNotification* exact_replace) {
+    (void)exact_replace;
     node.text_line_starts_dirty = true;
+    const bool tab_sensitive_edit =
+        previous_text != nullptr &&
+        (ContainsTab(*previous_text) || ContainsTab(node.text_content));
     if (previous_text == nullptr) {
         RebuildTextLineStarts(node);
-    } else if (!TryApplyIncrementalTextLineStarts(node, *previous_text)) {
+    } else if (tab_sensitive_edit || !TryApplyIncrementalTextLineStarts(node, *previous_text)) {
         RebuildTextLineStarts(node);
     }
     ClampSelectionToText(node);
@@ -224,8 +236,15 @@ void UiRuntime::NotifyTextStateChangedImpl(std::uint64_t handle, UINode& node, c
     // Try to preserve whichever retained layout tier is still valid for this edit.
     // If both incremental paths reject it, only then do we drop back to full
     // paragraph invalidation and let layout rebuild from the logical text model.
+    const bool wrapped_hard_line_edit =
+        previous_text != nullptr &&
+        node.text_wrap &&
+        (previous_text->find_first_of("\r\n") != std::string::npos ||
+         node.text_content.find_first_of("\r\n") != std::string::npos);
     const bool kept_incremental_layout_cache =
         previous_text != nullptr &&
+        !tab_sensitive_edit &&
+        !wrapped_hard_line_edit &&
         (TryApplyIncrementalNonWrapLayoutCache(node, *previous_text) ||
          TryApplyIncrementalWrappedLayoutCache(node, *previous_text));
     if (!kept_incremental_layout_cache) {
@@ -239,18 +258,31 @@ void UiRuntime::NotifyTextStateChangedImpl(std::uint64_t handle, UINode& node, c
     node.text_selection_visuals_dirty = false;
     layout_dirty_ = true;
     const bool first_dirty_text_update_this_frame = pending_text_scroll_metric_handles_.insert(handle).second;
+    const bool should_ensure_caret_visible = focused_handle_ == handle;
     if (first_dirty_text_update_this_frame) {
         UpdateAncestorScrollMetrics(handle);
-        EnsureTextCaretVisible(handle, node);
+        if (should_ensure_caret_visible) {
+            EnsureTextCaretVisible(handle, node);
+        }
     }
-    pending_caret_visibility_handle_ = handle;
+    pending_caret_visibility_handle_ = should_ensure_caret_visible ? handle : UI_INVALID_HANDLE;
 
     const auto* text_ptr = node.text_content.empty()
         ? nullptr
         : reinterpret_cast<const std::uint8_t*>(node.text_content.data());
 #ifdef __EMSCRIPTEN__
     bool emitted_incremental_replace = false;
-    if (previous_text != nullptr) {
+    if (exact_replace != nullptr) {
+        const std::uint32_t text_length = static_cast<std::uint32_t>(node.text_content.size());
+        const std::uint32_t inserted_start = std::min(exact_replace->inserted_start, text_length);
+        const std::uint32_t inserted_length =
+            std::min(exact_replace->inserted_length, text_length - inserted_start);
+        const auto* inserted_ptr = inserted_length == 0U
+            ? nullptr
+            : reinterpret_cast<const std::uint8_t*>(node.text_content.data() + inserted_start);
+        as_on_text_replaced(handle, exact_replace->start, exact_replace->old_end, inserted_ptr, inserted_length);
+        emitted_incremental_replace = true;
+    } else if (previous_text != nullptr) {
         IncrementalTextReplace replace{};
         if (ComputeIncrementalTextReplace(*previous_text, node.text_content, replace)) {
             const std::uint32_t inserted_length = replace.new_end - replace.start;

@@ -194,7 +194,7 @@ to the web, not built for it.
 
 | Repo | Purpose |
 |---|---|
-| **[EffinDOM](https://github.com/zion-sati/EffinDOM)** | Monorepo — runtime, browser bridge, core engine, docs |
+| **[EffinDOM](https://github.com/zion-sati/EffinDOM)** | Runtime, browser bridge, core engine, docs |
 | **[fui-as](https://github.com/zion-sati/fui-as)** | AssemblyScript SDK + controls + app surface |
 | **[fui-rs](https://github.com/zion-sati/fui-rs)** | Rust SDK — on the roadmap, smoke test renders |
 | **[fui-kt](https://github.com/zion-sati/fui-kt)** | Kotlin/Wasm SDK — on the roadmap, smoke test renders |

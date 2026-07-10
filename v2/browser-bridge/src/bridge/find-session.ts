@@ -1,9 +1,9 @@
 import type {
-  OpenCanvasFindMatch,
-  OpenCanvasFindOptions,
-  OpenCanvasFindResults,
-  OpenCanvasResolvedFindOptions,
-  OpenCanvasTextDocument,
+OpenCanvasFindMatch,
+OpenCanvasFindOptions,
+OpenCanvasFindResults,
+OpenCanvasResolvedFindOptions,
+OpenCanvasTextDocument,
 } from '../core-types';
 
 const combiningMarkPattern = /\p{Mark}+/gu;
@@ -92,9 +92,7 @@ function buildSearchText(
       : segment.normalize('NFD').replace(combiningMarkPattern, '');
     searchable = options.matchCase ? searchable : searchable.toLocaleLowerCase();
     output += searchable;
-    for (let index = 0; index < searchable.length; index += 1) {
-      tokens.push({ start, end });
-    }
+    tokens.push(...Array.from(searchable, () => ({ start, end })));
   }
   return { text: output, tokens };
 }

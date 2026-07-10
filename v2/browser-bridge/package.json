@@ -1,6 +1,6 @@
 {
   "name": "@effindomv2/runtime",
-  "version": "0.1.18",
+  "version": "0.1.20",
   "private": false,
   "license": "MIT",
   "description": "EffinDom browser runtime bridge, manifest assets, and runtime URL helpers",
@@ -20,6 +20,18 @@
     "./harness": {
       "types": "./src/harness.ts",
       "default": "./src/harness.ts"
+    },
+    "./managed-harness": {
+      "types": "./src/managed-harness.ts",
+      "default": "./src/managed-harness.ts"
+    },
+    "./routed-app-conventions": {
+      "types": "./src/routed-app-conventions.ts",
+      "default": "./src/routed-app-conventions.ts"
+    },
+    "./routed-harness": {
+      "types": "./src/routed-harness.ts",
+      "default": "./src/routed-harness.ts"
     },
     "./core-types": {
       "types": "./src/core-types.ts",
@@ -49,9 +61,14 @@
     "build:package": "bash scripts/build.sh && bash scripts/stage_package_assets.sh",
     "build:package:assets": "bash scripts/build_assets.sh && bash scripts/stage_package_assets.sh",
     "build:package:stage": "bash scripts/stage_package_assets.sh",
+    "lint": "cd ../.. && npm run lint:v2",
     "prepack": "npm run build:package",
+    "prepublishOnly": "npm run lint && npm run typecheck",
     "test": "playwright test -c playwright.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
+  },
+  "dependencies": {
+    "@assemblyscript/loader": "^0.28.19"
   },
   "devDependencies": {
     "@playwright/test": "1.59.1",

@@ -1,13 +1,18 @@
-import { expect, test, type Page } from '@playwright/test';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import { expect,test,type Page } from '@playwright/test';
 
 import {
-  buildReadonlyTextScene,
-  buildEditableTextScene,
-  gotoBridgePage,
-  parseGlyphRuns,
-  setupServer,
-  teardownServer,
+buildEditableTextScene,
+buildReadonlyTextScene,
+gotoBridgePage,
+parseGlyphRuns,
+setupServer,
+teardownServer,
 } from './test-utils';
+
+const WOFF_CJK_FIXTURE = fs.readFileSync(path.join(__dirname, 'fixtures', 'noto-sans-sc-cjk-subset.woff'));
 
 test.beforeAll(async () => {
   await setupServer();
@@ -67,6 +72,12 @@ async function readIncrementalState(page: Page) {
       commandBuffer: Array.from(runtime.extractCommandBuffer()),
     };
   });
+}
+
+function expectGlyphRunsUseFallbackFont(glyphRuns: ReturnType<typeof parseGlyphRuns>, primaryFontId = 1): void {
+  const glyphFontIds = glyphRuns.flatMap((run) => run.glyphFontIds);
+  expect(glyphFontIds.length).toBeGreaterThan(0);
+  expect(glyphFontIds.some((fontId) => fontId !== primaryFontId)).toBe(true);
 }
 
 test('missing Thai coverage dedupes one Google shard request and swaps both nodes', async ({ page }) => {
@@ -152,7 +163,7 @@ test('missing Thai coverage dedupes one Google shard request and swaps both node
   ]));
   expect(glyphRuns).toHaveLength(2);
   for (const run of glyphRuns) {
-    expect(run?.glyphCount).toBeGreaterThan(0);
+    expect(run.glyphCount).toBeGreaterThan(0);
   }
 });
 
@@ -190,6 +201,63 @@ test('Chinese text swaps through a Google-hosted CJK shard with CJK punctuation'
   ]));
   expect(glyphRuns).toHaveLength(1);
   expect(glyphRuns[0]?.glyphCount).toBeGreaterThan(0);
+  expectGlyphRunsUseFallbackFont(glyphRuns);
+});
+
+test('Google-hosted WOFF CJK shards are normalized before UI registration', async ({ page }) => {
+  await page.route('https://fonts.googleapis.com/css2?**', async (route) => {
+    const requestUrl = new URL(route.request().url());
+    if (
+      requestUrl.searchParams.get('family') !== 'Noto Sans SC:wght@400'
+      || requestUrl.searchParams.get('text') !== '我想睡觉'
+    ) {
+      await route.continue();
+      return;
+    }
+    await route.fulfill({
+      status: 200,
+      contentType: 'text/css; charset=utf-8',
+      body: `@font-face {
+  font-family: 'Noto Sans SC';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url(https://fonts.gstatic.com/effindom-test/noto-sans-sc-cjk-subset.woff) format('woff');
+  unicode-range: U+60f3, U+6211, U+7761, U+89c9;
+}`,
+    });
+  });
+  await page.route('https://fonts.gstatic.com/effindom-test/noto-sans-sc-cjk-subset.woff', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'font/woff',
+      body: WOFF_CJK_FIXTURE,
+    });
+  });
+  await gotoBridgePage(page);
+
+  const scene = await buildEditableTextScene(page, '');
+  await writeEditableText(page, scene.textHandle, '我想睡觉');
+  await expect.poll(async () => (await readIncrementalState(page)).fontState).toMatchObject({
+    requestedSegmentIds: expect.arrayContaining([expect.stringMatching(/^cjk-sc:/)]),
+    appliedSegmentIds: expect.arrayContaining([expect.stringMatching(/^cjk-sc:/)]),
+    revision: 1,
+  });
+
+  const result = await readIncrementalState(page);
+  const glyphRuns = parseGlyphRuns(result.commandBuffer);
+  expect(result.bridgeError).toBeNull();
+  expect(result.logs?.incrementalFontPackageRequests).toEqual(expect.arrayContaining([
+    expect.objectContaining({
+      primaryFontId: 1,
+      coverageKind: 3,
+      packageId: 'cjk-sans',
+      sampleText: expect.stringContaining('我'),
+    }),
+  ]));
+  expect(glyphRuns).toHaveLength(1);
+  expect(glyphRuns[0]?.glyphCount).toBeGreaterThan(0);
+  expectGlyphRunsUseFallbackFont(glyphRuns);
 });
 
 for (const testCase of [
@@ -316,6 +384,7 @@ test('tofu swap preserves editable text and readonly select/find flows after sha
     text: window.__bridgeTextByHandle?.[handle] ?? null,
   }), { handle: editableScene.textHandle });
   expect(editableResult.text).toBe('你好，你好吗？');
+  expectGlyphRunsUseFallbackFont(parseGlyphRuns((await readIncrementalState(page)).commandBuffer));
 
   const readonlyScene = await buildReadonlyTextScene(page, '你好，你好吗？');
   const readonlyResult = await page.evaluate(({ handle }) => {

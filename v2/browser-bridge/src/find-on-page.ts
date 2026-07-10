@@ -1,5 +1,21 @@
 const textEncoder = new TextEncoder();
 
+function syncOrderedChildren(parent: HTMLElement, orderedChildren: readonly HTMLElement[]): void {
+  let changed = parent.childElementCount !== orderedChildren.length;
+  if (!changed) {
+    for (let index = 0; index < orderedChildren.length; index += 1) {
+      if (parent.children.item(index) !== orderedChildren[index]) {
+        changed = true;
+        break;
+      }
+    }
+  }
+  if (!changed) {
+    return;
+  }
+  parent.replaceChildren(...orderedChildren);
+}
+
 export interface FindOnPageDocument {
   readonly handle: string;
   readonly text: string;
@@ -29,7 +45,6 @@ function utf8ByteOffsetFromCodeUnitIndex(text: string, codeUnitIndex: number): n
 
 function codeUnitIndexFromUtf8ByteOffset(text: string, byteOffset: number): number {
   const target = Math.max(0, Math.min(byteOffset, utf8ByteLength(text)));
-  let currentByteOffset = 0;
   let currentIndex = 0;
   while (currentIndex < text.length) {
     const codePoint = text.codePointAt(currentIndex) ?? 0;
@@ -39,8 +54,7 @@ function codeUnitIndexFromUtf8ByteOffset(text: string, byteOffset: number): numb
       break;
     }
     currentIndex = nextIndex;
-    currentByteOffset = nextByteOffset;
-    if (currentByteOffset === target) {
+    if (nextByteOffset === target) {
       break;
     }
   }
@@ -120,6 +134,7 @@ export class FindOnPageProjector {
     content.style.whiteSpace = 'pre-wrap';
     content.style.color = 'transparent';
     content.style.background = 'transparent';
+    content.style.transformOrigin = '0 0';
     layer.appendChild(content);
     parent.appendChild(layer);
 
@@ -133,6 +148,12 @@ export class FindOnPageProjector {
     const height = `${String(logicalHeight)}px`;
     this.layer.style.width = width;
     this.layer.style.height = height;
+  }
+
+  public syncViewportTransform(scale: number, offsetX: number, offsetY: number): void {
+    this.content.style.transform = scale === 1.0 && offsetX === 0.0 && offsetY === 0.0
+      ? ''
+      : `translate(${String(offsetX)}px, ${String(offsetY)}px) scale(${String(scale)})`;
   }
 
   public update(documents: readonly FindOnPageDocument[]): void {
@@ -151,7 +172,7 @@ export class FindOnPageProjector {
       orderedElements.push(element);
     }
 
-    this.content.replaceChildren(...orderedElements);
+    syncOrderedChildren(this.content, orderedElements);
     for (const [handle] of this.elementsByHandle.entries()) {
       if (seenHandles.has(handle)) {
         continue;
@@ -173,17 +194,20 @@ export class FindOnPageProjector {
     const range = selection.getRangeAt(0);
     const startElement = closestElement(range.startContainer);
     const endElement = closestElement(range.endContainer);
+    if (startElement === null || endElement === null) {
+      return null;
+    }
     if (
-      startElement?.closest('[data-effindom-hidden-editor="true"]') !== null ||
-      endElement?.closest('[data-effindom-hidden-editor="true"]') !== null
+      startElement.closest('[data-effindom-hidden-editor="true"]') !== null ||
+      endElement.closest('[data-effindom-hidden-editor="true"]') !== null
     ) {
       return null;
     }
 
-    const startRoot = startElement?.closest('[data-ed-find-root="1"]');
-    const endRoot = endElement?.closest('[data-ed-find-root="1"]');
-    const startFragment = startElement?.closest('[data-ed-find-fragment="1"]');
-    const endFragment = endElement?.closest('[data-ed-find-fragment="1"]');
+    const startRoot = startElement.closest('[data-ed-find-root="1"]');
+    const endRoot = endElement.closest('[data-ed-find-root="1"]');
+    const startFragment = startElement.closest('[data-ed-find-fragment="1"]');
+    const endFragment = endElement.closest('[data-ed-find-fragment="1"]');
     if (
       !(startRoot instanceof HTMLElement) ||
       !(endRoot instanceof HTMLElement) ||
@@ -210,7 +234,7 @@ export class FindOnPageProjector {
       return null;
     }
 
-    const text = startFragment.textContent ?? '';
+    const text = startFragment.textContent;
     const localStart = readBoundaryCodeUnitOffset(startFragment, range.startContainer, range.startOffset);
     const localEnd = readBoundaryCodeUnitOffset(startFragment, range.endContainer, range.endOffset);
     if (localStart === null || localEnd === null) {
@@ -257,7 +281,7 @@ export class FindOnPageProjector {
       return false;
     }
 
-    const text = fragment.textContent ?? '';
+    const text = fragment.textContent;
     const localStart = match.start - fragmentStart;
     const localEnd = match.end - fragmentStart;
     const startIndex = codeUnitIndexFromUtf8ByteOffset(text, localStart);

@@ -91,6 +91,7 @@ else()
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_input.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_runtime_api.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_scroll.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_debug_tree.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_misc.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_cross_selection.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_editing.cpp"

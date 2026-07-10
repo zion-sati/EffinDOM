@@ -152,11 +152,11 @@ TEST_CASE("v2 ui scroll views preserve intrinsic auto-width rows with auto-width
     ui_set_width(scroll, 240.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(scroll, 180.0f, UI_SIZE_UNIT_PIXEL);
 
-    ui_set_flex_direction(row, 1U);
+    ui_set_flex_direction(row, UI_FLEX_DIRECTION_ROW);
     ui_set_width(row, 0.0f, UI_SIZE_UNIT_AUTO);
-    ui_set_flex_direction(left_column, 0U);
+    ui_set_flex_direction(left_column, UI_FLEX_DIRECTION_COLUMN);
     ui_set_width(left_column, 0.0f, UI_SIZE_UNIT_AUTO);
-    ui_set_flex_direction(right_column, 0U);
+    ui_set_flex_direction(right_column, UI_FLEX_DIRECTION_COLUMN);
     ui_set_width(right_column, 0.0f, UI_SIZE_UNIT_AUTO);
     ui_set_width(spacer, 96.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(spacer, 1.0f, UI_SIZE_UNIT_PIXEL);
@@ -214,7 +214,7 @@ TEST_CASE("v2 ui scroll auto-width columns stretch to fill scroll viewport", "[v
     ui_set_height(scroll, 300.0f, UI_SIZE_UNIT_PIXEL);
 
     // Panel: vertical Column, width auto — should stretch to fill scroll viewport
-    ui_set_flex_direction(panel, 0U);
+    ui_set_flex_direction(panel, UI_FLEX_DIRECTION_COLUMN);
     ui_set_width(panel, 0.0f, UI_SIZE_UNIT_AUTO);
 
     // Child: fillWidth — should fill the panel's stretched width
@@ -303,6 +303,7 @@ TEST_CASE("v2 ui scroll views respect configured scroll axes and friction", "[v2
     ui_set_height(scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(content, 420.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(content, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_smooth_scrolling(scroll, false);
     ui_node_add_child(root, scroll);
     ui_node_add_child(scroll, content);
     ui_commit_frame();
@@ -334,7 +335,7 @@ TEST_CASE("v2 ui scroll views respect configured scroll axes and friction", "[v2
     ui_commit_frame();
 
     REQUIRE(runtime.Resolve(scroll) != nullptr);
-    CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(10.0f));
+    CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(600.0f));
 }
 
 
@@ -357,10 +358,10 @@ TEST_CASE("v2 ui pull-to-refresh reports true for non-scroll starts and top-of-s
     ui_set_root(root);
     ui_set_width(root, 180.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 220.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 1U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_ROW);
     ui_set_width(sidebar, 180.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(sidebar, 220.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(sidebar, 1U);
+    ui_set_flex_direction(sidebar, UI_FLEX_DIRECTION_ROW);
     ui_set_width(header, 180.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(header, 48.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(scroll, 180.0f, UI_SIZE_UNIT_PIXEL);
@@ -410,7 +411,7 @@ TEST_CASE("v2 ui scroll content size excludes collapsed children and clamps offs
     ui_set_height(root, 200.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(scroll, 200.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(scroll, 0U);
+    ui_set_flex_direction(scroll, UI_FLEX_DIRECTION_COLUMN);
 
     // Three children: 100px, 150px, 100px each → total 350px content
     ui_set_width(child_a, 120.0f, UI_SIZE_UNIT_PIXEL);
@@ -492,7 +493,7 @@ TEST_CASE("v2 ui scroll content size updates on child width and height changes",
     ui_set_height(root, 200.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(scroll, 200.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(scroll, 200.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(scroll, 0U);
+    ui_set_flex_direction(scroll, UI_FLEX_DIRECTION_COLUMN);
 
     // Single child starts at viewport size — no scrolling needed
     ui_set_width(content, 200.0f, UI_SIZE_UNIT_PIXEL);
@@ -557,4 +558,3 @@ TEST_CASE("v2 ui scroll content size updates on child width and height changes",
     CHECK(test_ui_support::g_scroll_changes.back().content_width == Approx(150.0f));
     CHECK(test_ui_support::g_scroll_changes.back().content_height == Approx(150.0f));
 }
-

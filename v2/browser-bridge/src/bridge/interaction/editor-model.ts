@@ -1,9 +1,10 @@
 import type { TextChangeLog } from '../../core-types';
+import type { EditorDomTarget } from '../local-types';
 import {
-  advanceCodeUnitIndex,
-  codeUnitIndexToUtf8ByteOffset,
-  utf8ByteLengthForCodePoint,
-  utf8ByteLength,
+advanceCodeUnitIndex,
+codeUnitIndexToUtf8ByteOffset,
+utf8ByteLength,
+utf8ByteLengthForCodePoint,
 } from './text-encoding';
 
 export type HiddenTextEditor = HTMLInputElement | HTMLTextAreaElement;
@@ -64,6 +65,27 @@ const HIDDEN_EDITOR_WINDOW_MIN_LENGTH = 4096;
 const HIDDEN_EDITOR_WINDOW_REUSE_MARGIN = 512;
 const TEXT_CHANGE_LOG_PREVIEW_LIMIT = 256;
 const TEXTBOX_HARD_CLAMP_MAX_CODEPOINTS = 10000;
+const HIDDEN_EDITOR_STYLE_ID = 'effindom-hidden-editor-style';
+
+function ensureHiddenEditorStyle(): void {
+  if (document.getElementById(HIDDEN_EDITOR_STYLE_ID) !== null) {
+    return;
+  }
+  const style = document.createElement('style');
+  style.id = HIDDEN_EDITOR_STYLE_ID;
+  style.textContent = `
+[data-effindom-hidden-editor="true"] {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+}
+[data-effindom-hidden-editor="true"]::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+  display: none;
+}
+`;
+  document.head.appendChild(style);
+}
 
 function isLineBreakCodeUnit(text: string, index: number): boolean {
   if (index < 0 || index >= text.length) {
@@ -334,7 +356,11 @@ export function buildHiddenEditorWindow(
 }
 
 export function createHiddenTextEditor(multiline: boolean): HiddenTextEditor {
+  ensureHiddenEditorStyle();
   const editor = multiline ? document.createElement('textarea') : document.createElement('input');
+  const isSemanticLightDomField = (): boolean =>
+    editor.dataset.effindomSemanticLightDomField === 'true';
+  let hostAutofillWakeupRevision = 0;
   if (editor instanceof HTMLInputElement) {
     editor.type = 'text';
   } else {
@@ -359,46 +385,106 @@ export function createHiddenTextEditor(multiline: boolean): HiddenTextEditor {
   editor.style.pointerEvents = 'none';
   editor.style.font = '16px "Noto Sans Symbols 2", "Apple Color Emoji", "Segoe UI Emoji", "Noto Color Emoji", monospace';
   editor.style.overflow = 'hidden';
+  editor.style.scrollbarWidth = 'none';
+
+  const scheduleHostAutofillWakeup = (): void => {
+    const autocomplete = editor.getAttribute('autocomplete');
+    if (autocomplete === null || autocomplete === '' || autocomplete === 'off') {
+      return;
+    }
+    const wakeupRevision = ++hostAutofillWakeupRevision;
+    const name = editor.getAttribute('name');
+    const id = editor.getAttribute('id');
+    window.setTimeout(() => {
+      if (document.activeElement !== editor || wakeupRevision !== hostAutofillWakeupRevision) {
+        return;
+      }
+      editor.removeAttribute('autocomplete');
+      editor.removeAttribute('name');
+      editor.removeAttribute('id');
+      window.setTimeout(() => {
+        if (document.activeElement !== editor || wakeupRevision !== hostAutofillWakeupRevision) {
+          return;
+        }
+        editor.setAttribute('autocomplete', autocomplete);
+        if (name !== null) {
+          editor.setAttribute('name', name);
+        }
+        if (id !== null) {
+          editor.setAttribute('id', id);
+        }
+        editor.dataset.effindomAutofillWakeup = 'true';
+        editor.dispatchEvent(new Event('input', { bubbles: true }));
+      }, 0);
+    }, 0);
+  };
+
+  const rearmHostAutofillDomPresence = (): void => {
+    const autocomplete = editor.getAttribute('autocomplete');
+    if (autocomplete === null || autocomplete === '' || autocomplete === 'off') {
+      return;
+    }
+    const parent = editor.parentNode;
+    if (parent === null) {
+      return;
+    }
+    const nextSibling = editor.nextSibling;
+    parent.removeChild(editor);
+    if (nextSibling === null) {
+      parent.appendChild(editor);
+      return;
+    }
+    parent.insertBefore(editor, nextSibling);
+  };
 
   // Ensure assistive tech can see focus: clear aria-hidden before focusing,
   // perform the native focus synchronously (so callers relying on immediate focus
   // observe document.activeElement), and re-hide on blur in a macrotask.
-  const nativeFocus = editor.focus.bind(editor);
-  (editor as any).focus = (...args: any[]) => {
+  const nativeFocus: typeof editor.focus = editor.focus.bind(editor);
+  editor.focus = (options?: FocusOptions): void => {
+    rearmHostAutofillDomPresence();
     try {
-      if (editor.getAttribute('aria-hidden') === 'true') {
+      if (!isSemanticLightDomField() && editor.getAttribute('aria-hidden') === 'true') {
         editor.setAttribute('aria-hidden', 'false');
+      } else if (isSemanticLightDomField()) {
+        editor.removeAttribute('aria-hidden');
       }
-    } catch (e) {
+    } catch {
       // Defensive: ignore if attribute manipulation fails for any reason.
     }
     try {
-      nativeFocus(...args);
-    } catch (err) {
+      nativeFocus(options);
+    } catch {
       // swallow errors from native focus
     }
+    scheduleHostAutofillWakeup();
     // If the browser doesn't immediately make the editor the activeElement
     // (some platforms may delay programmatic focus), retry once on the next
     // macrotask so callers waiting with setTimeout(0) will observe the focus.
     if (document.activeElement !== editor) {
       window.setTimeout(() => {
         try {
-          nativeFocus(...args);
-        } catch (e) {
+          nativeFocus(options);
+        } catch {
           // ignore
         }
+        scheduleHostAutofillWakeup();
       }, 0);
     }
   };
 
   editor.addEventListener('blur', () => {
+    hostAutofillWakeupRevision += 1;
+    if (isSemanticLightDomField()) {
+      return;
+    }
     // Re-hide in a macrotask so assistive tech has seen the focused state first.
     window.setTimeout(() => {
       try {
         if (document.activeElement !== editor) {
           editor.setAttribute('aria-hidden', 'true');
         }
-      } catch (e) {
+      } catch {
         // ignore
       }
     }, 1);
@@ -406,6 +492,69 @@ export function createHiddenTextEditor(multiline: boolean): HiddenTextEditor {
 
   document.body.appendChild(editor);
   return editor;
+}
+
+export function createSingleHiddenEditorTarget(): EditorDomTarget {
+  const singleLineEditor = createHiddenTextEditor(false) as HTMLInputElement;
+  const multiLineEditor = createHiddenTextEditor(true) as HTMLTextAreaElement;
+  const semanticEditorsByHandle = new Map<string, HiddenTextEditor>();
+  const attachedEditors = new WeakSet<HiddenTextEditor>();
+  let attachListener: ((editor: HiddenTextEditor) => void) | null = null;
+  const attachIfNeeded = (editor: HiddenTextEditor): void => {
+    if (attachListener === null || attachedEditors.has(editor)) {
+      return;
+    }
+    attachListener(editor);
+    attachedEditors.add(editor);
+  };
+  const resolveEditor = (handle: string | null, multiline: boolean): HiddenTextEditor => {
+    if (handle !== null) {
+      const semanticEditor = semanticEditorsByHandle.get(handle);
+      if (semanticEditor !== undefined) {
+        return semanticEditor;
+      }
+    }
+    return multiline ? multiLineEditor : singleLineEditor;
+  };
+  return {
+    singleLineEditor,
+    multiLineEditor,
+    getEditor: (handle: string | null, multiline: boolean): HiddenTextEditor => resolveEditor(handle, multiline),
+    hasSemanticTextEditor: (handle: string | null): boolean => handle !== null && semanticEditorsByHandle.has(handle),
+    focus: (handle: string | null, multiline: boolean, options?: FocusOptions): void => {
+      resolveEditor(handle, multiline).focus(options);
+    },
+    detach: (): void => {
+      singleLineEditor.blur();
+      multiLineEditor.blur();
+      for (const editor of semanticEditorsByHandle.values()) {
+        editor.blur();
+      }
+    },
+    clearAll: (): void => {
+      clearHiddenTextEditor(singleLineEditor);
+      clearHiddenTextEditor(multiLineEditor);
+      for (const editor of semanticEditorsByHandle.values()) {
+        clearHiddenTextEditor(editor);
+      }
+    },
+    attachListeners: (attach: (editor: HiddenTextEditor) => void): void => {
+      attachListener = attach;
+      attachIfNeeded(singleLineEditor);
+      attachIfNeeded(multiLineEditor);
+      for (const editor of semanticEditorsByHandle.values()) {
+        attachIfNeeded(editor);
+      }
+    },
+    registerSemanticTextEditor: (handle: string, editor: HiddenTextEditor | null): void => {
+      if (editor === null) {
+        semanticEditorsByHandle.delete(handle);
+        return;
+      }
+      semanticEditorsByHandle.set(handle, editor);
+      attachIfNeeded(editor);
+    },
+  };
 }
 
 export function clearHiddenTextEditor(editor: HiddenTextEditor): void {

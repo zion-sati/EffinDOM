@@ -127,6 +127,18 @@ float CachedLogicalLineXForLocalIndex(const CachedLogicalLineShape& shape, std::
     return x;
 }
 
+float CachedLogicalLineXForBreakCandidateOrLocalIndex(
+    const CachedLogicalLineShape& shape,
+    std::uint32_t local_index) {
+    if (shape.break_candidate_cache_valid) {
+        const std::size_t candidate_index = FindBreakCandidateIndex(shape, local_index);
+        if (HasSafeBreakCandidateX(shape, candidate_index)) {
+            return shape.break_candidate_x_offsets[candidate_index];
+        }
+    }
+    return CachedLogicalLineXForLocalIndex(shape, local_index);
+}
+
 float MeasureCachedLogicalLineRangeWidth(
     const CachedLogicalLineShape& shape,
     std::int32_t start,
@@ -143,8 +155,8 @@ float MeasureCachedLogicalLineRangeWidth(
             0.0f);
     }
 
-    const float start_x = CachedLogicalLineXForLocalIndex(shape, clamped_start);
-    const float end_x = CachedLogicalLineXForLocalIndex(shape, clamped_end);
+    const float start_x = CachedLogicalLineXForBreakCandidateOrLocalIndex(shape, clamped_start);
+    const float end_x = CachedLogicalLineXForBreakCandidateOrLocalIndex(shape, clamped_end);
     return std::max(end_x - start_x, 0.0f);
 }
 
@@ -278,6 +290,9 @@ bool UiRuntime::TryBuildWrappedVisualLineShapeFromLogicalLineShape(
     if (clamped_slice_end <= clamped_slice_start) {
         return false;
     }
+    if (line_shape.has_tabs) {
+        return false;
+    }
 
     const std::uint32_t local_slice_start = clamped_slice_start - line_shape.visible_start;
     const std::uint32_t local_slice_end = clamped_slice_end - line_shape.visible_start;
@@ -296,8 +311,8 @@ bool UiRuntime::TryBuildWrappedVisualLineShapeFromLogicalLineShape(
         return false;
     }
 
-    const float slice_x = CachedLogicalLineXForLocalIndex(line_shape, local_slice_start);
-    const float slice_right = CachedLogicalLineXForLocalIndex(line_shape, local_slice_end);
+    const float slice_x = CachedLogicalLineXForBreakCandidateOrLocalIndex(line_shape, local_slice_start);
+    const float slice_right = CachedLogicalLineXForBreakCandidateOrLocalIndex(line_shape, local_slice_end);
     const float slice_width = std::max(slice_right - slice_x, 0.0f);
 
     out_shape.logical_line_index = 0U;
@@ -314,9 +329,15 @@ bool UiRuntime::TryBuildWrappedVisualLineShapeFromLogicalLineShape(
     out_shape.cache_dirty = false;
 
     const std::uint32_t slice_length = local_slice_end - local_slice_start;
-    out_shape.glyphs.reserve(line_shape.glyphs.size());
+    out_shape.glyphs.reserve(std::min<std::size_t>(line_shape.glyphs.size(), slice_length));
     for (std::size_t index = 0; index < line_shape.glyphs.size(); index += 1U) {
         const GlyphPlacement& glyph = line_shape.glyphs[index];
+        const bool cluster_inside_slice =
+            glyph.cluster >= local_slice_start &&
+            glyph.cluster < local_slice_end;
+        if (line_shape.ascii_only && !cluster_inside_slice) {
+            continue;
+        }
         const float glyph_left = glyph.x;
         const float glyph_right =
             index + 1U < line_shape.glyphs.size()
@@ -325,9 +346,6 @@ bool UiRuntime::TryBuildWrappedVisualLineShapeFromLogicalLineShape(
         const bool overlaps_slice =
             glyph_right > slice_x &&
             glyph_left < slice_right;
-        const bool cluster_inside_slice =
-            glyph.cluster >= local_slice_start &&
-            glyph.cluster < local_slice_end;
         if (!overlaps_slice && !cluster_inside_slice) {
             continue;
         }
@@ -360,6 +378,21 @@ std::vector<std::int32_t> UiRuntime::ComputeWrappedSegmentBreaks(
             }
             if (cached_shape != nullptr && cached_shape->monospace_wrapped_metrics_eligible) {
                 return MeasureCachedLogicalLineRangeWidth(*cached_shape, start, end);
+            }
+            if (cached_shape != nullptr && cached_shape->break_candidate_cache_valid) {
+                const std::size_t start_candidate_index = FindBreakCandidateIndex(
+                    *cached_shape,
+                    static_cast<std::uint32_t>(std::max(start, 0)));
+                const std::size_t end_candidate_index = FindBreakCandidateIndex(
+                    *cached_shape,
+                    static_cast<std::uint32_t>(std::max(end, 0)));
+                if (HasSafeBreakCandidateX(*cached_shape, start_candidate_index) &&
+                    HasSafeBreakCandidateX(*cached_shape, end_candidate_index)) {
+                    return std::max(
+                        cached_shape->break_candidate_x_offsets[end_candidate_index] -
+                            cached_shape->break_candidate_x_offsets[start_candidate_index],
+                        0.0f);
+                }
             }
             if (cached_shape != nullptr && cached_shape->ascii_only) {
                 return MeasureCachedLogicalLineRangeWidth(*cached_shape, start, end);
@@ -702,7 +735,7 @@ const CachedVisualLineShape* UiRuntime::EnsureWrappedVisualLineShape(const UINod
 // still aligned with the edit span.
 bool UiRuntime::TryApplyIncrementalWrappedLayoutCache(UINode& node, std::string_view previous_text) const {
     const bool disable_soft_wrap =
-        !node.text_wrap || (node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines == 1);
+        !node.text_wrap || (IsSingleLineEditorTextNode(node));
     const std::size_t line_count = node.break_offsets.size() > 1U ? (node.break_offsets.size() - 1U) : 0U;
     if (!node.is_text_node ||
         disable_soft_wrap ||
@@ -859,7 +892,7 @@ bool UiRuntime::TryApplyIncrementalWrappedLayoutCache(UINode& node, std::string_
         const std::string_view appended_text(
             next_text.data() + static_cast<std::size_t>(diff.changed_start),
             static_cast<std::size_t>(diff.new_changed_end - diff.changed_start));
-        if (!IsAsciiOnly(appended_text)) {
+        if (!IsAsciiOnly(appended_text) || appended_text.find('\t') != std::string_view::npos) {
             return false;
         }
 
@@ -875,6 +908,7 @@ bool UiRuntime::TryApplyIncrementalWrappedLayoutCache(UINode& node, std::string_
         const float old_width = old_shape.width;
         out_shape = old_shape;
         out_shape.end = diff.new_changed_end;
+        out_shape.has_tabs = old_shape.has_tabs || appended_text.find('\t') != std::string_view::npos;
         out_shape.width = old_shape.width + appended_shape.width;
         out_shape.height = std::max(old_shape.height, appended_shape.height);
         out_shape.baseline = std::max(old_shape.baseline, appended_shape.baseline);

@@ -46,6 +46,7 @@ struct GlyphPlacement {
     float y = 0.0f;
     std::uint32_t font_id = 0;
     std::uint32_t color = 0;
+    float font_size = 0.0f;
 };
 
 struct ColoredRect {
@@ -94,12 +95,18 @@ struct NodeDebugView {
     bool has_image = false;
     std::uint32_t texture_id = 0;
     std::uint32_t object_fit = ED_OBJECT_FIT_FILL;
+    std::uint32_t image_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    std::uint32_t image_max_aniso = 0;
     bool has_image_nine = false;
     std::uint32_t image_nine_texture_id = 0;
     Insets image_nine_insets{};
+    std::uint32_t image_nine_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    std::uint32_t image_nine_max_aniso = 0;
     bool has_svg = false;
     std::uint32_t svg_id = 0;
     std::uint32_t svg_tint_color = 0;
+    std::uint32_t svg_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    std::uint32_t svg_max_aniso = 0;
 
     bool has_path = false;
     std::uint32_t path_fill_color = 0;
@@ -108,6 +115,8 @@ struct NodeDebugView {
     std::vector<PathVerbRecord> path{};
 
     bool has_glyph_run = false;
+    bool glyphs_have_per_color = false;
+    bool glyphs_have_per_style = false;
     std::uint32_t font_id = 0;
     float font_size = 16.0f;
     std::uint32_t glyph_color = 0;
@@ -153,6 +162,18 @@ public:
 
     void Init(std::uint32_t physical_width, std::uint32_t physical_height, float dpr);
     void Resize(std::uint32_t physical_width, std::uint32_t physical_height, float dpr);
+    void SetViewportSize(float logical_width, float logical_height);
+    void SetViewportTransform(float scale, float offset_x, float offset_y);
+    float ViewportScale() const;
+    float ViewportOffsetX() const;
+    float ViewportOffsetY() const;
+    void SetViewportZoomFromSceneAnchor(float scale, float anchor_scene_x, float anchor_scene_y, float screen_x, float screen_y);
+    void PanViewportBy(float delta_x, float delta_y);
+    void BeginViewportPan(double timestamp_ms);
+    void UpdateViewportPan(float delta_x, float delta_y, double timestamp_ms);
+    void EndViewportPan(double timestamp_ms);
+    bool TickViewportPanMomentum(double timestamp_ms);
+    void ClearViewportPanMomentum();
     void RegisterFont(std::uint32_t font_id, const std::uint8_t* bytes, std::uint32_t length);
     void UnregisterFont(std::uint32_t font_id);
     void RegisterSvg(std::uint32_t svg_id, const std::uint8_t* bytes, std::uint32_t length);
@@ -162,6 +183,15 @@ public:
         std::uint32_t width,
         std::uint32_t height,
         std::size_t byte_length);
+    void RegisterTextureSubRgba(
+        std::uint32_t texture_id,
+        const std::uint8_t* sub_rgba,
+        std::uint32_t sub_x,
+        std::uint32_t sub_y,
+        std::uint32_t sub_w,
+        std::uint32_t sub_h,
+        std::uint32_t full_w,
+        std::uint32_t full_h);
     void UnregisterTexture(std::uint32_t texture_id);
     CommandBufferStats ExecuteCommandBuffer(const std::uint32_t* buffer, std::uint32_t length);
     std::uint64_t HitTest(float logical_x, float logical_y) const;
@@ -181,18 +211,25 @@ public:
     /* Stateful canvas drawing (accesses engine resources like textures, fonts, paths). */
     void CanvasDrawPath(SkCanvas* canvas, std::uint32_t path_id,
                         std::uint32_t fill_color, std::uint32_t stroke_color, float stroke_width) const;
-    void CanvasDrawText(SkCanvas* canvas, const std::uint8_t* utf8, std::uint32_t len,
-                        float x, float y, std::uint32_t font_id, float font_size, std::uint32_t color) const;
+    void CanvasDrawTextNode(SkCanvas* canvas, std::uint64_t handle, float x, float y) const;
     void CanvasDrawImage(SkCanvas* canvas, std::uint32_t texture_id,
-                         float x, float y, float w, float h) const;
+                         float x, float y, float w, float h,
+                         std::uint32_t sampling_kind = ED_IMAGE_SAMPLING_LINEAR,
+                         std::uint32_t max_aniso = 0) const;
     void CanvasDrawSvg(SkCanvas* canvas, std::uint32_t svg_id,
                        float x, float y, float w, float h) const;
+    void CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::uint32_t word_count) const;
 
     /* Offscreen raster surfaces. */
     std::uint32_t CreateOffscreenSurface(std::uint32_t width, std::uint32_t height);
     void* GetOffscreenCanvas(std::uint32_t offscreen_id) const;
     void ReadOffscreenPixels(std::uint32_t offscreen_id, std::uint8_t* out_rgba) const;
     void DestroyOffscreenSurface(std::uint32_t offscreen_id);
+
+    /* Render a retained DisplayNode into an RGBA pixel buffer. */
+    std::uint32_t RenderNodeToRgba(std::uint64_t handle, std::uint32_t width, std::uint32_t height,
+                                   std::uint8_t* out_pixels, std::uint32_t out_capacity,
+                                   float scale, float x, float y);
 
     std::optional<NodeDebugView> GetNodeForTesting(std::uint64_t handle) const;
     std::vector<SceneInstructionDebugView> GetSceneInstructionsForTesting() const;
@@ -204,6 +241,8 @@ public:
 
 private:
     struct Impl;
+    void ClampViewportTransform();
+    bool ApplyViewportPan(float delta_x, float delta_y);
     std::unique_ptr<Impl> impl_;
 };
 

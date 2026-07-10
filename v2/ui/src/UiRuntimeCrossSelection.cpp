@@ -41,7 +41,7 @@ void UiRuntime::CollectSelectionAreaNodes(std::uint64_t handle, std::vector<std:
     if (node == nullptr) {
         return;
     }
-    if (node->is_text_node && node->is_selectable) {
+    if (node->is_text_node && node->is_selectable && !node->is_obscured) {
         out.push_back(handle);
     }
     if (node->is_selection_area_barrier) {
@@ -152,12 +152,19 @@ bool UiRuntime::UpdateCrossSelectionEndpoint(std::uint64_t handle, float logical
         return false;
     }
 
-    if (end_node_handle_ == target_handle && end_index_ == target_index) {
-        return false;
+    if (selection_handle_drag_active_ && active_selection_drag_endpoint_ == 0U) {
+        if (start_node_handle_ == target_handle && start_index_ == target_index) {
+            return false;
+        }
+        start_node_handle_ = target_handle;
+        start_index_ = target_index;
+    } else {
+        if (end_node_handle_ == target_handle && end_index_ == target_index) {
+            return false;
+        }
+        end_node_handle_ = target_handle;
+        end_index_ = target_index;
     }
-
-    end_node_handle_ = target_handle;
-    end_index_ = target_index;
     MarkSelectionAreaNodesDirty();
     return true;
 }
@@ -214,6 +221,86 @@ bool UiRuntime::GetCrossSelectionHighlight(std::uint64_t handle, std::uint32_t& 
     return out_start != out_end;
 }
 
+bool UiRuntime::GetCrossSelectionEndpointSceneRects(
+    std::uint64_t area_handle,
+    Rect& out_start_rect,
+    Rect& out_end_rect) {
+    if (!cross_selection_active_ || selection_area_handle_ == UI_INVALID_HANDLE || area_handle != selection_area_handle_) {
+        return false;
+    }
+
+    EnsureSelectionAreaNodes(selection_area_handle_);
+    const int start_position = FindSelectionAreaNodeIndex(start_node_handle_);
+    const int end_position = FindSelectionAreaNodeIndex(end_node_handle_);
+    if (start_position < 0 || end_position < 0) {
+        return false;
+    }
+
+    const bool forward = start_position < end_position || (start_position == end_position && start_index_ <= end_index_);
+    const int first_position = forward ? start_position : end_position;
+    const int last_position = forward ? end_position : start_position;
+    const std::uint64_t first_handle = forward ? start_node_handle_ : end_node_handle_;
+    const std::uint64_t last_handle = forward ? end_node_handle_ : start_node_handle_;
+    const std::uint32_t first_offset = forward ? start_index_ : end_index_;
+    const std::uint32_t last_offset = forward ? end_index_ : start_index_;
+
+    const UINode* first_node = Resolve(first_handle);
+    const UINode* last_node = Resolve(last_handle);
+    if (first_node == nullptr || last_node == nullptr) {
+        return false;
+    }
+
+    if (first_position == last_position) {
+        const std::vector<Rect> rects = GetTextRangeSceneRects(first_handle, first_offset, last_offset);
+        if (rects.empty()) {
+            return false;
+        }
+        const Rect& first_rect = rects.front();
+        const Rect& last_rect = rects.back();
+        if (forward) {
+            out_start_rect = Rect{first_rect.x, first_rect.y, 0.0f, first_rect.height};
+            out_end_rect = Rect{last_rect.x + last_rect.width, last_rect.y, 0.0f, last_rect.height};
+        } else {
+            out_start_rect = Rect{last_rect.x + last_rect.width, last_rect.y, 0.0f, last_rect.height};
+            out_end_rect = Rect{first_rect.x, first_rect.y, 0.0f, first_rect.height};
+        }
+        return true;
+    }
+
+    const std::uint32_t first_text_length = static_cast<std::uint32_t>(first_node->text_content.size());
+    const std::vector<Rect> first_rects = GetTextRangeSceneRects(first_handle, first_offset, first_text_length);
+    const std::vector<Rect> last_rects = GetTextRangeSceneRects(last_handle, 0U, last_offset);
+    if (first_rects.empty() || last_rects.empty()) {
+        return false;
+    }
+    const Rect& first_rect = first_rects.front();
+    const Rect& last_rect = last_rects.back();
+    if (forward) {
+        out_start_rect = Rect{first_rect.x, first_rect.y, 0.0f, first_rect.height};
+        out_end_rect = Rect{last_rect.x + last_rect.width, last_rect.y, 0.0f, last_rect.height};
+    } else {
+        out_start_rect = Rect{last_rect.x + last_rect.width, last_rect.y, 0.0f, last_rect.height};
+        out_end_rect = Rect{first_rect.x, first_rect.y, 0.0f, first_rect.height};
+    }
+    return true;
+}
+
+void UiRuntime::NormalizeCrossSelectionEndpoints() {
+    const int start_position = FindSelectionAreaNodeIndex(start_node_handle_);
+    const int end_position = FindSelectionAreaNodeIndex(end_node_handle_);
+    if (start_position < 0 || end_position < 0) {
+        return;
+    }
+    const bool reversed =
+        start_position > end_position ||
+        (start_position == end_position && start_index_ > end_index_);
+    if (!reversed) {
+        return;
+    }
+    std::swap(start_node_handle_, end_node_handle_);
+    std::swap(start_index_, end_index_);
+}
+
 std::string UiRuntime::BuildCrossSelectionText() const {
     if (!cross_selection_active_ || selection_area_handle_ == UI_INVALID_HANDLE || selection_area_nodes_.empty()) {
         return {};
@@ -233,7 +320,7 @@ std::string UiRuntime::BuildCrossSelectionText() const {
     std::string stitched{};
     for (int index = first_index; index <= last_index; index += 1) {
         const UINode* node = Resolve(selection_area_nodes_[static_cast<std::size_t>(index)]);
-        if (node == nullptr) {
+        if (node == nullptr || node->is_obscured) {
             continue;
         }
 

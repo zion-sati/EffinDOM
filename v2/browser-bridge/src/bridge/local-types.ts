@@ -1,4 +1,5 @@
 import type { BridgeLoaderInfo, BridgeLogs } from '../core-types';
+import type { HiddenTextEditor } from './interaction/editor-model';
 
 export type WasmArchitecture = 'auto' | 'wasm32' | 'wasm32-simd' | 'wasm64' | 'wasm64-simd';
 export type RequestedRendererBackend = 'auto' | 'webgpu' | 'webgl2' | 'cpu';
@@ -68,6 +69,7 @@ export interface BridgeInteractionState {
   readonly logs: BridgeLogs;
   readonly textByHandle: Record<string, string>;
   readonly selectionsByHandle: Record<string, { start: number; end: number }>;
+  flushPendingTextMutationsToRuntime(): void;
   hasPendingTextMutations(): boolean;
   materializePendingTextMutations(): boolean;
   getActiveTextEditable(): boolean;
@@ -81,11 +83,16 @@ export interface BridgeInteractionState {
   isActiveTextInputFocused(): boolean;
   isPointerInsideCanvas(): boolean;
   applyActiveTextDeletion(forward: boolean): boolean;
+  replaceActiveTextSelectionWithText(text: string): boolean;
+  syncActiveTextSelectionFromDom(): void;
   beginTouchTextFocusDeferral(handle: bigint): void;
   cancelTouchTextFocusDeferral(): void;
   commitTouchTextFocusDeferral(handle: bigint): void;
   refocusActiveTextInput(): void;
   resetAppSession(): void;
+  reconcileLiveHandles(handles: readonly string[]): void;
+  syncActiveTextInputViewport(): void;
+  registerSemanticTextEditor(handle: string, editor: HiddenTextEditor | null): void;
   consumePendingSemanticAnnouncements(): readonly string[];
   getFocusedHandle(): string | null;
   setCapturedPointerHandle(handle: bigint | null): void;
@@ -94,6 +101,18 @@ export interface BridgeInteractionState {
   setLastPointerPosition(x: number, y: number): void;
   setLastInteractivePointerHandle(handle: bigint | null): void;
   setPointerInsideCanvas(flag: boolean): void;
+}
+
+export interface EditorDomTarget {
+  readonly singleLineEditor: HTMLInputElement;
+  readonly multiLineEditor: HTMLTextAreaElement;
+  getEditor(handle: string | null, multiline: boolean): HiddenTextEditor;
+  hasSemanticTextEditor(handle: string | null): boolean;
+  focus(handle: string | null, multiline: boolean, options?: FocusOptions): void;
+  detach(): void;
+  clearAll(): void;
+  attachListeners(attach: (editor: HiddenTextEditor) => void): void;
+  registerSemanticTextEditor(handle: string, editor: HiddenTextEditor | null): void;
 }
 
 export interface SoftwarePresenter {

@@ -1,7 +1,7 @@
-import type { AssetLoadResult, CoreModule } from '../../core-types';
+import type { AssetLoadResult,CoreModule } from '../../core-types';
 import { writeBytesToHeap } from '../utils/heap';
-import { IncrementalFontManager } from './font-manager';
-import { normalizeSvgBytesForCore, parseSvgIntrinsicSize } from './svg-intrinsic-size';
+import type { IncrementalFontManager } from './font-manager';
+import { normalizeSvgBytesForCore,parseSvgIntrinsicSize } from './svg-intrinsic-size';
 
 interface BitmapLike {
   readonly width: number;
@@ -17,7 +17,7 @@ function createDecodeCanvas(width: number, height: number): HTMLCanvasElement {
 }
 
 async function decodeBlobToBitmap(blob: Blob): Promise<ImageBitmap> {
-  if (createImageBitmap === undefined) {
+  if (typeof createImageBitmap !== 'function') {
     throw new Error('createImageBitmap is unavailable for texture decoding.');
   }
   return await createImageBitmap(blob);
@@ -87,7 +87,9 @@ export class AssetManager {
         textureBytes.dispose();
       }
     } finally {
-      bitmap.close?.();
+      if (typeof bitmap.close === 'function') {
+        bitmap.close();
+      }
     }
     this.onCommitFrame();
     return {
@@ -138,7 +140,9 @@ export class AssetManager {
             textureBytes.dispose();
           }
         } finally {
-          bitmap.close?.();
+          if (typeof bitmap.close === 'function') {
+            bitmap.close();
+          }
         }
       }),
     ]);

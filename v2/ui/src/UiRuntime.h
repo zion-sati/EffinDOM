@@ -60,11 +60,29 @@ public:
         std::uint64_t measure_single_line_width_bytes = 0U;
     };
 
+    struct DynamicTextPrepareProfile {
+        double total_prepare_ms = 0.0;
+        std::uint32_t fast_path_attempts = 0U;
+        std::uint32_t fast_path_successes = 0U;
+        std::uint32_t fast_path_fallbacks = 0U;
+        std::uint32_t cache_hits = 0U;
+        std::uint32_t cache_misses = 0U;
+        std::uint32_t composed_glyphs = 0U;
+        std::uint64_t composed_bytes = 0U;
+    };
+
     struct TextFindHighlight {
         std::uint64_t handle = UI_INVALID_HANDLE;
         std::uint32_t start = 0U;
         std::uint32_t end = 0U;
         std::uint32_t color = 0U;
+    };
+
+    struct TextRenderPlan {
+        std::vector<GlyphPlacement> glyphs{};
+        std::vector<ColoredRect> style_highlights{};
+        float width = 0.0f;
+        float height = 0.0f;
     };
 
     UiRuntime();
@@ -172,15 +190,27 @@ public:
         std::uint32_t stop_count,
         const float* offsets,
         const std::uint32_t* colors);
-    bool SetImage(std::uint64_t handle, std::uint32_t texture_id, std::uint32_t object_fit_enum);
+    bool SetImage(
+        std::uint64_t handle,
+        std::uint32_t texture_id,
+        std::uint32_t object_fit_enum,
+        std::uint32_t sampling_kind,
+        std::uint32_t max_aniso);
     bool SetImageNine(
         std::uint64_t handle,
         std::uint32_t texture_id,
         float inset_left,
         float inset_top,
         float inset_right,
-        float inset_bottom);
-    bool SetSvg(std::uint64_t handle, std::uint32_t svg_id, std::uint32_t tint_color);
+        float inset_bottom,
+        std::uint32_t sampling_kind,
+        std::uint32_t max_aniso);
+    bool SetSvg(
+        std::uint64_t handle,
+        std::uint32_t svg_id,
+        std::uint32_t tint_color,
+        std::uint32_t sampling_kind,
+        std::uint32_t max_aniso);
 
     bool SetText(std::uint64_t handle, const std::uint8_t* utf8_str, std::uint32_t len);
     bool SetTextStyleRuns(std::uint64_t handle, std::uint32_t run_count, const std::uint32_t* runs_words);
@@ -195,10 +225,14 @@ public:
     bool SetTextOverflowFade(std::uint64_t handle, bool horizontal, bool vertical);
     bool SetTextObscured(std::uint64_t handle, bool is_password);
     bool SetInteractive(std::uint64_t handle, bool interactive);
+    bool SetPreserveSelectionOnPointerDown(std::uint64_t handle, bool preserve);
+    bool SetEditorCommandKeys(std::uint64_t handle, bool enabled);
+    bool SetEditorAcceptsTab(std::uint64_t handle, bool enabled);
     bool SetScrollProxyTarget(std::uint64_t handle, std::uint64_t scroll_handle);
     bool SetScrollEnabled(std::uint64_t handle, bool enabled_x, bool enabled_y);
     bool SetShowScrollbars(std::uint64_t handle, bool show_scrollbars);
     bool SetScrollFriction(std::uint64_t handle, float friction);
+    bool SetSmoothScrolling(std::uint64_t handle, bool smooth_scrolling);
     bool SetFocusable(std::uint64_t handle, bool focusable, std::int32_t tab_index);
     bool RequestFocus(std::uint64_t handle);
     bool SetScrollOffset(std::uint64_t handle, float offset_x, float offset_y);
@@ -219,6 +253,9 @@ public:
     bool CutTextSelection(std::uint64_t handle);
     bool PasteText(std::uint64_t handle);
     bool SelectAllText(std::uint64_t handle);
+    bool SelectWordAt(std::uint64_t handle, float logical_x, float logical_y);
+    bool BeginSelectionEndpointDrag(std::uint64_t handle, std::uint32_t endpoint);
+    bool PreservesSelectionOnPointerDown(std::uint64_t handle) const;
     bool SetEditable(std::uint64_t handle, bool editable);
     bool SetCaretColor(std::uint64_t handle, std::uint32_t color);
     bool RegisterFont(std::uint32_t font_id, const std::uint8_t* bytes, std::uint32_t length);
@@ -227,18 +264,32 @@ public:
     bool UnregisterFontFallback(std::uint32_t font_id, std::uint32_t fallback_font_id);
     bool RegisterIcuData(const std::uint8_t* bytes, std::uint32_t length);
     void FontLoaded(std::uint32_t font_id);
-    void SetKeyModifiers(std::uint32_t modifiers);
     void SetInteractionTime(std::uint64_t interaction_time_ms);
-    void HandlePointerEvent(std::uint32_t event_enum, std::uint64_t handle, float logical_x, float logical_y);
+    void HandlePointerEvent(
+        std::uint32_t event_enum,
+        std::uint64_t handle,
+        float logical_x,
+        float logical_y,
+        std::int32_t pointer_id = -1,
+        std::uint32_t pointer_type = UI_POINTER_TYPE_UNKNOWN,
+        std::int32_t button = 0,
+        std::uint32_t buttons = 0,
+        float pressure = 0.0f,
+        float width = 0.0f,
+        float height = 0.0f,
+        std::int32_t click_count = 0,
+        std::uint32_t modifiers = 0);
     void HandleWheelEvent(float delta_x, float delta_y);
-    void BeginTouchScroll(std::uint64_t handle, float logical_x, float logical_y);
-    void UpdateTouchScroll(float delta_x, float delta_y);
-    void EndTouchScroll();
+    void BeginTouchScroll(std::uint64_t handle, float logical_x, float logical_y, double timestamp_ms = -1.0);
+    void UpdateTouchScroll(float delta_x, float delta_y, double timestamp_ms = -1.0);
+    void EndTouchScroll(double timestamp_ms = -1.0);
     void ClearMomentumScroll();
     bool ActiveTouchScrollAllowsPullToRefresh() const;
+    bool WheelScrollCanConsume(float delta_x, float delta_y) const;
+    bool ActiveTouchScrollCanConsume(float delta_x, float delta_y) const;
     void SetCoarsePointerMode(bool coarse_pointer_mode);
     void SetPlatformFamily(std::uint32_t platform_family);
-    void HandleKeyEvent(std::uint32_t type_enum, const std::uint8_t* key_utf8, std::uint32_t len, std::uint32_t modifiers);
+    bool HandleKeyEvent(std::uint32_t type_enum, const std::uint8_t* key_utf8, std::uint32_t len, std::uint32_t modifiers);
     void HandleImeUpdate(std::uint64_t handle, const std::uint8_t* utf8_str, std::uint32_t len, std::uint32_t caret_idx);
     void HandleTextReplaceRange(
         std::uint64_t handle,
@@ -256,11 +307,19 @@ public:
         float max_width,
         float* out_width,
         float* out_height) const;
+    bool GetTextMetrics(
+        std::uint64_t handle,
+        float* out_width,
+        float* out_height,
+        float* out_baseline,
+        std::uint32_t* out_line_count,
+        float* out_max_line_width) const;
+    std::optional<Rect> GetVisibleBounds(std::uint64_t handle) const;
     std::vector<std::uint64_t> GetTextSnapshotHandles() const;
-    std::pair<float, float> GetTextScenePositionFromIndex(std::uint64_t handle, std::uint32_t byte_index) const;
     std::optional<std::string_view> GetTextSnapshotDocument(std::uint64_t handle) const;
     std::optional<Rect> GetTextVisibleBounds(std::uint64_t handle) const;
     std::vector<Rect> GetTextRangeSceneRects(std::uint64_t handle, std::uint32_t start, std::uint32_t end) const;
+    bool GetCrossSelectionEndpointSceneRects(std::uint64_t area_handle, Rect& out_start_rect, Rect& out_end_rect);
     bool RevealTextRange(std::uint64_t handle, std::uint32_t start, std::uint32_t end);
     bool SetTextFindMatch(std::uint64_t handle, std::uint32_t start, std::uint32_t end);
     void ClearTextFindMatch();
@@ -273,9 +332,13 @@ public:
     const std::vector<std::string>& GridColumnSharedSizeGroups(std::uint64_t handle) const;
     const std::vector<std::string>& GridRowSharedSizeGroups(std::uint64_t handle) const;
 
-    void CommitFrame();
+    void CommitFrame(double timestamp_ms = -1.0);
+    bool PrepareNode(std::uint64_t handle);
+    bool SetDynamicTextCharset(std::uint64_t handle, const std::uint8_t* utf8_charset, std::uint32_t len);
     const std::vector<std::uint32_t>& command_buffer() const;
     const std::vector<std::uint32_t>& semantic_buffer() const;
+    const std::vector<std::uint32_t>& debug_tree_buffer() const;
+    const std::vector<std::uint32_t>& LiveFallbackFontBuffer() const;
     const std::uint64_t& root_handle() const;
     bool HasPendingVisualWork() const;
     bool NeedsAnimationFrame() const;
@@ -285,6 +348,8 @@ public:
     float window_height() const;
     const TextCommitProfile& last_text_commit_profile() const;
     void ClearTextCommitProfile();
+    const DynamicTextPrepareProfile& last_dynamic_text_prepare_profile() const;
+    void ClearDynamicTextPrepareProfile();
 
 private:
     struct EdgeInsets {
@@ -553,8 +618,22 @@ private:
     std::size_t LineIndexForTextLineStarts(const UINode& node, std::uint32_t pos) const;
     std::uint32_t GetTextLineStart(const UINode& node, std::size_t line_index) const;
     std::uint32_t GetTextLineEnd(const UINode& node, std::size_t line_index) const;
-    void NotifyTextStateChanged(std::uint64_t handle, UINode& node, const std::string* previous_text = nullptr);
-    void NotifyTextStateChangedImpl(std::uint64_t handle, UINode& node, const std::string* previous_text);
+    struct ExactTextReplaceNotification {
+        std::uint32_t start = 0U;
+        std::uint32_t old_end = 0U;
+        std::uint32_t inserted_start = 0U;
+        std::uint32_t inserted_length = 0U;
+    };
+    void NotifyTextStateChanged(
+        std::uint64_t handle,
+        UINode& node,
+        const std::string* previous_text = nullptr,
+        const ExactTextReplaceNotification* exact_replace = nullptr);
+    void NotifyTextStateChangedImpl(
+        std::uint64_t handle,
+        UINode& node,
+        const std::string* previous_text,
+        const ExactTextReplaceNotification* exact_replace);
     float RawLineXForIndex(
         std::string_view line_text,
         const ShapedTextRun& shaped,
@@ -601,9 +680,25 @@ private:
     bool DeleteSelection(UINode& node);
     std::vector<Rect> BuildSelectionRects(const UINode& node, std::uint32_t start, std::uint32_t end) const;
     std::vector<ColoredRect> BuildStyleInlineRects(const UINode& node) const;
+    void AppendResolvedGlyphPlacements(
+        const UINode& node,
+        const ShapedTextRun& shaped,
+        float x,
+        float baseline_y,
+        std::vector<GlyphPlacement>& out) const;
+    void EmitTextGlyphRun(
+        CommandBuilder& builder,
+        std::uint64_t handle,
+        const UINode& node,
+        const std::vector<GlyphPlacement>& glyphs) const;
+    TextRenderPlan BuildPreparedTextRenderPlan(
+        const UINode& node,
+        const ParagraphLayout& paragraph,
+        float width) const;
     float MeasureSingleLineWidth(std::string_view text, std::uint32_t font_id, float font_size, bool obscured) const;
     bool ShapeObscuredText(std::string_view text, std::uint32_t font_id, float font_size, ShapedTextRun& out) const;
     bool ShapeText(std::string_view text, std::uint32_t font_id, float font_size, ShapedTextRun& out, bool obscured = false) const;
+    bool ShapeDynamicTextFastPath(const UINode& node, std::string_view text, ShapedTextRun& out) const;
     bool ShapeTextStyledRange(const UINode& node, std::uint32_t start, std::uint32_t end, ShapedTextRun& out) const;
     std::vector<TextClusterStop> BuildTextClusterStops(
         const std::vector<GlyphPlacement>& glyphs,
@@ -664,12 +759,21 @@ private:
     std::uint64_t FindBestNodeContainingPoint(float logical_x, float logical_y) const;
     std::uint64_t FindDeepestScrollViewContainingPoint(std::uint64_t handle, float logical_x, float logical_y) const;
     std::uint64_t ResolveScrollTarget(std::uint64_t start_handle, float logical_x, float logical_y) const;
-    std::uint64_t RetargetScrollHandleForDelta(std::uint64_t start_handle, float delta_x, float delta_y) const;
+    std::uint64_t RetargetScrollHandleForDelta(
+        std::uint64_t start_handle,
+        float delta_x,
+        float delta_y,
+        bool use_smooth_target = false) const;
     std::uint64_t FindScrollableAncestor(std::uint64_t start_handle) const;
     std::uint64_t FindScrollableAncestorContainingPoint(std::uint64_t start_handle, float logical_x, float logical_y) const;
     std::uint64_t FindScrollProxyTarget(std::uint64_t start_handle, float logical_x, float logical_y) const;
     bool CanScrollOnAxis(const UINode& node, bool horizontal) const;
-    bool CanConsumeScrollDelta(const UINode& node, bool horizontal, float delta) const;
+    bool CanConsumeScrollDelta(
+        const UINode& node,
+        bool horizontal,
+        float delta,
+        bool use_smooth_target = false) const;
+    bool CanConsumeScrollDeltaFromTarget(std::uint64_t start_handle, float delta_x, float delta_y) const;
     std::uint64_t FindWheelScrollableTarget(std::uint64_t start_handle, float logical_x, float logical_y) const;
     std::pair<float, float> ClampPointToScrollViewport(std::uint64_t start_handle, float logical_x, float logical_y) const;
     void ClearAutoScrollState();
@@ -705,6 +809,7 @@ private:
     void MarkSelectionAreaNodesDirty();
     void ClearCrossSelection(bool notify_callback);
     bool UpdateCrossSelectionEndpoint(std::uint64_t handle, float logical_x, float logical_y);
+    void NormalizeCrossSelectionEndpoints();
     bool GetCrossSelectionHighlight(std::uint64_t handle, std::uint32_t& out_start, std::uint32_t& out_end) const;
     std::string BuildCrossSelectionText() const;
     bool BuildCrossSelectionRichPayload(std::string& out_plain_text, std::string& out_rich_json) const;
@@ -720,6 +825,7 @@ private:
     bool IsPrimaryShortcut(std::string_view key, std::uint32_t modifiers, char expected) const;
     void AppendTextSnapshotHandles(std::uint64_t handle, std::vector<std::uint64_t>& out) const;
     const UINode* ResolveTextSnapshotNode(std::uint64_t handle) const;
+    const UINode* ResolveTextGeometryNode(std::uint64_t handle) const;
     bool IsUndoShortcut(std::string_view key, std::uint32_t modifiers) const;
     bool IsRedoShortcut(std::string_view key, std::uint32_t modifiers) const;
     void ClearSelectionHighlight(std::uint64_t handle, bool notify_callback);
@@ -731,6 +837,8 @@ private:
     void CapturePendingFocusId(std::uint64_t subtree_root);
     void RestorePendingFocusIfPossible();
     void ClearHover(std::uint64_t handle);
+    void BuildDebugTreeBuffer();
+    void AppendDebugTreeRecord(std::uint64_t handle, std::uint64_t nearest_scroll_ancestor);
     void SetFocus(std::uint64_t new_handle, bool ensure_visible = false, bool emit_selection_callback = true);
     std::uint64_t GetNextFocusable(std::uint64_t current, bool forward);
     UINode* ResolveMutable(std::uint64_t handle);
@@ -741,10 +849,14 @@ private:
     void PruneGridSideTableEntry(std::uint64_t handle);
     void ResetCurrentTextCommitProfile() const;
     void FinishCurrentTextCommitProfile(double total_commit_ms) const;
+    void RebuildLiveFallbackFontBuffer() const;
 
     std::array<UINode, kMaxNodes> node_pool_{};
     std::vector<std::uint32_t> command_buffer_{};
+    std::vector<std::uint32_t> pending_prepare_commands_{};
     std::vector<std::uint32_t> semantic_buffer_{};
+    std::vector<std::uint32_t> debug_tree_buffer_{};
+    mutable std::vector<std::uint32_t> live_fallback_font_buffer_{};
     std::vector<SemanticScopeEntry> semantic_scope_stack_{};
     std::vector<std::uint8_t> string_arena_{};
     std::vector<std::uint64_t> pending_creations_{};
@@ -767,6 +879,9 @@ private:
     std::uint32_t text_find_end_ = 0U;
     std::vector<TextFindHighlight> text_find_highlights_{};
     bool active_selection_dragged_ = false;
+    bool selection_handle_drag_active_ = false;
+    std::uint32_t active_selection_drag_endpoint_ = 1U;
+    std::uint32_t active_selection_stationary_index_ = 0U;
     std::uint64_t active_scroll_handle_ = UI_INVALID_HANDLE;
     std::uint64_t active_touch_scroll_handle_x_ = UI_INVALID_HANDLE;
     std::uint64_t active_touch_scroll_handle_y_ = UI_INVALID_HANDLE;
@@ -775,6 +890,10 @@ private:
     std::uint64_t momentum_scroll_handle_y_ = UI_INVALID_HANDLE;
     bool coarse_pointer_mode_ = false;
     PlatformFamily platform_family_ = PlatformFamily::Unknown;
+    double last_commit_timestamp_ms_ = 0.0;
+    bool has_last_commit_timestamp_ = false;
+    double last_touch_scroll_timestamp_ms_ = 0.0;
+    bool has_last_touch_scroll_timestamp_ = false;
     bool primary_pointer_down_ = false;
     bool auto_scroll_active_ = false;
     std::uint64_t auto_scroll_view_handle_ = UI_INVALID_HANDLE;
@@ -788,10 +907,13 @@ private:
     float last_click_y_ = 0.0f;
     float selection_press_logical_x_ = 0.0f;
     float selection_press_logical_y_ = 0.0f;
+    std::uint64_t touch_text_tap_handle_ = UI_INVALID_HANDLE;
+    float touch_text_tap_logical_x_ = 0.0f;
+    float touch_text_tap_logical_y_ = 0.0f;
+    bool touch_text_tap_moved_ = false;
     std::uint32_t click_count_ = 0;
     std::uint64_t last_click_time_ms_ = 0;
     std::uint64_t double_click_threshold_ms_ = 500;
-    std::uint32_t current_modifiers_ = 0;
     std::uint64_t selection_anchor_handle_ = UI_INVALID_HANDLE;
     std::uint32_t selection_anchor_index_ = 0;
     bool selection_horizontal_extend_active_ = false;
@@ -817,6 +939,13 @@ private:
     mutable TextCommitProfile current_text_commit_profile_{};
     mutable TextCommitProfile last_text_commit_profile_{};
     mutable bool text_commit_profile_active_ = false;
+    mutable DynamicTextPrepareProfile current_dynamic_text_prepare_profile_{};
+    mutable DynamicTextPrepareProfile last_dynamic_text_prepare_profile_{};
+    mutable bool dynamic_text_prepare_profile_active_ = false;
+    void ResetCurrentDynamicTextPrepareProfile() const;
+    void FinishCurrentDynamicTextPrepareProfile(double total_prepare_ms) const;
+    void RecordDynamicTextFastPathFallback() const;
+    void ClearDynamicTextFastPathCache(UINode& node) const;
     std::uint32_t text_find_color_ = EF_RGBA(0xFFU, 0xEBU, 0x3BU, 0x80U);
 
 #ifdef __EMSCRIPTEN__

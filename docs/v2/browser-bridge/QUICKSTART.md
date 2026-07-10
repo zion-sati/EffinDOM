@@ -14,6 +14,7 @@ For the current slice scope and artifacts, read these first:
 - `docs/v2/browser-bridge/plan.md`
 - `docs/v2/browser-bridge/OPEN_CANVAS_API.md`
 - `docs/v2/browser-bridge/HOTLOAD_METHOD.md`
+- `docs/v2/browser-bridge/DEVTOOLS_DOM_MIRROR.md`
 
 ## 1. Install prerequisites
 
@@ -117,6 +118,16 @@ or:
 npm run test:v2:browser-bridge
 ```
 
+## Touch input
+
+The bridge owns touch input on the canvas and sets `touch-action: none`. This
+keeps EffinDom scrollbars, hit testing, overlays, and accessibility geometry in
+the same coordinate system instead of letting browser page zoom scale the whole
+document.
+
+Framework-owned pinch zoom and control-owned two-finger gestures are planned as
+EffinDom gestures rather than browser visual viewport zoom.
+
 ## 5. Open the bridge in a real browser
 
 The bridge page is a static site under `public/v2/browser-bridge/`. WASM
@@ -146,6 +157,16 @@ string-only callback.
 The browser bridge owns the actual `navigator.clipboard.write(...)` call. If
 the browser rejects rich clipboard writes, it falls back to
 `navigator.clipboard.writeText(plainText)` so plain copy still succeeds.
+
+## Debugging retained UI
+
+Use the [DevTools DOM Mirror](./DEVTOOLS_DOM_MIRROR.md) when you need to inspect
+the retained EffinDom tree in browser DevTools. Debug builds default the mirror
+to on-requested, release builds default it to disabled, and apps can override
+`window.__effindomRuntime.devToolsDomMirror` or the harness option explicitly.
+
+Press `Shift+Meta+F12` to open the debug dialog when the mode is enabled or
+on-requested. The dialog can enable the mirror and toggle Inspect Mode.
 
 ### Serve with Python (no extra deps)
 
@@ -203,6 +224,24 @@ npx esbuild v2/browser-bridge/src/bridge.ts \
 ```
 
 Then hard-refresh the browser page (`Ctrl+Shift+R` / `Cmd+Shift+R`).
+
+Rendering backend, C ABI, and staged runtime asset changes should use the
+repo-root build path instead:
+
+```bash
+./build.sh
+```
+
+That path refreshes the Core/WASM outputs and the staged browser assets used by
+the public smoke pages. For targeted browser runtime iteration, run:
+
+```bash
+npm run build:v2:browser-bridge
+```
+
+Run `npm run test:v2:browser` after ABI or staged asset changes. The standalone
+Core smoke page also has staged command-buffer payloads, so update it whenever a
+draw command ABI changes.
 
 ## Registering custom fonts and FontStacks
 

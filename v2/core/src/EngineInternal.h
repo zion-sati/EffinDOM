@@ -12,6 +12,7 @@
 #include <include/core/SkPath.h>
 #include <include/core/SkPicture.h>
 #include <include/core/SkRRect.h>
+#include <include/core/SkSamplingOptions.h>
 #include <include/core/SkSurface.h>
 #include <include/core/SkTextBlob.h>
 #include <include/core/SkTypeface.h>
@@ -26,14 +27,14 @@ class SkFont;
 extern "C" {
 #endif
 
-void effindom_v2_custom_draw(std::uint32_t handle_lo, std::uint32_t handle_hi, std::uint32_t canvas_ptr);
+void effindom_v2_custom_draw(std::uint32_t handle_lo, std::uint32_t handle_hi, std::uintptr_t canvas_ptr);
 
 #ifdef __cplusplus
 }
 #endif
 
 #ifndef __EMSCRIPTEN__
-inline void effindom_v2_custom_draw(std::uint32_t, std::uint32_t, std::uint32_t) {}
+inline void effindom_v2_custom_draw(std::uint32_t, std::uint32_t, std::uintptr_t) {}
 #endif
 
 namespace effindom::v2::detail {
@@ -72,6 +73,7 @@ struct SvgRecord {
 struct TextureRecord {
     std::uint32_t width = 0;
     std::uint32_t height = 0;
+    std::vector<std::uint8_t> pixels{};
     sk_sp<SkImage> raster_image;
 };
 
@@ -116,12 +118,18 @@ struct DisplayNode {
     bool has_image = false;
     std::uint32_t texture_id = 0;
     std::uint32_t object_fit = ED_OBJECT_FIT_FILL;
+    std::uint32_t image_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    std::uint32_t image_max_aniso = 0;
     bool has_image_nine = false;
     std::uint32_t image_nine_texture_id = 0;
     Insets image_nine_insets{};
+    std::uint32_t image_nine_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    std::uint32_t image_nine_max_aniso = 0;
     bool has_svg = false;
     std::uint32_t svg_id = 0;
     std::uint32_t svg_tint_color = 0;
+    std::uint32_t svg_sampling = ED_IMAGE_SAMPLING_LINEAR;
+    std::uint32_t svg_max_aniso = 0;
 
     bool has_path = false;
     std::uint32_t path_fill_color = 0;
@@ -131,6 +139,7 @@ struct DisplayNode {
 
     bool has_glyph_run = false;
     bool glyphs_have_per_color = false;
+    bool glyphs_have_per_style = false;
     std::uint32_t font_id = 0;
     float font_size = 16.0f;
     std::uint32_t glyph_color = 0;
@@ -168,6 +177,9 @@ float ReadFloat(std::uint32_t word);
 float ClampNonNegative(float value);
 float ClampOpacity(float value);
 std::uint32_t VerbArgCount(std::uint32_t verb);
+bool IsValidImageSampling(std::uint32_t sampling);
+std::uint32_t NormalizeImageMaxAniso(std::uint32_t max_aniso);
+SkSamplingOptions MakeImageSamplingOptions(std::uint32_t sampling, std::uint32_t max_aniso);
 
 } // namespace effindom::v2::detail
 
@@ -177,6 +189,18 @@ struct Engine::Impl {
     std::uint32_t physical_width = 0;
     std::uint32_t physical_height = 0;
     float dpr = 1.0f;
+    float viewport_width = 320.0f;
+    float viewport_height = 220.0f;
+    float viewport_scale = 1.0f;
+    float viewport_offset_x = 0.0f;
+    float viewport_offset_y = 0.0f;
+    float viewport_pan_velocity_x = 0.0f;
+    float viewport_pan_velocity_y = 0.0f;
+    bool viewport_pan_active = false;
+    bool viewport_pan_dragged = false;
+    bool viewport_pan_momentum_active = false;
+    double last_viewport_pan_timestamp_ms = 0.0;
+    bool has_last_viewport_pan_timestamp = false;
     std::vector<detail::DisplayNode> nodes = std::vector<detail::DisplayNode>(detail::kMaxNodes);
     std::vector<detail::SceneInstruction> scene_instructions{};
     std::vector<std::uint64_t> paint_order{};
@@ -206,6 +230,13 @@ struct Engine::Impl {
     void StoreGlyphBlobCache(detail::DisplayNode& node, sk_sp<SkTextBlob> blob);
     void TouchGlyphBlobCache(detail::DisplayNode& node);
     void EvictGlyphBlobCaches();
+    void DrawTextContent(
+        SkCanvas* canvas,
+        const detail::DisplayNode& node,
+        float origin_x,
+        float origin_y,
+        bool use_glyph_blob_cache,
+        bool apply_fade);
     void DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, double current_time_ms);
 };
 
@@ -220,6 +251,8 @@ void EdCanvasTranslate(SkCanvas* canvas, float x, float y);
 void EdCanvasScale(SkCanvas* canvas, float sx, float sy);
 void EdCanvasRotate(SkCanvas* canvas, float degrees);
 void EdCanvasClipRect(SkCanvas* canvas, float x, float y, float w, float h);
+void EdCanvasClipRoundRect(SkCanvas* canvas, float x, float y, float w, float h,
+                           float top_left, float top_right, float bottom_right, float bottom_left);
 
 void EdCanvasDrawRect(SkCanvas* canvas, float x, float y, float w, float h,
                       std::uint32_t fill_color, std::uint32_t stroke_color, float stroke_width);

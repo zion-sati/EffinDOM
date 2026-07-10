@@ -54,10 +54,10 @@ TEST_CASE("v2 ui style runs emit a colored glyph command with per-glyph colors",
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -91,6 +91,9 @@ TEST_CASE("v2 ui style runs emit a colored glyph command with per-glyph colors",
             i += 6U + (static_cast<std::size_t>(glyph_count) * 5U);
             break;
         }
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
+            break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
             break;
@@ -108,6 +111,188 @@ TEST_CASE("v2 ui style runs emit a colored glyph command with per-glyph colors",
     CHECK(saw_green);
 }
 
+TEST_CASE("v2 ui prepare node emits colored glyph and highlight commands for rich text bitmaps", "[v2][ui][layout][text]") {
+    ui_reset();
+    RegisterTestFont(1U);
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(320.0f, 120.0f);
+    ui_set_width(text, 280.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("HelloWorld"), 10U);
+
+    const std::uint32_t runs_words[] = {
+        0U, 5U, 1U, effindom::v2::ui::CommandBuilder::FloatToWord(20.0f), 0xff0000ffU, 0xff223344U, 3U,
+        5U, 10U, 1U, effindom::v2::ui::CommandBuilder::FloatToWord(20.0f), 0x00ff00ffU, 0U, 0U,
+    };
+    ui_set_text_style_runs(text, 2U, runs_words);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+    (void)ReadCommandBuffer();
+
+    REQUIRE(ui_prepare_node(text) == 1U);
+
+    const auto& prepare_words = effindom::v2::ui::GetRuntime().pending_prepare_commands_;
+    CHECK(CountCommand(prepare_words, CMD_SET_GLYPH_RUN_COLORED) == 1U);
+    CHECK(CountCommand(prepare_words, CMD_SET_HIGHLIGHTS_COLORED) == 1U);
+
+    const auto glyph_runs = ReadGlyphRuns(prepare_words);
+    REQUIRE(glyph_runs.find(text) != glyph_runs.end());
+    const auto& run = glyph_runs.at(text);
+    CHECK(run.font_id == 1U);
+    CHECK(run.font_size == Approx(20.0f));
+    REQUIRE(run.glyphs.size() == 10U);
+    CHECK(run.glyphs.front().color == 0xff0000ffU);
+    CHECK(run.glyphs.back().color == 0x00ff00ffU);
+
+    const auto highlights = ReadHighlights(prepare_words);
+    REQUIRE(highlights.find(text) != highlights.end());
+    CHECK(highlights.at(text).rects.size() >= 1U);
+    CHECK(highlights.at(text).color == 0xff223344U);
+}
+
+TEST_CASE("v2 ui rich text emits styled glyph runs for mixed font sizes", "[v2][ui][layout][text]") {
+    ui_reset();
+    RegisterTestFont(1U);
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(360.0f, 140.0f);
+    ui_set_width(text, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 18.0f);
+    ui_set_text_color(text, 0xff223344U);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("HelloWorld"), 10U);
+
+    const std::uint32_t runs_words[] = {
+        0U, 5U, 1U, effindom::v2::ui::CommandBuilder::FloatToWord(18.0f), 0xff223344U, 0U, 0U,
+        5U, 10U, 1U, effindom::v2::ui::CommandBuilder::FloatToWord(32.0f), 0xff223344U, 0U, 0U,
+    };
+    ui_set_text_style_runs(text, 2U, runs_words);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto words = ReadCommandBuffer();
+    CHECK(CountCommand(words, CMD_SET_GLYPH_RUN_STYLED) == 1U);
+    CHECK(CountCommand(words, CMD_SET_GLYPH_RUN_COLORED) == 0U);
+    CHECK(CountCommand(words, CMD_SET_GLYPH_RUN) == 0U);
+    const auto retained_runs = ReadGlyphRuns(words);
+    REQUIRE(retained_runs.find(text) != retained_runs.end());
+    const auto& retained_run = retained_runs.at(text);
+    CHECK(retained_run.font_size == Approx(18.0f));
+    REQUIRE(retained_run.glyphs.size() == 10U);
+    CHECK(retained_run.glyphs.front().font_size == Approx(18.0f));
+    CHECK(retained_run.glyphs.back().font_size == Approx(32.0f));
+    CHECK(retained_run.glyphs.front().color == 0xff223344U);
+    CHECK(retained_run.glyphs.back().color == 0xff223344U);
+
+    REQUIRE(ui_prepare_node(text) == 1U);
+    const auto& prepare_words = effindom::v2::ui::GetRuntime().pending_prepare_commands_;
+    CHECK(CountCommand(prepare_words, CMD_SET_GLYPH_RUN_STYLED) == 1U);
+    CHECK(CountCommand(prepare_words, CMD_SET_GLYPH_RUN_COLORED) == 0U);
+    CHECK(CountCommand(prepare_words, CMD_SET_GLYPH_RUN) == 0U);
+    const auto prepared_runs = ReadGlyphRuns(prepare_words);
+    REQUIRE(prepared_runs.find(text) != prepared_runs.end());
+    const auto& prepared_run = prepared_runs.at(text);
+    REQUIRE(prepared_run.glyphs.size() == 10U);
+    CHECK(prepared_run.glyphs.front().font_size == Approx(18.0f));
+    CHECK(prepared_run.glyphs.back().font_size == Approx(32.0f));
+}
+
+TEST_CASE("v2 ui prepared text exposes metrics", "[v2][ui][layout][text]") {
+    ui_reset();
+    RegisterTestFont(1U);
+
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_width(text, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("Metrics"), 7U);
+
+    float width = 0.0f;
+    float height = 0.0f;
+    float baseline = 0.0f;
+    std::uint32_t line_count = 0U;
+    float max_line_width = 0.0f;
+
+    CHECK_FALSE(ui_get_text_metrics(text, &width, &height, &baseline, &line_count, &max_line_width));
+
+    REQUIRE(ui_prepare_node(text) == 1U);
+    REQUIRE(ui_get_text_metrics(text, &width, &height, &baseline, &line_count, &max_line_width));
+
+    CHECK(width > 0.0f);
+    CHECK(height > 0.0f);
+    CHECK(baseline > 0.0f);
+    CHECK(line_count == 1U);
+    CHECK(max_line_width == Approx(width).margin(0.01f));
+    CHECK(width < 320.0f);
+}
+
+TEST_CASE("v2 ui dynamic text prepare profile records fast-path cache reuse", "[v2][ui][layout][text]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterTestFont(1U);
+
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_dynamic_text_charset(text, reinterpret_cast<const std::uint8_t*>("0123456789"), 10U);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("1234"), 4U);
+
+    GetRuntime().ClearDynamicTextPrepareProfile();
+    REQUIRE(ui_prepare_node(text) == 1U);
+    const auto first_profile = GetRuntime().last_dynamic_text_prepare_profile();
+    CHECK(first_profile.fast_path_attempts >= 1U);
+    CHECK(first_profile.fast_path_successes >= 1U);
+    CHECK(first_profile.fast_path_fallbacks == 0U);
+    CHECK(first_profile.cache_misses >= 4U);
+    CHECK(first_profile.composed_glyphs >= 4U);
+    CHECK(first_profile.total_prepare_ms >= 0.0);
+
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("4321"), 4U);
+    GetRuntime().ClearDynamicTextPrepareProfile();
+    REQUIRE(ui_prepare_node(text) == 1U);
+    const auto second_profile = GetRuntime().last_dynamic_text_prepare_profile();
+    CHECK(second_profile.fast_path_attempts >= 1U);
+    CHECK(second_profile.fast_path_successes >= 1U);
+    CHECK(second_profile.fast_path_fallbacks == 0U);
+    CHECK(second_profile.cache_hits >= 4U);
+    CHECK(second_profile.cache_misses == 0U);
+    CHECK(second_profile.composed_glyphs >= 4U);
+}
+
+TEST_CASE("v2 ui dynamic text prepare profile records fallback when charset is unsupported", "[v2][ui][layout][text]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterTestFont(1U);
+
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_dynamic_text_charset(text, reinterpret_cast<const std::uint8_t*>("0123456789"), 10U);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("12A"), 3U);
+
+    GetRuntime().ClearDynamicTextPrepareProfile();
+    REQUIRE(ui_prepare_node(text) == 1U);
+    const auto profile = GetRuntime().last_dynamic_text_prepare_profile();
+    CHECK(profile.fast_path_attempts >= 1U);
+    CHECK(profile.fast_path_successes == 0U);
+    CHECK(profile.fast_path_fallbacks >= 1U);
+}
+
 
 TEST_CASE("v2 ui style-run backgrounds and decorations emit colored highlight rects", "[v2][ui][layout][text]") {
     ui_reset();
@@ -122,6 +307,7 @@ TEST_CASE("v2 ui style-run backgrounds and decorations emit colored highlight re
     ui_resize_window(320.0f, 120.0f);
     ui_set_width(text, 280.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_font(text, 1U, 20.0f);
+    ui_set_text_color(text, 0xffffffffU);
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>("Hello"), 5U);
     const std::uint32_t runs_words[] = {
         0U, 5U, 1U, effindom::v2::ui::CommandBuilder::FloatToWord(20.0f), 0xffffffffU, 0xff223344U, 3U,
@@ -136,8 +322,15 @@ TEST_CASE("v2 ui style-run backgrounds and decorations emit colored highlight re
         const std::uint32_t cmd = words[i];
         if (cmd == CMD_SET_HIGHLIGHTS_COLORED) {
             REQUIRE(i + 4U <= words.size());
+            const std::uint64_t handle =
+                (static_cast<std::uint64_t>(words[i + 2U]) << 32U) |
+                static_cast<std::uint64_t>(words[i + 1U]);
             const std::size_t rect_count = static_cast<std::size_t>(words[i + 3U]);
             REQUIRE(i + 4U + (rect_count * 5U) <= words.size());
+            if (handle != text) {
+                i += 4U + (rect_count * 5U);
+                continue;
+            }
             REQUIRE(rect_count >= 3U);
             CHECK(words[i + 8U] == 0xff223344U);
             CHECK(words[i + 13U] == 0xffffffffU);
@@ -170,10 +363,10 @@ TEST_CASE("v2 ui style-run backgrounds and decorations emit colored highlight re
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -192,6 +385,9 @@ TEST_CASE("v2 ui style-run backgrounds and decorations emit colored highlight re
             break;
         case CMD_SET_GLYPH_RUN_COLORED:
             i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
@@ -224,9 +420,9 @@ TEST_CASE("v2 ui yoga centres a single-line text node and outputs glyph run", "[
     ui_resize_window(500.0f, 500.0f);
     ui_set_width(root, 500.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(root, 500.0f, UI_SIZE_UNIT_PIXEL);
-    ui_set_flex_direction(root, 0U);
-    ui_set_justify_content(root, 2U);
-    ui_set_align_items(root, 2U);
+    ui_set_flex_direction(root, UI_FLEX_DIRECTION_COLUMN);
+    ui_set_justify_content(root, UI_JUSTIFY_CENTER);
+    ui_set_align_items(root, UI_ALIGN_ITEMS_CENTER);
 
     ui_set_font(text, 1U, 24.0f);
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>("AVA"), 3U);
@@ -310,7 +506,7 @@ TEST_CASE("v2 ui centres each wrapped line within the text node bounds", "[v2][u
     ui_set_height(root, 320.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(text, 60.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_font(text, 1U, 20.0f);
-    ui_set_text_align(text, effindom::v2::ui::ALIGN_CENTER);
+    ui_set_text_align(text, UI_TEXT_ALIGN_CENTER);
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
     ui_node_add_child(root, text);
     ui_commit_frame();
@@ -359,7 +555,7 @@ TEST_CASE("v2 ui caps wrapped text height and emits bottom fade when max lines c
     ui_set_width(text, 60.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_font(text, 1U, 20.0f);
     ui_set_text_limits(text, 0, 2);
-    ui_set_text_overflow(text, effindom::v2::ui::OVERFLOW_FADE);
+    ui_set_text_overflow(text, UI_TEXT_OVERFLOW_FADE);
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
     ui_node_add_child(root, text);
     ui_commit_frame();
@@ -402,7 +598,7 @@ TEST_CASE("v2 ui right-aligns wrapped text within the node bounds", "[v2][ui][la
     ui_set_height(root, 200.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(text, 80.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_font(text, 1U, 20.0f);
-    ui_set_text_align(text, effindom::v2::ui::ALIGN_RIGHT);
+    ui_set_text_align(text, UI_TEXT_ALIGN_RIGHT);
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
     ui_node_add_child(root, text);
     ui_commit_frame();
@@ -464,7 +660,7 @@ TEST_CASE("v2 ui repositions wrapped text after dynamic alignment changes", "[v2
     ui_commit_frame();
     CHECK(max_line_start() < 0.5f);
 
-    ui_set_text_align(text, effindom::v2::ui::ALIGN_RIGHT);
+    ui_set_text_align(text, UI_TEXT_ALIGN_RIGHT);
     ui_commit_frame();
     CHECK(max_line_start() > 8.0f);
 }
@@ -493,7 +689,7 @@ TEST_CASE("v2 ui vertically aligns text within a taller text node", "[v2][ui][la
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
     ui_node_add_child(root, text);
 
-    const auto min_glyph_y = [&](std::uint32_t align) {
+    const auto min_glyph_y = [&](UiTextVerticalAlign align) {
         ui_set_text_vertical_align(text, align);
         ui_commit_frame();
         const auto glyph_runs = ReadGlyphRuns(ReadCommandBuffer());
@@ -505,9 +701,9 @@ TEST_CASE("v2 ui vertically aligns text within a taller text node", "[v2][ui][la
         return min_y;
     };
 
-    const float top_min_y = min_glyph_y(effindom::v2::ui::VERTICAL_ALIGN_TOP);
-    const float center_min_y = min_glyph_y(effindom::v2::ui::VERTICAL_ALIGN_CENTER);
-    const float bottom_min_y = min_glyph_y(effindom::v2::ui::VERTICAL_ALIGN_BOTTOM);
+    const float top_min_y = min_glyph_y(UI_TEXT_VERTICAL_ALIGN_TOP);
+    const float center_min_y = min_glyph_y(UI_TEXT_VERTICAL_ALIGN_CENTER);
+    const float bottom_min_y = min_glyph_y(UI_TEXT_VERTICAL_ALIGN_BOTTOM);
 
     CHECK(center_min_y > top_min_y + 20.0f);
     CHECK(bottom_min_y > center_min_y + 20.0f);
@@ -536,7 +732,7 @@ TEST_CASE("v2 ui updates axis-based text fades without changing glyph runs", "[v
     ui_set_height(text, 24.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_font(text, 1U, 20.0f);
     ui_set_text_wrapping(text, false);
-    ui_set_text_overflow(text, effindom::v2::ui::OVERFLOW_CLIP);
+    ui_set_text_overflow(text, UI_TEXT_OVERFLOW_CLIP);
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
     ui_node_add_child(root, text);
 
@@ -774,10 +970,10 @@ TEST_CASE("v2 ui text and layout setters cover enums, fonts, measurement, and st
     CHECK(GetRuntime().SetJustifyContent(box, 0U));
     CHECK(GetRuntime().SetJustifyContent(box, 1U));
     CHECK(GetRuntime().SetJustifyContent(box, 2U));
-    CHECK(GetRuntime().SetJustifyContent(box, 3U));
+    CHECK_FALSE(GetRuntime().SetJustifyContent(box, 3U));
     CHECK_FALSE(GetRuntime().SetJustifyContent(box, 99U));
 
-    ui_set_align_items(box, 2U);
+    ui_set_align_items(box, UI_ALIGN_ITEMS_END);
     CHECK(GetRuntime().SetAlignItems(box, 0U));
     CHECK(GetRuntime().SetAlignItems(box, 1U));
     CHECK(GetRuntime().SetAlignItems(box, 2U));
@@ -819,9 +1015,9 @@ TEST_CASE("v2 ui text and layout setters cover enums, fonts, measurement, and st
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>("AVA"), 3U);
     ui_set_text(text, nullptr, 0U);
     ui_set_text_color(text, 0xFF00FFFFU);
-    ui_set_text_align(text, effindom::v2::ui::ALIGN_RIGHT);
+    ui_set_text_align(text, UI_TEXT_ALIGN_RIGHT);
     ui_set_text_limits(text, 3, 2);
-    ui_set_text_overflow(text, effindom::v2::ui::OVERFLOW_FADE);
+    ui_set_text_overflow(text, UI_TEXT_OVERFLOW_FADE);
     ui_set_text_overflow_fade(text, true, false);
     ui_set_text_obscured(text, true);
     ui_set_interactive(box, true);
@@ -841,13 +1037,13 @@ TEST_CASE("v2 ui text and layout setters cover enums, fonts, measurement, and st
     CHECK(GetRuntime().SetFont(text, 1U, 24.0f));
     CHECK(GetRuntime().SetText(text, reinterpret_cast<const std::uint8_t*>("AVA"), 3U));
     CHECK(GetRuntime().SetTextColor(text, 0x111111FFU));
-    CHECK(GetRuntime().SetTextAlign(text, effindom::v2::ui::ALIGN_LEFT));
-    CHECK(GetRuntime().SetTextAlign(text, effindom::v2::ui::ALIGN_CENTER));
-    CHECK(GetRuntime().SetTextAlign(text, effindom::v2::ui::ALIGN_RIGHT));
+    CHECK(GetRuntime().SetTextAlign(text, UI_TEXT_ALIGN_LEFT));
+    CHECK(GetRuntime().SetTextAlign(text, UI_TEXT_ALIGN_CENTER));
+    CHECK(GetRuntime().SetTextAlign(text, UI_TEXT_ALIGN_RIGHT));
     CHECK_FALSE(GetRuntime().SetTextAlign(text, 99U));
-    CHECK(GetRuntime().SetTextVerticalAlign(text, effindom::v2::ui::VERTICAL_ALIGN_TOP));
-    CHECK(GetRuntime().SetTextVerticalAlign(text, effindom::v2::ui::VERTICAL_ALIGN_CENTER));
-    CHECK(GetRuntime().SetTextVerticalAlign(text, effindom::v2::ui::VERTICAL_ALIGN_BOTTOM));
+    CHECK(GetRuntime().SetTextVerticalAlign(text, UI_TEXT_VERTICAL_ALIGN_TOP));
+    CHECK(GetRuntime().SetTextVerticalAlign(text, UI_TEXT_VERTICAL_ALIGN_CENTER));
+    CHECK(GetRuntime().SetTextVerticalAlign(text, UI_TEXT_VERTICAL_ALIGN_BOTTOM));
     CHECK_FALSE(GetRuntime().SetTextVerticalAlign(text, 99U));
     CHECK(GetRuntime().SetTextLimits(text, 0, 0));
     CHECK(GetRuntime().SetTextLimits(text, 4, 2));
@@ -856,9 +1052,9 @@ TEST_CASE("v2 ui text and layout setters cover enums, fonts, measurement, and st
     CHECK(GetRuntime().SetTextWrapping(text, true));
     CHECK_FALSE(GetRuntime().SetTextLimits(text, -1, 1));
     CHECK_FALSE(GetRuntime().SetTextLimits(text, 1, -1));
-    CHECK(GetRuntime().SetTextOverflow(text, effindom::v2::ui::OVERFLOW_CLIP));
-    CHECK(GetRuntime().SetTextOverflow(text, effindom::v2::ui::OVERFLOW_ELLIPSIS));
-    CHECK(GetRuntime().SetTextOverflow(text, effindom::v2::ui::OVERFLOW_FADE));
+    CHECK(GetRuntime().SetTextOverflow(text, UI_TEXT_OVERFLOW_CLIP));
+    CHECK(GetRuntime().SetTextOverflow(text, UI_TEXT_OVERFLOW_ELLIPSIS));
+    CHECK(GetRuntime().SetTextOverflow(text, UI_TEXT_OVERFLOW_FADE));
     CHECK(GetRuntime().SetTextOverflowFade(text, true, false));
     CHECK(GetRuntime().Resolve(text)->text_overflow_fade_horizontal);
     CHECK_FALSE(GetRuntime().Resolve(text)->text_overflow_fade_vertical);
@@ -896,11 +1092,11 @@ TEST_CASE("v2 ui text and layout setters cover enums, fonts, measurement, and st
     CHECK_FALSE(GetRuntime().SetFont(box, 1U, 24.0f));
     CHECK_FALSE(GetRuntime().SetText(box, reinterpret_cast<const std::uint8_t*>("AVA"), 3U));
     CHECK_FALSE(GetRuntime().SetTextColor(box, 0xFFFFFFFFU));
-    CHECK_FALSE(GetRuntime().SetTextAlign(box, effindom::v2::ui::ALIGN_LEFT));
-    CHECK_FALSE(GetRuntime().SetTextVerticalAlign(box, effindom::v2::ui::VERTICAL_ALIGN_TOP));
+    CHECK_FALSE(GetRuntime().SetTextAlign(box, UI_TEXT_ALIGN_LEFT));
+    CHECK_FALSE(GetRuntime().SetTextVerticalAlign(box, UI_TEXT_VERTICAL_ALIGN_TOP));
     CHECK_FALSE(GetRuntime().SetTextLimits(box, 1, 1));
     CHECK_FALSE(GetRuntime().SetTextWrapping(box, true));
-    CHECK_FALSE(GetRuntime().SetTextOverflow(box, effindom::v2::ui::OVERFLOW_CLIP));
+    CHECK_FALSE(GetRuntime().SetTextOverflow(box, UI_TEXT_OVERFLOW_CLIP));
     CHECK_FALSE(GetRuntime().SetTextObscured(box, true));
     CHECK_FALSE(GetRuntime().SetInteractive(PackHandle(0U, 1U), true));
     CHECK_FALSE(GetRuntime().SetFocusable(PackHandle(0U, 1U), true, 0));
@@ -975,9 +1171,9 @@ TEST_CASE("v2 ui text and layout setters cover enums, fonts, measurement, and st
     CHECK_FALSE(GetRuntime().SetFont(text, 1U, 12.0f));
     CHECK_FALSE(GetRuntime().SetText(text, reinterpret_cast<const std::uint8_t*>("A"), 1U));
     CHECK_FALSE(GetRuntime().SetTextColor(text, 0xFFFFFFFFU));
-    CHECK_FALSE(GetRuntime().SetTextAlign(text, effindom::v2::ui::ALIGN_LEFT));
+    CHECK_FALSE(GetRuntime().SetTextAlign(text, UI_TEXT_ALIGN_LEFT));
     CHECK_FALSE(GetRuntime().SetTextLimits(text, 0, 1));
-    CHECK_FALSE(GetRuntime().SetTextOverflow(text, effindom::v2::ui::OVERFLOW_CLIP));
+    CHECK_FALSE(GetRuntime().SetTextOverflow(text, UI_TEXT_OVERFLOW_CLIP));
     CHECK_FALSE(GetRuntime().SetTextOverflowFade(text, true, false));
     CHECK_FALSE(GetRuntime().SetInteractive(text, true));
     CHECK_FALSE(GetRuntime().SetFocusable(text, true, 0));
@@ -1032,9 +1228,9 @@ TEST_CASE("v2 ui cross-node drag stitches text and highlights all covered nodes"
     REQUIRE(start_line == 0);
     REQUIRE(end_line == 0);
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
-    ui_on_pointer_event(UI_EVENT_POINTER_MOVE, second, second_node->abs_x + end_x, second_node->abs_y + (second_node->line_height * 0.5f));
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, second, second_node->abs_x + end_x, second_node->abs_y + (second_node->line_height * 0.5f));
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, second, second_node->abs_x + end_x, second_node->abs_y + (second_node->line_height * 0.5f));
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, second, second_node->abs_x + end_x, second_node->abs_y + (second_node->line_height * 0.5f));
 
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
@@ -1093,11 +1289,35 @@ TEST_CASE("v2 ui cross-node copy and shift-click extension use stitched text", "
     const auto [start_x, _] = GetRuntime().GetLocalPositionFromIndex(*first_node, 0U);
     const auto [end_x, __] = GetRuntime().GetLocalPositionFromIndex(*second_node, 4U);
 
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
-    ui_set_key_modifiers(UI_KEY_MOD_SHIFT);
-    ui_on_pointer_event(UI_EVENT_POINTER_DOWN, second, second_node->abs_x + end_x, second_node->abs_y + (second_node->line_height * 0.5f));
-    ui_on_pointer_event(UI_EVENT_POINTER_UP, second, second_node->abs_x + end_x, second_node->abs_y + (second_node->line_height * 0.5f));
-    ui_set_key_modifiers(0U);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, first, first_node->abs_x + start_x + 0.5f, first_node->abs_y + (first_node->line_height * 0.5f));
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_DOWN,
+        second,
+        second_node->abs_x + end_x,
+        second_node->abs_y + (second_node->line_height * 0.5f),
+        -1,
+        UI_POINTER_TYPE_MOUSE,
+        0,
+        0,
+        0.0f,
+        0.0f,
+        0.0f,
+        0,
+        UI_KEY_MOD_SHIFT);
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_UP,
+        second,
+        second_node->abs_x + end_x,
+        second_node->abs_y + (second_node->line_height * 0.5f),
+        -1,
+        UI_POINTER_TYPE_MOUSE,
+        0,
+        0,
+        0.0f,
+        0.0f,
+        0.0f,
+        0,
+        UI_KEY_MOD_SHIFT);
 
     REQUIRE(GetRuntime().cross_selection_active_);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
@@ -1341,5 +1561,3 @@ TEST_CASE("v2 ui cross-selection keyboard vertical extension traverses wrapped l
     CHECK(runtime.focused_handle_ == below);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
 }
-
-

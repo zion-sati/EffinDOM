@@ -14,6 +14,7 @@ namespace {
 
 constexpr std::size_t kMaxHarfBuzzRunBytes = 16U * 1024U;
 constexpr std::size_t kShapingBoundarySearchBytes = 1024U;
+constexpr float kTabStopColumns = 4.0f;
 using ProfileClock = std::chrono::steady_clock;
 
 double ElapsedMilliseconds(ProfileClock::time_point start, ProfileClock::time_point end) {
@@ -22,6 +23,32 @@ double ElapsedMilliseconds(ProfileClock::time_point start, ProfileClock::time_po
 
 bool IsUtf8ContinuationByte(unsigned char byte) {
     return (byte & 0xC0U) == 0x80U;
+}
+
+struct ShapeInputText {
+    std::string expanded_text{};
+    std::vector<std::uint32_t> cluster_map{};
+};
+
+ShapeInputText BuildShapeInputText(std::string_view text) {
+    ShapeInputText input{};
+    if (text.find('\t') == std::string_view::npos) {
+        return input;
+    }
+    input.expanded_text.reserve(text.size());
+    input.cluster_map.reserve(text.size());
+    for (std::size_t index = 0U; index < text.size(); index += 1U) {
+        if (text[index] == '\t') {
+            for (std::size_t space = 0U; space < static_cast<std::size_t>(kTabStopColumns); space += 1U) {
+                input.cluster_map.push_back(static_cast<std::uint32_t>(index));
+                input.expanded_text.push_back(' ');
+            }
+            continue;
+        }
+        input.cluster_map.push_back(static_cast<std::uint32_t>(index));
+        input.expanded_text.push_back(text[index]);
+    }
+    return input;
 }
 
 std::size_t PreviousUtf8Boundary(std::string_view text, std::size_t offset) {
@@ -111,6 +138,18 @@ std::size_t NextUtf8Codepoint(std::string_view text, std::size_t offset, std::ui
 
     *out_codepoint = 0xFFFD;
     return offset + 1U;
+}
+
+bool CharsetContainsCodepoint(std::string_view charset, std::uint32_t codepoint) {
+    for (std::size_t offset = 0U; offset < charset.size();) {
+        std::uint32_t charset_codepoint = 0U;
+        const std::size_t next = NextUtf8Codepoint(charset, offset, &charset_codepoint);
+        if (charset_codepoint == codepoint) {
+            return true;
+        }
+        offset = next;
+    }
+    return false;
 }
 
 struct ResolvedLineBoxMetrics {
@@ -347,7 +386,17 @@ bool UiRuntime::ShapeTextWithFont(
         return false;
     }
 
-    hb_buffer_add_utf8(buffer, text.data(), static_cast<int>(text.size()), 0, static_cast<int>(text.size()));
+    const ShapeInputText shaped_input = BuildShapeInputText(text);
+    const std::string_view harfbuzz_text =
+        shaped_input.expanded_text.empty()
+            ? text
+            : std::string_view(shaped_input.expanded_text.data(), shaped_input.expanded_text.size());
+    hb_buffer_add_utf8(
+        buffer,
+        harfbuzz_text.data(),
+        static_cast<int>(harfbuzz_text.size()),
+        0,
+        static_cast<int>(harfbuzz_text.size()));
     hb_buffer_guess_segment_properties(buffer);
     hb_shape(sized_font, buffer, nullptr, 0);
 
@@ -370,9 +419,12 @@ bool UiRuntime::ShapeTextWithFont(
             infos[index].codepoint,
             x,
             y,
-            infos[index].cluster,
+            shaped_input.cluster_map.empty()
+                ? infos[index].cluster
+                : shaped_input.cluster_map[std::min<std::size_t>(infos[index].cluster, shaped_input.cluster_map.size() - 1U)],
             font_id,
             0U,
+            font_size,
         });
         min_x = std::min({min_x, x, next_cursor});
         max_x = std::max({max_x, x, next_cursor});
@@ -441,6 +493,7 @@ bool UiRuntime::ShapeMissingTextWithFont(
             static_cast<std::uint32_t>(offset),
             font_id,
             0U,
+            font_size,
         });
         cursor_x += advance;
         offset = next;
@@ -554,8 +607,7 @@ YGSize UiRuntime::MeasureTextNode(const UINode& node, float width, YGMeasureMode
         return YGSize{0.0f, 0.0f};
     }
     if (node.text_content.empty() &&
-        node.semantic_role != UI_SEMANTIC_TEXTBOX &&
-        !node.is_editable) {
+        !IsEditorTextNode(node)) {
         return YGSize{0.0f, 0.0f};
     }
 
@@ -625,6 +677,7 @@ bool UiRuntime::ShapeObscuredText(std::string_view text, std::uint32_t font_id, 
         glyph.cluster = static_cast<std::uint32_t>(offset);
         glyph.font_id = font_id;
         glyph.color = 0U;
+        glyph.font_size = font_size;
         out.glyphs.push_back(glyph);
         cursor_x += bullet_advance;
         offset = next;
@@ -785,11 +838,101 @@ const bool shaped =
             glyph.x += cursor_x;
             glyph.cluster += static_cast<std::uint32_t>(segment.start);
             glyph.color = 0U;
+            glyph.font_size = font_size;
             out.glyphs.push_back(glyph);
         }
         cursor_x += shaped_segment.width;
     }
     out.width = cursor_x;
+    return true;
+}
+
+bool UiRuntime::ShapeDynamicTextFastPath(const UINode& node, std::string_view text, ShapedTextRun& out) const {
+    out = ShapedTextRun{};
+    if (!node.dynamic_text_fast_path_enabled ||
+        node.dynamic_text_charset.empty() ||
+        node.has_text_style_runs ||
+        node.is_obscured ||
+        text.empty() ||
+        text.find_first_of("\r\n") != std::string_view::npos) {
+        return false;
+    }
+
+    if (dynamic_text_prepare_profile_active_) {
+        current_dynamic_text_prepare_profile_.fast_path_attempts += 1U;
+        current_dynamic_text_prepare_profile_.composed_bytes += text.size();
+    }
+
+    UINode& mutable_node = const_cast<UINode&>(node);
+    float cursor_x = 0.0f;
+    std::size_t local_byte_offset = 0U;
+    out.glyphs.reserve(text.size());
+
+    for (std::size_t offset = 0U; offset < text.size();) {
+        std::uint32_t codepoint = 0U;
+        const std::size_t next = NextUtf8Codepoint(text, offset, &codepoint);
+        if (!CharsetContainsCodepoint(node.dynamic_text_charset, codepoint)) {
+            RecordDynamicTextFastPathFallback();
+            return false;
+        }
+
+        auto cached = std::find_if(
+            mutable_node.dynamic_text_glyph_cache.begin(),
+            mutable_node.dynamic_text_glyph_cache.end(),
+            [codepoint](const DynamicTextGlyphCacheEntry& entry) {
+                return entry.codepoint == codepoint;
+            });
+
+        if (cached == mutable_node.dynamic_text_glyph_cache.end()) {
+            ShapedTextRun shaped_codepoint{};
+            const std::string_view codepoint_text(text.data() + offset, next - offset);
+            if (!ShapeText(codepoint_text, node.font_id, node.font_size, shaped_codepoint, false)) {
+                RecordDynamicTextFastPathFallback();
+                return false;
+            }
+
+            DynamicTextGlyphCacheEntry entry{};
+            entry.codepoint = codepoint;
+            entry.width = shaped_codepoint.width;
+            entry.height = shaped_codepoint.height;
+            entry.baseline = shaped_codepoint.baseline;
+            entry.ascent = shaped_codepoint.ascent;
+            entry.descent = shaped_codepoint.descent;
+            entry.glyphs = shaped_codepoint.glyphs;
+            mutable_node.dynamic_text_glyph_cache.push_back(std::move(entry));
+            cached = mutable_node.dynamic_text_glyph_cache.end() - 1;
+            if (dynamic_text_prepare_profile_active_) {
+                current_dynamic_text_prepare_profile_.cache_misses += 1U;
+            }
+        } else if (dynamic_text_prepare_profile_active_) {
+            current_dynamic_text_prepare_profile_.cache_hits += 1U;
+        }
+
+        out.ascent = std::max(out.ascent, cached->ascent);
+        out.descent = std::max(out.descent, cached->descent);
+        out.height = std::max(out.height, cached->height);
+        out.baseline = std::max(out.baseline, cached->baseline);
+
+        for (GlyphPlacement glyph : cached->glyphs) {
+            glyph.x += cursor_x;
+            glyph.cluster += static_cast<std::uint32_t>(local_byte_offset);
+            glyph.color = node.text_color;
+            glyph.font_size = node.font_size;
+            out.glyphs.push_back(glyph);
+        }
+
+        cursor_x += cached->width;
+        local_byte_offset += (next - offset);
+        offset = next;
+    }
+
+    out.width = cursor_x;
+    out.height = std::max(out.height, out.ascent + out.descent);
+    out.baseline = std::max(out.baseline, out.ascent);
+    if (dynamic_text_prepare_profile_active_) {
+        current_dynamic_text_prepare_profile_.fast_path_successes += 1U;
+        current_dynamic_text_prepare_profile_.composed_glyphs += static_cast<std::uint32_t>(out.glyphs.size());
+    }
     return true;
 }
 
@@ -802,15 +945,22 @@ bool UiRuntime::ShapeTextStyledRange(const UINode& node, std::uint32_t start, st
         return ShapeText(std::string_view{}, node.font_id, node.font_size, out, node.is_obscured);
     }
     if (!node.has_text_style_runs || node.text_style_runs.empty()) {
-        const bool shaped = ShapeText(
-            std::string_view(node.text_content.data() + clamped_start, static_cast<std::size_t>(clamped_end - clamped_start)),
-            node.font_id,
-            node.font_size,
-            out,
-            node.is_obscured);
+        const std::string_view plain_text(
+            node.text_content.data() + clamped_start,
+            static_cast<std::size_t>(clamped_end - clamped_start));
+        bool shaped = ShapeDynamicTextFastPath(node, plain_text, out);
+        if (!shaped) {
+            shaped = ShapeText(
+                plain_text,
+                node.font_id,
+                node.font_size,
+                out,
+                node.is_obscured);
+        }
         if (shaped) {
             for (GlyphPlacement& glyph : out.glyphs) {
                 glyph.color = node.text_color;
+                glyph.font_size = node.font_size;
             }
         }
         return shaped;
@@ -913,6 +1063,7 @@ bool UiRuntime::ShapeTextStyledRange(const UINode& node, std::uint32_t start, st
             glyph.x += cursor_x;
             glyph.cluster = absolute_cluster - clamped_start;
             glyph.color = color_span.color;
+            glyph.font_size = segment.font_size;
             out.glyphs.push_back(glyph);
         }
         cursor_x += shaped_segment.width;
@@ -921,6 +1072,34 @@ bool UiRuntime::ShapeTextStyledRange(const UINode& node, std::uint32_t start, st
     return true;
 }
 
+
+void UiRuntime::RebuildLiveFallbackFontBuffer() const {
+    live_fallback_font_buffer_.clear();
+    for (const UINode& node : node_pool_) {
+        if (!node.is_active || !node.is_text_node || node.text_content.empty()) {
+            continue;
+        }
+        ShapedTextRun shaped{};
+        if (!ShapeTextStyledRange(
+                node,
+                0U,
+                static_cast<std::uint32_t>(node.text_content.size()),
+                shaped)) {
+            continue;
+        }
+        for (const GlyphPlacement& glyph : shaped.glyphs) {
+            if (glyph.font_id == 0U || glyph.font_id == node.font_id) {
+                continue;
+            }
+            if (std::find(
+                    live_fallback_font_buffer_.begin(),
+                    live_fallback_font_buffer_.end(),
+                    glyph.font_id) == live_fallback_font_buffer_.end()) {
+                live_fallback_font_buffer_.push_back(glyph.font_id);
+            }
+        }
+    }
+}
 
 
 } // namespace effindom::v2::ui

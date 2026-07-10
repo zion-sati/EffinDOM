@@ -95,20 +95,20 @@ TEST_CASE("v2 ui private editing helpers cover guard paths", "[v2][ui][unit][edi
     helper.break_offsets = {0, 5};
     helper.visible_line_count = 0U;
     CHECK(GetRuntime().GetAlignedLineXOffset(helper, 40.0f) == Approx(0.0f));
-    helper.text_align = effindom::v2::ui::ALIGN_CENTER;
+    helper.text_align = UI_TEXT_ALIGN_CENTER;
     CHECK(GetRuntime().GetAlignedLineXOffset(helper, 40.0f) == Approx(30.0f));
-    helper.text_align = effindom::v2::ui::ALIGN_RIGHT;
+    helper.text_align = UI_TEXT_ALIGN_RIGHT;
     CHECK(GetRuntime().GetAlignedLineXOffset(helper, 40.0f) == Approx(60.0f));
-    helper.text_align = effindom::v2::ui::ALIGN_LEFT;
+    helper.text_align = UI_TEXT_ALIGN_LEFT;
     CHECK(GetRuntime().GetStringIndexFromPoint(helper, -1.0f, 3.0f) == 0U);
     CHECK(GetRuntime().GetStringIndexFromPoint(helper, 500.0f, 3.0f) == 5U);
-    helper.text_align = effindom::v2::ui::ALIGN_CENTER;
+    helper.text_align = UI_TEXT_ALIGN_CENTER;
     CHECK(GetRuntime().GetStringIndexFromPoint(helper, 1.0f, 3.0f) == 0U);
     helper.font_id = 999U;
     CHECK(GetRuntime().GetStringIndexFromPoint(helper, 25.0f, 3.0f) == 0U);
     CHECK(GetRuntime().GetLocalPositionFromIndex(helper, 2U) == std::pair<float, int>{0.0f, 0});
     helper.font_id = 1U;
-    helper.text_align = effindom::v2::ui::ALIGN_LEFT;
+    helper.text_align = UI_TEXT_ALIGN_LEFT;
     CHECK(GetRuntime().GetLocalPositionFromIndex(helper, 0U).second == 0);
     CHECK(GetRuntime().GetLocalPositionFromIndex(helper, 5U).first >= 0.0f);
 
@@ -118,6 +118,40 @@ TEST_CASE("v2 ui private editing helpers cover guard paths", "[v2][ui][unit][edi
     weird_breaks.break_offsets = {0, 0, 5};
     CHECK(GetRuntime().IndexForLineBegin(weird_breaks, 0U) == 0U);
     CHECK(GetRuntime().IndexForLineEnd(weird_breaks, 0U) == 0U);
+}
+
+TEST_CASE("v2 ui programmatic text selection emits the requested range without forcing focus", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("Melbourne"), 9U);
+    ui_set_selectable(text, true, kDefaultSelectionColor);
+    ui_set_focusable(text, true, 0);
+    ui_node_add_child(root, text);
+
+    auto* node = GetRuntime().ResolveMutable(text);
+    REQUIRE(node != nullptr);
+    node->selection_start = 0U;
+    node->selection_end = 0U;
+    ResetInteractionLogs();
+
+    REQUIRE(GetRuntime().SetTextSelectionRange(text, 9U, 9U));
+
+    CHECK(node->selection_start == 9U);
+    CHECK(node->selection_end == 9U);
+    REQUIRE_FALSE(g_selection_changes.empty());
+    CHECK(g_selection_changes.front().handle == text);
+    CHECK(g_selection_changes.front().start == 9U);
+    CHECK(g_selection_changes.front().end == 9U);
+    CHECK(GetRuntime().focused_handle_ == UI_INVALID_HANDLE);
 }
 
 TEST_CASE("v2 ui private editable mutation helpers cover undo and delete branches", "[v2][ui][unit][editing]") {

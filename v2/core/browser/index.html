@@ -73,6 +73,7 @@
       const CMD_COMMIT_SCENE = 99;
 
       const OP_DRAW_NODE = 1;
+      const ED_IMAGE_SAMPLING_LINEAR = 0;
 
       const ED_BOUNDS_FLAG_INTERACTIVE = 1 << 0;
       const ED_CLIP_MODE_RASTER_SAFE_VISUAL = 0;
@@ -125,7 +126,7 @@
       function pushSvg(words, nodeHandle, svgId, tintColor) {
         words.push(CMD_SET_SVG);
         pushHandle(words, nodeHandle);
-        words.push(svgId >>> 0, tintColor >>> 0);
+        words.push(svgId >>> 0, tintColor >>> 0, ED_IMAGE_SAMPLING_LINEAR, 0);
       }
 
       function pushCommitPaintOrder(words, handles) {

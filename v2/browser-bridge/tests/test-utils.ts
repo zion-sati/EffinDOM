@@ -1,10 +1,10 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
-import { expect, test, type Page } from '@playwright/test';
+import { expect, type Page } from '@playwright/test';
 
 import type { BridgeLoaderInfo } from '../src/core-types';
-import { startStaticServer, type StaticServerHandle } from '../../ui/tests/integration/helpers/static_server';
+import type { StaticServerHandle } from '../../ui/tests/integration/helpers/static_server';
 
 declare global {
   interface Window {
@@ -76,6 +76,11 @@ interface SemanticSceneState {
   readonly imageHandle: string;
 }
 
+interface ClippedSemanticSceneState {
+  readonly partialHandle: string;
+  readonly hiddenHandle: string;
+}
+
 interface GlyphRunSnapshot {
   readonly fontId: number;
   readonly glyphCount: number;
@@ -120,7 +125,6 @@ const CMD_SET_HIGHLIGHTS_COLORED = 45;
 const CMD_COMMIT_PAINT_ORDER = 98;
 const CMD_COMMIT_SCENE = 99;
 
-let server: StaticServerHandle;
 let baseUrl: string;
 
 function getBaseUrl(): string {
@@ -359,7 +363,12 @@ function parseColoredHighlightRects(words: readonly number[], targetHandle: stri
 }
 
 function parseHighlightRects(words: readonly number[], targetHandle: string): HighlightRectSnapshot[] {
-  return parseColoredHighlightRects(words, targetHandle).map(({ color: _color, ...rect }) => rect);
+  return parseColoredHighlightRects(words, targetHandle).map((rect) => ({
+    x: rect.x,
+    y: rect.y,
+    width: rect.width,
+    height: rect.height,
+  }));
 }
 
 async function getWrappedTextIndexPoint(
@@ -384,11 +393,42 @@ async function getWrappedTextIndexPoint(
     ui._ui_request_focus(handleArg);
     runtime.commitFrame();
     runtime.flushPendingCommit();
-    ui._ui_set_text_selection_range(handleArg, targetIndex, targetIndex);
-    runtime.commitFrame();
-    runtime.flushPendingCommit();
-    const baseX = ui._ui_get_text_scene_position_x(handleArg, targetIndex);
-    const baseY = ui._ui_get_text_scene_position_y(handleArg, targetIndex);
+
+    const readRangePoint = (start: number, end: number): { x: number; y: number } | null => {
+      if (start === end) {
+        return null;
+      }
+      const rectCount = ui._ui_get_text_range_rect_count(handleArg, start, end);
+      if (rectCount <= 0) {
+        return null;
+      }
+      const rectWordsPtr = runtime.ui._malloc(rectCount * 4 * 4);
+      try {
+        const copiedCount = ui._ui_copy_text_range_rects(handleArg, start, end, rectWordsPtr, rectCount);
+        if (copiedCount > 0) {
+          const base = Number(rectWordsPtr) >>> 2;
+          const rectX = runtime.ui.HEAPF32[base] ?? 0;
+          const rectY = runtime.ui.HEAPF32[base + 1] ?? 0;
+          const rectWidth = runtime.ui.HEAPF32[base + 2] ?? 0;
+          const rectHeight = runtime.ui.HEAPF32[base + 3] ?? 0;
+          return {
+            x: rectX + (rectWidth * 0.5),
+            y: rectY + (rectHeight * 0.5),
+          };
+        }
+      } finally {
+        runtime.ui._free(rectWordsPtr);
+      }
+      return null;
+    };
+
+    const rangePoint = readRangePoint(targetIndex, targetIndex + 1) ?? readRangePoint(Math.max(0, targetIndex - 1), targetIndex);
+    if (rangePoint !== null) {
+      return rangePoint;
+    }
+
+    const baseX = 0;
+    const baseY = 0;
     for (let radius = 0; radius <= 8; radius += 1) {
       const minY = Math.round(baseY) - radius;
       const maxY = Math.round(baseY) + radius;
@@ -431,7 +471,7 @@ async function getWrappedSelectionDragPoints(
   readonly forwardStart: { readonly x: number; readonly y: number };
   readonly forwardEnd: { readonly x: number; readonly y: number };
 }> {
-  const words = await page.evaluate(async ({ textHandle, start, end }) => {
+  const words = await page.evaluate(({ textHandle, start, end }) => {
     const runtime = window.EffinDomBrowserBridge?.getRuntime();
     if (runtime === null || runtime === undefined) {
       throw new Error('Expected bridge runtime.');
@@ -454,8 +494,11 @@ async function getWrappedSelectionDragPoints(
 
   const highlightRects = parseHighlightRects(words, textHandle);
   expect(highlightRects.length).toBeGreaterThan(0);
-  const firstRect = highlightRects[0]!;
-  const lastRect = highlightRects[highlightRects.length - 1]!;
+  const firstRect = highlightRects[0];
+  const lastRect = highlightRects[highlightRects.length - 1];
+  if (firstRect === undefined || lastRect === undefined) {
+    throw new Error('Expected selection highlight rects.');
+  }
 
   const canvas = page.locator('#fui-canvas');
   const canvasBox = await canvas.boundingBox();
@@ -478,14 +521,21 @@ async function getWrappedSelectionDragPoints(
   };
 }
 
-async function gotoBridgePage(page: Page, query = ''): Promise<void> {
-  await page.addInitScript(() => {
+interface RuntimeConfigOverrides {
+  readonly buildMode?: 'debug' | 'release';
+  readonly devToolsDomMirror?: 'disabled' | 'enabled' | 'on-requested';
+  readonly pageZoom?: 'disabled' | 'enabled';
+}
+
+async function gotoBridgePage(page: Page, query = '', runtimeConfig: RuntimeConfigOverrides = {}): Promise<void> {
+  await page.addInitScript((config: RuntimeConfigOverrides) => {
     (window as typeof window & {
-      __effindomRuntime?: { manifestUrl: string };
+      __effindomRuntime?: { manifestUrl: string } & RuntimeConfigOverrides;
     }).__effindomRuntime = {
       manifestUrl: '/v2/browser-bridge/effindom.v2.manifest.json',
+      ...config,
     };
-  });
+  }, runtimeConfig);
   await page.goto(`${baseUrl}/v2/browser-bridge/index.html${query}`);
   await page.waitForFunction(() => window.__bridgeReady === true || typeof window.__bridgeError === 'string');
   const error = await page.evaluate(() => window.__bridgeError ?? null);
@@ -1115,8 +1165,8 @@ async function buildSemanticScene(page: Page): Promise<SemanticSceneState> {
   });
 }
 
-async function buildClippedSemanticScene(page: Page): Promise<void> {
-  await page.evaluate(() => {
+async function buildClippedSemanticScene(page: Page): Promise<ClippedSemanticSceneState> {
+  return await page.evaluate(() => {
     const runtime = window.EffinDomBrowserBridge?.getRuntime();
     if (runtime === null || runtime === undefined) {
       throw new Error('Bridge runtime is not ready.');
@@ -1193,6 +1243,11 @@ async function buildClippedSemanticScene(page: Page): Promise<void> {
     runtime.commitFrame();
     runtime.flushPendingCommit();
     runtime.resetLogs();
+
+    return {
+      partialHandle: partial,
+      hiddenHandle: hidden,
+    };
   });
 }
 
@@ -1712,16 +1767,18 @@ async function waitForCanvasInk(page: Page, minimumInkPixels: number): Promise<v
   await expect.poll(async () => (await readCanvasInkStats(page)).nonBackgroundPixelCount).toBeGreaterThan(minimumInkPixels);
 }
 
-async function setupServer(): Promise<void> {
+function setupServer(): Promise<void> {
   const port = process.env.BRIDGE_TEST_SERVER_PORT;
   if (!port) {
     throw new Error('BRIDGE_TEST_SERVER_PORT environment variable not set. Global setup may have failed.');
   }
   baseUrl = `http://127.0.0.1:${port}`;
+  return Promise.resolve();
 }
 
-async function teardownServer(): Promise<void> {
+function teardownServer(): Promise<void> {
   // No-op: global teardown will handle server cleanup
+  return Promise.resolve();
 }
 
 export {
@@ -1734,6 +1791,7 @@ export {
   type ScrollSceneState,
   type NestedProxyScrollSceneState,
   type SemanticSceneState,
+  type ClippedSemanticSceneState,
   type GlyphRunSnapshot,
   type HighlightRectSnapshot,
   type CanvasInkStats,

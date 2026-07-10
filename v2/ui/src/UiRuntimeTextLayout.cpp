@@ -187,6 +187,7 @@ bool UiRuntime::BuildCachedLogicalLineShapeImpl(
         shaped.height,
         shaped.baseline,
         IsAsciiOnly(line_text),
+        line_text.find('\t') != std::string_view::npos,
         false,
         {},
         {},
@@ -207,7 +208,7 @@ bool UiRuntime::TryResolveMonospaceFastPathMetrics(
     const ShapedTextRun& shaped,
     float& out_cell_width) const {
     out_cell_width = 0.0f;
-    if (text.empty() || !IsAsciiOnly(text)) {
+    if (text.empty() || !IsAsciiOnly(text) || text.find('\t') != std::string_view::npos) {
         return false;
     }
 
@@ -241,7 +242,7 @@ UiRuntime::ParagraphLayout UiRuntime::LayoutParagraphImpl(const UINode& node, st
     paragraph.line_height = primary_line_box_metrics.height;
 
     const bool disable_soft_wrap =
-        !node.text_wrap || (node.semantic_role == UI_SEMANTIC_TEXTBOX && node.max_lines == 1);
+        !node.text_wrap || (IsSingleLineEditorTextNode(node));
     const float width_limit =
         disable_soft_wrap
         ? kUnlimitedParagraphWidth
@@ -492,18 +493,28 @@ UiRuntime::ParagraphLayout UiRuntime::LayoutParagraphImpl(const UINode& node, st
                     static_cast<std::uint32_t>(end) >= logical_line.visible_start
                     ? (static_cast<std::uint32_t>(end) - logical_line.visible_start)
                     : 0U;
-                visual_width = std::max(
-                    ClusterXForIndex(
-                        logical_line.cluster_stops,
-                        logical_line.width,
-                        local_end,
-                        static_cast<std::size_t>(logical_line.end - logical_line.visible_start)) -
-                    ClusterXForIndex(
-                        logical_line.cluster_stops,
-                        logical_line.width,
-                        local_start,
-                        static_cast<std::size_t>(logical_line.end - logical_line.visible_start)),
-                    0.0f);
+                if (logical_line.has_tabs) {
+                    visual_width = MeasureSingleLineWidth(
+                        std::string_view(
+                            node.text_content.data() + static_cast<std::size_t>(line_start),
+                            static_cast<std::size_t>(end - static_cast<std::int32_t>(line_start))),
+                        node.font_id,
+                        node.font_size,
+                        node.is_obscured);
+                } else {
+                    visual_width = std::max(
+                        ClusterXForIndex(
+                            logical_line.cluster_stops,
+                            logical_line.width,
+                            local_end,
+                            static_cast<std::size_t>(logical_line.end - logical_line.visible_start)) -
+                        ClusterXForIndex(
+                            logical_line.cluster_stops,
+                            logical_line.width,
+                            local_start,
+                            static_cast<std::size_t>(logical_line.end - logical_line.visible_start)),
+                        0.0f);
+                }
                 visual_height = logical_line.height;
                 visual_baseline = logical_line.baseline;
                 visual_ascent = logical_line.ascent;

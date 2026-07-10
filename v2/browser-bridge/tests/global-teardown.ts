@@ -5,7 +5,7 @@ declare global {
   var __serverHandle: Awaited<ReturnType<typeof startStaticServer>> | null;
 }
 
-export default async function globalTeardown(config: FullConfig) {
+export default async function globalTeardown(_config: FullConfig) {
   if (globalThis.__serverHandle) {
     await globalThis.__serverHandle.close();
   }

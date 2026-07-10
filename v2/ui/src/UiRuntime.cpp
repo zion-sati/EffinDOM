@@ -8,6 +8,10 @@
 #include <cctype>
 #include <cmath>
 #include <cstring>
+#include <chrono>
+#include <cctype>
+#include <cmath>
+#include <cstring>
 #include <numeric>
 
 namespace effindom::v2::ui {
@@ -15,9 +19,31 @@ namespace effindom::v2::ui {
 namespace {
 
 using ProfileClock = std::chrono::steady_clock;
+constexpr double kNominalFrameMs = 1000.0 / 60.0;
+constexpr double kMaxFrameDeltaMs = 100.0;
+constexpr float kTerminalMomentumVelocityPxPerSecond = 120.0f;
+constexpr float kTerminalMomentumFriction = 0.88f;
+constexpr float kMomentumStopDisplacementPx = 0.32f;
+constexpr float kSmoothScrollTimeConstantMs = 70.0f;
+constexpr float kSmoothScrollStopDistancePx = 0.2f;
 
 double ElapsedMilliseconds(ProfileClock::time_point start, ProfileClock::time_point end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
+}
+
+bool IsValidTimestamp(double timestamp_ms) {
+    return std::isfinite(timestamp_ms) && timestamp_ms >= 0.0;
+}
+
+double ClampFrameDeltaMs(double delta_ms) {
+    if (!std::isfinite(delta_ms) || delta_ms < 0.0) {
+        return 0.0;
+    }
+    return std::min(delta_ms, kMaxFrameDeltaMs);
+}
+
+float VelocityStopThreshold(float displacement_threshold_px) {
+    return displacement_threshold_px / static_cast<float>(kNominalFrameMs / 1000.0);
 }
 
 bool MatchesShortcutCharacter(std::string_view key, char expected) {
@@ -131,6 +157,93 @@ private:
     std::vector<std::uint32_t>& words_;
 };
 
+class DebugTreeBufferBuilder {
+public:
+    static constexpr std::uint32_t kMagic = 0x44544231U; // DTB1
+    static constexpr std::uint32_t kVersion = 1U;
+    static constexpr std::uint32_t kFixedRecordWords = 52U;
+
+    enum NodeFlags : std::uint32_t {
+        IS_ACTIVE = 1U << 0U,
+        IS_VISIBLE_NORMAL = 1U << 1U,
+        CLIP_TO_BOUNDS = 1U << 2U,
+        IS_CLIPPED_OR_EMPTY = 1U << 3U,
+        HAS_NODE_ID = 1U << 4U,
+        HAS_SEMANTIC_LABEL = 1U << 5U,
+        HAS_BOX_STYLE = 1U << 6U,
+        HAS_LAYER_EFFECT = 1U << 7U,
+        HAS_DROP_SHADOW = 1U << 8U,
+        HAS_BACKGROUND_BLUR = 1U << 9U,
+        HAS_LINEAR_GRADIENT = 1U << 10U,
+        HAS_IMAGE = 1U << 11U,
+        HAS_IMAGE_NINE = 1U << 12U,
+        HAS_SVG = 1U << 13U,
+        HAS_TEXT_STYLE_RUNS = 1U << 14U,
+    };
+
+    enum BehaviorFlags : std::uint32_t {
+        IS_INTERACTIVE = 1U << 0U,
+        IS_FOCUSABLE = 1U << 1U,
+        IS_SELECTABLE = 1U << 2U,
+        IS_EDITABLE = 1U << 3U,
+        IS_PORTAL = 1U << 4U,
+        IS_SCROLL_VIEW = 1U << 5U,
+        IS_GRID = 1U << 6U,
+        IS_SELECTION_AREA = 1U << 7U,
+        IS_SELECTION_AREA_BARRIER = 1U << 8U,
+        IS_CUSTOM_DRAWABLE = 1U << 9U,
+        SCROLL_ENABLED_X = 1U << 10U,
+        SCROLL_ENABLED_Y = 1U << 11U,
+        SHOW_SCROLLBARS = 1U << 12U,
+        IS_TEXT_NODE = 1U << 13U,
+        IS_SVG_NODE = 1U << 14U,
+        EDITOR_COMMAND_KEYS = 1U << 15U,
+        EDITOR_ACCEPTS_TAB = 1U << 16U,
+        IS_TEXT_EDITOR = 1U << 17U,
+    };
+
+    explicit DebugTreeBufferBuilder(std::vector<std::uint32_t>& words)
+        : words_(words) {}
+
+    void Clear() {
+        words_.clear();
+        words_.push_back(kMagic);
+        words_.push_back(kVersion);
+        words_.push_back(kFixedRecordWords);
+        words_.push_back(0U);
+    }
+
+    void AddWord(std::uint32_t value) {
+        words_.push_back(value);
+    }
+
+    void AddFloat(float value) {
+        words_.push_back(CommandBuilder::FloatToWord(value));
+    }
+
+    void AddHandle(std::uint64_t handle) {
+        words_.push_back(static_cast<std::uint32_t>(handle & 0xFFFFFFFFULL));
+        words_.push_back(static_cast<std::uint32_t>(handle >> 32U));
+    }
+
+    void AddString(std::string_view value) {
+        words_.push_back(static_cast<std::uint32_t>(value.size()));
+        const std::size_t word_count = (value.size() + 3U) / 4U;
+        const std::size_t start = words_.size();
+        words_.resize(start + word_count, 0U);
+        if (!value.empty()) {
+            std::memcpy(words_.data() + start, value.data(), value.size());
+        }
+    }
+
+    void FinishRecord() {
+        words_[3] += 1U;
+    }
+
+private:
+    std::vector<std::uint32_t>& words_;
+};
+
 constexpr std::size_t kDefaultTextboxSemanticLabelMaxCodepoints = 1000U;
 
 std::size_t Utf8PrefixLengthForCodepoints(std::string_view text, std::size_t max_codepoints) {
@@ -190,6 +303,7 @@ UiRuntime::UiRuntime()
     : string_arena_(kFrameArenaCapacity, 0U) {
     command_buffer_.reserve(1024);
     semantic_buffer_.reserve(256);
+    debug_tree_buffer_.reserve(512);
 }
 
 void UiRuntime::ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_handle) {
@@ -459,9 +573,11 @@ void UiRuntime::Reset() {
     pending_text_scroll_metric_handles_.clear();
     command_buffer_.clear();
     semantic_buffer_.clear();
+    debug_tree_buffer_.clear();
     semantic_scope_stack_.clear();
     pending_creations_.clear();
     pending_deletions_.clear();
+    pending_prepare_commands_.clear();
     root_handle_ = UI_INVALID_HANDLE;
     last_hovered_handle_ = UI_INVALID_HANDLE;
     pending_caret_visibility_handle_ = UI_INVALID_HANDLE;
@@ -472,10 +588,17 @@ void UiRuntime::Reset() {
     text_find_end_ = 0U;
     text_find_highlights_.clear();
     active_selection_dragged_ = false;
+    selection_handle_drag_active_ = false;
+    active_selection_drag_endpoint_ = 1U;
+    active_selection_stationary_index_ = 0U;
     active_scroll_handle_ = UI_INVALID_HANDLE;
     active_touch_scroll_handle_x_ = UI_INVALID_HANDLE;
     active_touch_scroll_handle_y_ = UI_INVALID_HANDLE;
     active_scroll_dragged_ = false;
+    has_last_touch_scroll_timestamp_ = false;
+    last_touch_scroll_timestamp_ms_ = 0.0;
+    has_last_commit_timestamp_ = false;
+    last_commit_timestamp_ms_ = 0.0;
     coarse_pointer_mode_ = false;
     platform_family_ = PlatformFamily::Unknown;
     primary_pointer_down_ = false;
@@ -486,11 +609,15 @@ void UiRuntime::Reset() {
     last_click_handle_ = UI_INVALID_HANDLE;
     last_click_x_ = 0.0f;
     last_click_y_ = 0.0f;
+    touch_text_tap_handle_ = UI_INVALID_HANDLE;
+    touch_text_tap_logical_x_ = 0.0f;
+    touch_text_tap_logical_y_ = 0.0f;
+    touch_text_tap_moved_ = false;
     click_count_ = 0;
     last_click_time_ms_ = 0;
-    current_modifiers_ = 0;
     selection_anchor_handle_ = UI_INVALID_HANDLE;
     selection_anchor_index_ = 0;
+    active_selection_stationary_index_ = 0U;
     selection_horizontal_extend_active_ = false;
     cross_selection_active_ = false;
     cross_selection_dragged_ = false;
@@ -512,6 +639,7 @@ void UiRuntime::Reset() {
     reported_missing_font_coverage_keys_.clear();
     next_semantic_scope_token_ = 1U;
     ClearTextCommitProfile();
+    ClearDynamicTextPrepareProfile();
     ResetFrameArena();
 }
 
@@ -536,6 +664,34 @@ void UiRuntime::FinishCurrentTextCommitProfile(double total_commit_ms) const {
     text_commit_profile_active_ = false;
 }
 
+const UiRuntime::DynamicTextPrepareProfile& UiRuntime::last_dynamic_text_prepare_profile() const {
+    return last_dynamic_text_prepare_profile_;
+}
+
+void UiRuntime::ClearDynamicTextPrepareProfile() {
+    current_dynamic_text_prepare_profile_ = DynamicTextPrepareProfile{};
+    last_dynamic_text_prepare_profile_ = DynamicTextPrepareProfile{};
+    dynamic_text_prepare_profile_active_ = false;
+}
+
+void UiRuntime::ResetCurrentDynamicTextPrepareProfile() const {
+    current_dynamic_text_prepare_profile_ = DynamicTextPrepareProfile{};
+    dynamic_text_prepare_profile_active_ = true;
+}
+
+void UiRuntime::FinishCurrentDynamicTextPrepareProfile(double total_prepare_ms) const {
+    current_dynamic_text_prepare_profile_.total_prepare_ms = total_prepare_ms;
+    last_dynamic_text_prepare_profile_ = current_dynamic_text_prepare_profile_;
+    dynamic_text_prepare_profile_active_ = false;
+}
+
+void UiRuntime::RecordDynamicTextFastPathFallback() const {
+    if (!dynamic_text_prepare_profile_active_) {
+        return;
+    }
+    current_dynamic_text_prepare_profile_.fast_path_fallbacks += 1U;
+}
+
 void UiRuntime::SetPlatformFamily(std::uint32_t platform_family) {
     switch (static_cast<PlatformFamily>(platform_family)) {
     case PlatformFamily::Apple:
@@ -558,9 +714,9 @@ float UiRuntime::DefaultTouchScrollFriction() const {
         return 0.95f;
     }
     if (platform_family_ == PlatformFamily::Apple) {
-        return 0.988f;
+        return 0.960f;
     }
-    return 0.982f;
+    return 0.955f;
 }
 
 float UiRuntime::ResolveScrollFriction(const UINode& node) const {
@@ -718,7 +874,7 @@ void UiRuntime::UpdateScrollMetrics(std::uint64_t handle, UINode& node) {
             child_content_width = std::max(child_content_width, paragraph.width);
             const bool has_horizontal_text_overflow =
                 paragraph.width > (child_text_bounds.width + 0.001f);
-            if ((child->is_editable || child->semantic_role == UI_SEMANTIC_TEXTBOX) &&
+            if ((child->is_editable || IsEditorTextNode(*child)) &&
                 has_horizontal_text_overflow) {
                 child_content_width += FocusedTextCaretScrollOverscan(*child);
             }
@@ -758,13 +914,26 @@ void UiRuntime::UpdateScrollMetrics(std::uint64_t handle, UINode& node) {
     }
 }
 
-void UiRuntime::CommitFrame() {
+void UiRuntime::CommitFrame(double timestamp_ms) {
     const ProfileClock::time_point commit_start = ProfileClock::now();
+    double scroll_delta_ms = kNominalFrameMs;
+    if (IsValidTimestamp(timestamp_ms)) {
+        if (has_last_commit_timestamp_) {
+            scroll_delta_ms = ClampFrameDeltaMs(timestamp_ms - last_commit_timestamp_ms_);
+        }
+        last_commit_timestamp_ms_ = timestamp_ms;
+        has_last_commit_timestamp_ = true;
+    } else if (has_last_commit_timestamp_) {
+        last_commit_timestamp_ms_ += kNominalFrameMs;
+    }
+    const float scroll_delta_seconds = static_cast<float>(scroll_delta_ms / 1000.0);
     ResetCurrentTextCommitProfile();
     command_buffer_.clear();
     ResetFrameArena();
     SemanticBufferBuilder semantic_builder(semantic_buffer_);
     semantic_builder.Clear();
+    DebugTreeBufferBuilder debug_tree_builder(debug_tree_buffer_);
+    debug_tree_builder.Clear();
 
     CommandBuilder builder(command_buffer_);
 
@@ -780,6 +949,14 @@ void UiRuntime::CommitFrame() {
         }
     }
     pending_creations_.clear();
+
+    // Merge any pending prepare commands (from ui_prepare_node) into the buffer
+    if (!pending_prepare_commands_.empty()) {
+        command_buffer_.insert(command_buffer_.end(),
+                               pending_prepare_commands_.begin(),
+                               pending_prepare_commands_.end());
+        pending_prepare_commands_.clear();
+    }
 
     UINode* root = ResolveMutable(root_handle_);
     if (root == nullptr || root->yg_node == nullptr) {
@@ -864,24 +1041,60 @@ void UiRuntime::CommitFrame() {
         }
         const std::uint64_t handle =
             (static_cast<std::uint64_t>(node.generation) << 32U) | static_cast<std::uint64_t>(index);
+        if (node.smooth_scroll_active) {
+            const float blend = scroll_delta_ms <= 0.0
+                ? 0.0f
+                : 1.0f - std::exp(-static_cast<float>(scroll_delta_ms) / kSmoothScrollTimeConstantMs);
+            const float remaining_x = node.smooth_scroll_target_x - node.scroll_offset_x;
+            const float remaining_y = node.smooth_scroll_target_y - node.scroll_offset_y;
+            const bool reached_target =
+                std::abs(remaining_x) <= kSmoothScrollStopDistancePx &&
+                std::abs(remaining_y) <= kSmoothScrollStopDistancePx;
+            const float next_x = reached_target
+                ? node.smooth_scroll_target_x
+                : node.scroll_offset_x + (remaining_x * blend);
+            const float next_y = reached_target
+                ? node.smooth_scroll_target_y
+                : node.scroll_offset_y + (remaining_y * blend);
+            const bool changed = ApplyScrollOffset(handle, node, next_x, next_y, true);
+            if (reached_target || !changed) {
+                node.smooth_scroll_active = false;
+                node.smooth_scroll_target_x = node.scroll_offset_x;
+                node.smooth_scroll_target_y = node.scroll_offset_y;
+            }
+            continue;
+        }
         if (active_scroll_handle_ == handle ||
             active_touch_scroll_handle_x_ == handle ||
             active_touch_scroll_handle_y_ == handle) {
             continue;
         }
-        if (std::abs(node.scroll_velocity_x) < 0.001f && std::abs(node.scroll_velocity_y) < 0.001f) {
+        if (std::abs(node.scroll_velocity_x) < VelocityStopThreshold(0.001f) &&
+            std::abs(node.scroll_velocity_y) < VelocityStopThreshold(0.001f)) {
             node.scroll_velocity_x = 0.0f;
             node.scroll_velocity_y = 0.0f;
             continue;
         }
-        const float next_x = node.scroll_offset_x + node.scroll_velocity_x;
-        const float next_y = node.scroll_offset_y + node.scroll_velocity_y;
-        const bool changed = ApplyScrollOffset(handle, node, next_x, next_y, true);
         const float friction = ResolveScrollFriction(node);
-        node.scroll_velocity_x *= friction;
-        node.scroll_velocity_y *= friction;
+        const float frame_factor = static_cast<float>(scroll_delta_ms / kNominalFrameMs);
+        float effective_friction = friction;
+        const float max_velocity = std::max(std::abs(node.scroll_velocity_x), std::abs(node.scroll_velocity_y));
+        if (max_velocity < kTerminalMomentumVelocityPxPerSecond && frame_factor > 0.0f) {
+            effective_friction *= kTerminalMomentumFriction;
+        }
+        const float decay = frame_factor <= 0.0f ? 1.0f : std::pow(effective_friction, frame_factor);
+        const float nominal_seconds = static_cast<float>(kNominalFrameMs / 1000.0);
+        const float displacement_factor = effective_friction > 0.0f && effective_friction < 1.0f
+            ? nominal_seconds * ((1.0f - decay) / (1.0f - effective_friction))
+            : scroll_delta_seconds;
+        const float next_x = node.scroll_offset_x + (node.scroll_velocity_x * displacement_factor);
+        const float next_y = node.scroll_offset_y + (node.scroll_velocity_y * displacement_factor);
+        const bool changed = ApplyScrollOffset(handle, node, next_x, next_y, true);
+        node.scroll_velocity_x *= decay;
+        node.scroll_velocity_y *= decay;
         if (!changed ||
-            (std::abs(node.scroll_velocity_x) < 0.1f && std::abs(node.scroll_velocity_y) < 0.1f)) {
+            (std::abs(node.scroll_velocity_x) < VelocityStopThreshold(kMomentumStopDisplacementPx) &&
+             std::abs(node.scroll_velocity_y) < VelocityStopThreshold(kMomentumStopDisplacementPx))) {
             node.scroll_velocity_x = 0.0f;
             node.scroll_velocity_y = 0.0f;
         }
@@ -974,6 +1187,21 @@ void UiRuntime::CommitFrame() {
             if (!node->is_text_node || label.empty()) {
                 continue;
             }
+            bool has_semantic_ancestor = false;
+            for (std::uint64_t current = node->parent_handle; current != UI_INVALID_HANDLE;) {
+                const UINode* ancestor = Resolve(current);
+                if (ancestor == nullptr) {
+                    break;
+                }
+                if (ancestor->semantic_role != UI_SEMANTIC_NONE) {
+                    has_semantic_ancestor = true;
+                    break;
+                }
+                current = ancestor->parent_handle;
+            }
+            if (has_semantic_ancestor) {
+                continue;
+            }
             semantic_role = UI_SEMANTIC_STATIC_TEXT;
         }
         if (semantic_scope_root != UI_INVALID_HANDLE && !SubtreeContains(semantic_scope_root, handle)) {
@@ -1015,10 +1243,208 @@ void UiRuntime::CommitFrame() {
     }
     current_text_commit_profile_.semantic_sync_ms += ElapsedMilliseconds(semantic_start, ProfileClock::now());
 
+    BuildDebugTreeBuffer();
+
     builder.CommitPaintOrder(paint_order);
     builder.CommitScene(scene);
     layout_dirty_ = needs_follow_up_layout;
     FinishCurrentTextCommitProfile(ElapsedMilliseconds(commit_start, ProfileClock::now()));
+}
+
+void UiRuntime::BuildDebugTreeBuffer() {
+    DebugTreeBufferBuilder builder(debug_tree_buffer_);
+    builder.Clear();
+    if (root_handle_ == UI_INVALID_HANDLE) {
+        return;
+    }
+    AppendDebugTreeRecord(root_handle_, UI_INVALID_HANDLE);
+}
+
+void UiRuntime::AppendDebugTreeRecord(std::uint64_t handle, std::uint64_t nearest_scroll_ancestor) {
+    const UINode* node = Resolve(handle);
+    if (node == nullptr || !node->is_active) {
+        return;
+    }
+
+    DebugTreeBufferBuilder builder(debug_tree_buffer_);
+    const Rect bounds{
+        node->abs_x,
+        node->abs_y,
+        std::max(0.0f, node->layout_width),
+        std::max(0.0f, node->layout_height),
+    };
+    const Rect visible_bounds = ComputeVisibleBounds(*node);
+    const EdgeInsets padding = ComputePaddingInsets(*node);
+    const EdgeInsets border = ComputeBorderInsets(*node);
+    const float margin_left = node->yg_node != nullptr ? YGNodeLayoutGetMargin(node->yg_node, YGEdgeLeft) : 0.0f;
+    const float margin_top = node->yg_node != nullptr ? YGNodeLayoutGetMargin(node->yg_node, YGEdgeTop) : 0.0f;
+    const float margin_right = node->yg_node != nullptr ? YGNodeLayoutGetMargin(node->yg_node, YGEdgeRight) : 0.0f;
+    const float margin_bottom = node->yg_node != nullptr ? YGNodeLayoutGetMargin(node->yg_node, YGEdgeBottom) : 0.0f;
+    const bool has_visible_bounds = visible_bounds.width > 0.0f && visible_bounds.height > 0.0f;
+    const bool clipped_or_empty =
+        !has_visible_bounds ||
+        std::abs(visible_bounds.x - bounds.x) >= 0.001f ||
+        std::abs(visible_bounds.y - bounds.y) >= 0.001f ||
+        std::abs(visible_bounds.width - bounds.width) >= 0.001f ||
+        std::abs(visible_bounds.height - bounds.height) >= 0.001f;
+    const std::string semantic_label = BuildSemanticLabel(*node);
+
+    std::uint32_t node_flags = DebugTreeBufferBuilder::IS_ACTIVE;
+    if (node->visibility == UI_VISIBILITY_NORMAL) {
+        node_flags |= DebugTreeBufferBuilder::IS_VISIBLE_NORMAL;
+    }
+    if (node->clip_to_bounds) {
+        node_flags |= DebugTreeBufferBuilder::CLIP_TO_BOUNDS;
+    }
+    if (clipped_or_empty) {
+        node_flags |= DebugTreeBufferBuilder::IS_CLIPPED_OR_EMPTY;
+    }
+    if (!node->node_id.empty()) {
+        node_flags |= DebugTreeBufferBuilder::HAS_NODE_ID;
+    }
+    if (!semantic_label.empty()) {
+        node_flags |= DebugTreeBufferBuilder::HAS_SEMANTIC_LABEL;
+    }
+    if (node->has_box_style) {
+        node_flags |= DebugTreeBufferBuilder::HAS_BOX_STYLE;
+    }
+    if (node->has_layer_effect) {
+        node_flags |= DebugTreeBufferBuilder::HAS_LAYER_EFFECT;
+    }
+    if (node->has_drop_shadow) {
+        node_flags |= DebugTreeBufferBuilder::HAS_DROP_SHADOW;
+    }
+    if (node->has_background_blur) {
+        node_flags |= DebugTreeBufferBuilder::HAS_BACKGROUND_BLUR;
+    }
+    if (node->has_linear_gradient) {
+        node_flags |= DebugTreeBufferBuilder::HAS_LINEAR_GRADIENT;
+    }
+    if (node->has_image) {
+        node_flags |= DebugTreeBufferBuilder::HAS_IMAGE;
+    }
+    if (node->has_image_nine) {
+        node_flags |= DebugTreeBufferBuilder::HAS_IMAGE_NINE;
+    }
+    if (node->has_svg) {
+        node_flags |= DebugTreeBufferBuilder::HAS_SVG;
+    }
+    if (node->has_text_style_runs) {
+        node_flags |= DebugTreeBufferBuilder::HAS_TEXT_STYLE_RUNS;
+    }
+
+    std::uint32_t behavior_flags = 0U;
+    if (node->is_interactive) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_INTERACTIVE;
+    }
+    if (node->is_focusable) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_FOCUSABLE;
+    }
+    if (node->is_selectable) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_SELECTABLE;
+    }
+    if (node->is_editable) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_EDITABLE;
+    }
+    if (node->is_text_editor) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_TEXT_EDITOR;
+    }
+    if (node->is_portal) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_PORTAL;
+    }
+    if (node->is_scroll_view) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_SCROLL_VIEW;
+    }
+    if (node->is_grid) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_GRID;
+    }
+    if (node->is_selection_area) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_SELECTION_AREA;
+    }
+    if (node->is_selection_area_barrier) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_SELECTION_AREA_BARRIER;
+    }
+    if (node->is_custom_drawable) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_CUSTOM_DRAWABLE;
+    }
+    if (node->scroll_enabled_x) {
+        behavior_flags |= DebugTreeBufferBuilder::SCROLL_ENABLED_X;
+    }
+    if (node->scroll_enabled_y) {
+        behavior_flags |= DebugTreeBufferBuilder::SCROLL_ENABLED_Y;
+    }
+    if (node->show_scrollbars) {
+        behavior_flags |= DebugTreeBufferBuilder::SHOW_SCROLLBARS;
+    }
+    if (node->is_text_node) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_TEXT_NODE;
+    }
+    if (node->is_svg_node) {
+        behavior_flags |= DebugTreeBufferBuilder::IS_SVG_NODE;
+    }
+    if (node->uses_editor_command_keys) {
+        behavior_flags |= DebugTreeBufferBuilder::EDITOR_COMMAND_KEYS;
+    }
+    if (node->accepts_tab) {
+        behavior_flags |= DebugTreeBufferBuilder::EDITOR_ACCEPTS_TAB;
+    }
+
+    builder.AddHandle(handle);
+    builder.AddHandle(node->parent_handle);
+    builder.AddWord(node->node_type);
+    builder.AddWord(node_flags);
+    builder.AddWord(behavior_flags);
+    builder.AddWord(static_cast<std::uint32_t>(node->semantic_role));
+    builder.AddFloat(bounds.x);
+    builder.AddFloat(bounds.y);
+    builder.AddFloat(bounds.width);
+    builder.AddFloat(bounds.height);
+    builder.AddFloat(visible_bounds.x);
+    builder.AddFloat(visible_bounds.y);
+    builder.AddFloat(has_visible_bounds ? visible_bounds.width : 0.0f);
+    builder.AddFloat(has_visible_bounds ? visible_bounds.height : 0.0f);
+    builder.AddFloat(padding.left);
+    builder.AddFloat(padding.top);
+    builder.AddFloat(padding.right);
+    builder.AddFloat(padding.bottom);
+    builder.AddFloat(margin_left);
+    builder.AddFloat(margin_top);
+    builder.AddFloat(margin_right);
+    builder.AddFloat(margin_bottom);
+    builder.AddFloat(border.left);
+    builder.AddFloat(border.top);
+    builder.AddFloat(border.right);
+    builder.AddFloat(border.bottom);
+    builder.AddWord(node->bg_color);
+    builder.AddWord(node->border_color);
+    builder.AddWord(node->border_style);
+    builder.AddFloat(node->corner_radius_tl);
+    builder.AddFloat(node->corner_radius_tr);
+    builder.AddFloat(node->corner_radius_br);
+    builder.AddFloat(node->corner_radius_bl);
+    builder.AddFloat(node->opacity);
+    builder.AddWord(node->font_id);
+    builder.AddFloat(node->font_size);
+    builder.AddWord(node->text_color);
+    builder.AddHandle(nearest_scroll_ancestor);
+    builder.AddFloat(node->scroll_offset_x);
+    builder.AddFloat(node->scroll_offset_y);
+    builder.AddFloat(node->scroll_content_width);
+    builder.AddFloat(node->scroll_content_height);
+    builder.AddFloat(GetScrollViewportWidth(*node));
+    builder.AddFloat(GetScrollViewportHeight(*node));
+    builder.AddHandle(node->scroll_proxy_target_handle);
+    builder.AddWord(node->text_align);
+    builder.AddWord(node->text_vertical_align);
+    builder.AddWord(static_cast<std::uint32_t>(node->visibility));
+    builder.AddString(node->node_id);
+    builder.AddString(semantic_label);
+    builder.FinishRecord();
+
+    const std::uint64_t child_scroll_ancestor = node->is_scroll_view ? handle : nearest_scroll_ancestor;
+    for (const std::uint64_t child_handle : node->children) {
+        AppendDebugTreeRecord(child_handle, child_scroll_ancestor);
+    }
 }
 
 void UiRuntime::EnsureHandleVisible(std::uint64_t handle) {
@@ -1082,6 +1508,18 @@ const UINode* UiRuntime::ResolveTextSnapshotNode(std::uint64_t handle) const {
     return node;
 }
 
+const UINode* UiRuntime::ResolveTextGeometryNode(std::uint64_t handle) const {
+    const UINode* node = Resolve(handle);
+    if (node == nullptr ||
+        !node->is_active ||
+        !node->is_text_node ||
+        node->visibility != UI_VISIBILITY_NORMAL ||
+        !IsAttachedToRoot(handle)) {
+        return nullptr;
+    }
+    return node;
+}
+
 void UiRuntime::AppendTextSnapshotHandles(std::uint64_t handle, std::vector<std::uint64_t>& out) const {
     const UINode* node = Resolve(handle);
     if (node == nullptr || !node->is_active || node->visibility != UI_VISIBILITY_NORMAL) {
@@ -1102,6 +1540,18 @@ std::vector<std::uint64_t> UiRuntime::GetTextSnapshotHandles() const {
     }
     AppendTextSnapshotHandles(root_handle_, handles);
     return handles;
+}
+
+std::optional<Rect> UiRuntime::GetVisibleBounds(std::uint64_t handle) const {
+    const UINode* node = Resolve(handle);
+    if (node == nullptr) {
+        return std::nullopt;
+    }
+    const Rect bounds = ComputeVisibleBounds(*node);
+    if (bounds.width <= 0.0f || bounds.height <= 0.0f) {
+        return std::nullopt;
+    }
+    return bounds;
 }
 
 std::optional<std::string_view> UiRuntime::GetTextSnapshotDocument(std::uint64_t handle) const {
@@ -1340,6 +1790,15 @@ const std::vector<std::uint32_t>& UiRuntime::semantic_buffer() const {
     return semantic_buffer_;
 }
 
+const std::vector<std::uint32_t>& UiRuntime::debug_tree_buffer() const {
+    return debug_tree_buffer_;
+}
+
+const std::vector<std::uint32_t>& UiRuntime::LiveFallbackFontBuffer() const {
+    RebuildLiveFallbackFontBuffer();
+    return live_fallback_font_buffer_;
+}
+
 const std::uint64_t& UiRuntime::root_handle() const {
     return root_handle_;
 }
@@ -1365,6 +1824,7 @@ bool UiRuntime::HasPendingVisualWork() const {
             node.text_selection_visuals_dirty ||
             node.scroll_offset_dirty ||
             node.has_pending_scroll_offset ||
+            node.smooth_scroll_active ||
             std::abs(node.scroll_velocity_x) >= 0.001f ||
             std::abs(node.scroll_velocity_y) >= 0.001f) {
             return true;
@@ -1380,7 +1840,8 @@ bool UiRuntime::NeedsAnimationFrame() const {
         if (!node.is_active || !node.is_scroll_view) {
             continue;
         }
-        if (std::abs(node.scroll_velocity_x) >= 0.001f || std::abs(node.scroll_velocity_y) >= 0.001f) {
+        if (node.smooth_scroll_active ||
+            std::abs(node.scroll_velocity_x) >= 0.001f || std::abs(node.scroll_velocity_y) >= 0.001f) {
             return true;
         }
     }
@@ -1488,7 +1949,7 @@ void UiRuntime::WalkTree(
         text_paragraph =
             LayoutParagraph(*node, text_bounds.width > 0.0f ? std::optional<float>(text_bounds.width) : std::nullopt);
         const bool uses_internal_textbox_viewport =
-            node->semantic_role == UI_SEMANTIC_TEXTBOX && node->max_lines == 1;
+            IsSingleLineEditorTextNode(*node);
         if (!node->text_wrap && !uses_internal_textbox_viewport) {
             Rect nonwrap_visible_bounds{
                 abs_x,
@@ -1614,14 +2075,43 @@ void UiRuntime::WalkTree(
         (needs_content_update && !selection_visuals_only_update) ||
         (scroll_dirty && node->is_interactive);
 
-    if (auto_scroll_active_ && active_selection_handle_ == handle && node->is_text_node && node->is_selectable) {
+    if (auto_scroll_active_ &&
+        touch_text_tap_moved_ &&
+        touch_text_tap_handle_ == handle &&
+        node->is_text_node &&
+        node->is_selectable &&
+        (node->is_editable || IsEditorTextNode(*node))) {
+        const auto [clamped_x, clamped_y] = ClampPointToScrollViewport(handle, last_pointer_logical_x_, last_pointer_logical_y_);
+        const std::uint32_t next_selection = GetStringIndexFromPoint(
+            *node,
+            clamped_x - abs_x,
+            clamped_y - abs_y);
+        if (node->selection_start != next_selection || node->selection_end != next_selection) {
+            node->selection_start = next_selection;
+            node->selection_end = next_selection;
+            node->caret_trailing_edge = false;
+            MarkTextSelectionVisualsDirty(*node);
+            as_on_selection_changed(handle, node->selection_start, node->selection_end);
+        }
+    } else if (auto_scroll_active_ && active_selection_handle_ == handle && node->is_text_node && node->is_selectable) {
         const auto [clamped_x, clamped_y] = ClampPointToScrollViewport(handle, last_pointer_logical_x_, last_pointer_logical_y_);
         const std::uint32_t next_selection_end = GetStringIndexFromPoint(
             *node,
             clamped_x - abs_x,
             clamped_y - abs_y);
-        if (node->selection_end != next_selection_end) {
-            node->selection_end = next_selection_end;
+        std::uint32_t& dragged_endpoint =
+            active_selection_drag_endpoint_ == 0U
+            ? node->selection_start
+            : node->selection_end;
+        const std::uint32_t previous_start = node->selection_start;
+        const std::uint32_t previous_end = node->selection_end;
+        if (selection_handle_drag_active_) {
+            node->selection_start = std::min(active_selection_stationary_index_, next_selection_end);
+            node->selection_end = std::max(active_selection_stationary_index_, next_selection_end);
+        } else {
+            dragged_endpoint = next_selection_end;
+        }
+        if (node->selection_start != previous_start || node->selection_end != previous_end) {
             as_on_selection_changed(
                 handle,
                 node->selection_start,
@@ -1754,7 +2244,12 @@ void UiRuntime::WalkTree(
                     node->gradient_stops);
             }
             if (node->has_image) {
-                builder.SetImage(handle, node->texture_id, node->object_fit);
+                builder.SetImage(
+                    handle,
+                    node->texture_id,
+                    node->object_fit,
+                    node->image_sampling,
+                    node->image_max_aniso);
             }
             if (node->has_image_nine) {
                 builder.SetImageNine(
@@ -1763,17 +2258,24 @@ void UiRuntime::WalkTree(
                     node->image_nine_inset_left,
                     node->image_nine_inset_top,
                     node->image_nine_inset_right,
-                    node->image_nine_inset_bottom);
+                    node->image_nine_inset_bottom,
+                    node->image_nine_sampling,
+                    node->image_nine_max_aniso);
             }
             if (node->is_svg_node || node->has_svg) {
-                builder.SetSvg(handle, node->has_svg ? node->svg_id : 0U, node->svg_tint_color);
+                builder.SetSvg(
+                    handle,
+                    node->has_svg ? node->svg_id : 0U,
+                    node->svg_tint_color,
+                    node->svg_sampling,
+                    node->svg_max_aniso);
             }
         }
 
         if (node->is_text_node) {
             const ParagraphLayout& paragraph = text_paragraph;
             const bool uses_internal_textbox_viewport =
-                node->semantic_role == UI_SEMANTIC_TEXTBOX && node->max_lines == 1;
+                IsSingleLineEditorTextNode(*node);
             const float text_offset_y = GetAlignedTextYOffset(*node, paragraph.height);
             if (!selection_visuals_only_update) {
                 std::vector<GlyphPlacement> glyphs{};
@@ -1892,16 +2394,12 @@ void UiRuntime::WalkTree(
                                      shaped,
                                      static_cast<std::uint32_t>(paragraph.break_offsets[line_index]),
                                      static_cast<std::uint32_t>(paragraph.break_offsets[line_index + 1U])));
-                    for (const GlyphPlacement& glyph : shaped.glyphs) {
-                        glyphs.push_back(GlyphPlacement{
-                            glyph.glyph_id,
-                            x_offset - viewport_offset_x + fragment_x_offset + glyph.x,
-                            line_y + line_ascent - glyph.y,
-                            glyph.cluster,
-                            glyph.font_id,
-                            glyph.color != 0U ? glyph.color : node->text_color,
-                        });
-                    }
+                    AppendResolvedGlyphPlacements(
+                        *node,
+                        shaped,
+                        x_offset - viewport_offset_x + fragment_x_offset,
+                        line_y + line_ascent,
+                        glyphs);
                 }
                 node->text_render_window_valid = text_render_window_visible;
                 node->text_render_line_start = text_render_line_start;
@@ -1909,17 +2407,7 @@ void UiRuntime::WalkTree(
                 node->nonwrap_render_fragment_window_valid = nonwrap_fragment_window_visible;
                 node->nonwrap_render_fragment_start = nonwrap_fragment_window.start;
                 node->nonwrap_render_fragment_end = nonwrap_fragment_window.end;
-                const bool has_per_glyph_color = std::any_of(
-                    glyphs.begin(),
-                    glyphs.end(),
-                    [node](const GlyphPlacement& glyph) {
-                        return glyph.color != 0U && glyph.color != node->text_color;
-                    });
-                if (has_per_glyph_color) {
-                    builder.SetGlyphRunColored(handle, node->font_id, node->font_size, glyphs);
-                } else {
-                    builder.SetGlyphRun(handle, node->font_id, node->font_size, node->text_color, glyphs);
-                }
+                EmitTextGlyphRun(builder, handle, *node, glyphs);
             }
             builder.SetCaret(handle, scene_x, scene_y, 0.0f, 0U, 0U);
             const std::vector<ColoredRect> background_rects = BuildStyleInlineRects(*node);
@@ -1993,12 +2481,15 @@ void UiRuntime::WalkTree(
                     highlights.empty() &&
                     focused_handle_ == handle &&
                     !has_cross_highlight &&
-                    (node->is_editable || node->semantic_role == UI_SEMANTIC_TEXTBOX)) {
-                    const auto [local_x, line_index] = GetLocalPositionFromIndex(*node, caret_index);
+                    (node->is_editable || IsEditorTextNode(*node))) {
+                    const bool caret_trailing_edge =
+                        node->selection_start == node->selection_end && node->caret_trailing_edge;
+                    const auto [local_x, line_index] =
+                        GetLocalPositionFromIndex(*node, caret_index, caret_trailing_edge);
                     const std::size_t caret_line_index = static_cast<std::size_t>(line_index);
                     const bool uses_fragment_geometry =
                         !node->text_wrap &&
-                        !(node->semantic_role == UI_SEMANTIC_TEXTBOX && node->max_lines == 1) &&
+                        !(IsSingleLineEditorTextNode(*node)) &&
                         node->nonwrap_fragment_cache_valid;
                     float caret_height = GetLineHeightForIndex(*node, caret_line_index);
                     if (!uses_fragment_geometry) {

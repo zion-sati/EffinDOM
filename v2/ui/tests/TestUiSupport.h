@@ -123,6 +123,36 @@ inline void RegisterEmojiTestFont(std::uint32_t font_id = 4U) {
     ui_register_font(font_id, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
 }
 
+inline void UiTestPointerEvent(
+    std::uint32_t event_enum,
+    ui_handle_t handle,
+    float logical_x,
+    float logical_y,
+    std::int32_t pointer_id = -1,
+    std::uint32_t pointer_type = UI_POINTER_TYPE_MOUSE,
+    std::int32_t button = 0,
+    std::uint32_t buttons = 0,
+    float pressure = 0.0f,
+    float width = 0.0f,
+    float height = 0.0f,
+    std::int32_t click_count = 0,
+    std::uint32_t modifiers = 0) {
+    ui_on_pointer_event(
+        static_cast<UiEvent>(event_enum),
+        handle,
+        logical_x,
+        logical_y,
+        pointer_id,
+        static_cast<UiPointerType>(pointer_type),
+        button,
+        buttons,
+        pressure,
+        width,
+        height,
+        click_count,
+        modifiers);
+}
+
 inline std::vector<std::uint32_t> ReadCommandBuffer() {
     std::uint32_t word_count = 0;
     const std::uint32_t* words = ui_get_command_buffer(&word_count);
@@ -135,6 +165,15 @@ inline std::vector<std::uint32_t> ReadCommandBuffer() {
 inline std::vector<std::uint32_t> ReadSemanticBuffer() {
     std::uint32_t word_count = 0;
     const std::uint32_t* words = ui_get_semantic_buffer(&word_count);
+    if (words == nullptr || word_count == 0) {
+        return {};
+    }
+    return std::vector<std::uint32_t>(words, words + word_count);
+}
+
+inline std::vector<std::uint32_t> ReadDebugTreeBuffer() {
+    std::uint32_t word_count = 0;
+    const std::uint32_t* words = ui_get_debug_tree_buffer(&word_count);
     if (words == nullptr || word_count == 0) {
         return {};
     }
@@ -165,6 +204,60 @@ inline constexpr std::uint32_t kSemanticHasReadonly = 1U << 7U;
 inline constexpr std::uint32_t kSemanticIsReadonly = 1U << 8U;
 inline constexpr std::uint32_t kSemanticHasMultiline = 1U << 9U;
 inline constexpr std::uint32_t kSemanticIsMultiline = 1U << 10U;
+
+inline constexpr std::uint32_t kDebugTreeMagic = 0x44544231U;
+inline constexpr std::uint32_t kDebugTreeVersion = 1U;
+inline constexpr std::uint32_t kDebugTreeFixedRecordWords = 52U;
+inline constexpr std::uint32_t kDebugTreeFlagVisibleNormal = 1U << 1U;
+inline constexpr std::uint32_t kDebugTreeFlagClippedOrEmpty = 1U << 3U;
+inline constexpr std::uint32_t kDebugTreeFlagHasNodeId = 1U << 4U;
+inline constexpr std::uint32_t kDebugTreeFlagHasSemanticLabel = 1U << 5U;
+inline constexpr std::uint32_t kDebugTreeFlagHasBoxStyle = 1U << 6U;
+inline constexpr std::uint32_t kDebugTreeBehaviorInteractive = 1U << 0U;
+inline constexpr std::uint32_t kDebugTreeBehaviorFocusable = 1U << 1U;
+inline constexpr std::uint32_t kDebugTreeBehaviorScrollView = 1U << 5U;
+inline constexpr std::uint32_t kDebugTreeBehaviorScrollEnabledX = 1U << 10U;
+inline constexpr std::uint32_t kDebugTreeBehaviorScrollEnabledY = 1U << 11U;
+inline constexpr std::uint32_t kDebugTreeBehaviorShowScrollbars = 1U << 12U;
+inline constexpr std::uint32_t kDebugTreeBehaviorText = 1U << 13U;
+
+struct DebugTreeRecord {
+    std::uint64_t handle = UI_INVALID_HANDLE;
+    std::uint64_t parent = UI_INVALID_HANDLE;
+    std::uint32_t node_type = 0U;
+    std::uint32_t flags = 0U;
+    std::uint32_t behavior_flags = 0U;
+    std::uint32_t semantic_role = 0U;
+    Bounds bounds{};
+    Bounds visible_bounds{};
+    Bounds padding{};
+    Bounds margin{};
+    Bounds border{};
+    std::uint32_t bg_color = 0U;
+    std::uint32_t border_color = 0U;
+    std::uint32_t border_style = 0U;
+    float radius_tl = 0.0f;
+    float radius_tr = 0.0f;
+    float radius_br = 0.0f;
+    float radius_bl = 0.0f;
+    float opacity = 1.0f;
+    std::uint32_t font_id = 0U;
+    float font_size = 0.0f;
+    std::uint32_t text_color = 0U;
+    std::uint64_t nearest_scroll_ancestor = UI_INVALID_HANDLE;
+    float scroll_offset_x = 0.0f;
+    float scroll_offset_y = 0.0f;
+    float scroll_content_width = 0.0f;
+    float scroll_content_height = 0.0f;
+    float scroll_viewport_width = 0.0f;
+    float scroll_viewport_height = 0.0f;
+    std::uint64_t scroll_proxy_target = UI_INVALID_HANDLE;
+    std::uint32_t text_align = 0U;
+    std::uint32_t text_vertical_align = 0U;
+    std::uint32_t visibility = 0U;
+    std::string node_id{};
+    std::string semantic_label{};
+};
 
 struct GlyphRunInfo {
     std::uint32_t font_id = 0;
@@ -324,10 +417,10 @@ inline std::unordered_map<std::uint64_t, bool> ReadInteractiveFlags(const std::v
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -340,6 +433,12 @@ inline std::unordered_map<std::uint64_t, bool> ReadInteractiveFlags(const std::v
             break;
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
+            break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
@@ -390,10 +489,10 @@ inline std::unordered_map<std::uint64_t, std::uint32_t> ReadClipModes(const std:
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -406,6 +505,12 @@ inline std::unordered_map<std::uint64_t, std::uint32_t> ReadClipModes(const std:
             break;
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
+            break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
@@ -451,10 +556,10 @@ inline std::unordered_map<std::uint64_t, std::uint32_t> ReadTextFades(const std:
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             result[(static_cast<std::uint64_t>(words[i + 2U]) << 32U) | static_cast<std::uint64_t>(words[i + 1U])] =
@@ -469,6 +574,12 @@ inline std::unordered_map<std::uint64_t, std::uint32_t> ReadTextFades(const std:
             break;
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
+            break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
@@ -524,10 +635,10 @@ inline std::unordered_map<std::uint64_t, Bounds> ReadBounds(const std::vector<st
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -540,6 +651,12 @@ inline std::unordered_map<std::uint64_t, Bounds> ReadBounds(const std::vector<st
             break;
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
+            break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
@@ -595,10 +712,10 @@ inline std::unordered_map<std::uint64_t, Bounds> ReadHitBounds(const std::vector
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -611,6 +728,12 @@ inline std::unordered_map<std::uint64_t, Bounds> ReadHitBounds(const std::vector
             break;
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
+            break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
@@ -666,10 +789,10 @@ inline std::unordered_map<std::uint64_t, Bounds> ReadClipBounds(const std::vecto
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -682,6 +805,12 @@ inline std::unordered_map<std::uint64_t, Bounds> ReadClipBounds(const std::vecto
             break;
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
+            break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
@@ -744,6 +873,109 @@ inline std::vector<SemanticRecord> ReadSemanticRecords(const std::vector<std::ui
     return records;
 }
 
+inline std::uint64_t ReadDebugTreeHandle(const std::vector<std::uint32_t>& words, std::size_t index) {
+    return (static_cast<std::uint64_t>(words[index + 1U]) << 32U) | static_cast<std::uint64_t>(words[index]);
+}
+
+inline std::string ReadDebugTreeString(const std::vector<std::uint32_t>& words, std::size_t& index) {
+    REQUIRE(index < words.size());
+    const std::uint32_t byte_length = words[index];
+    index += 1U;
+    const std::size_t word_count = (static_cast<std::size_t>(byte_length) + 3U) / 4U;
+    REQUIRE(index + word_count <= words.size());
+    std::string value(static_cast<std::size_t>(byte_length), '\0');
+    if (byte_length > 0U) {
+        std::memcpy(value.data(), words.data() + index, byte_length);
+    }
+    index += word_count;
+    return value;
+}
+
+inline std::vector<DebugTreeRecord> ReadDebugTreeRecords(const std::vector<std::uint32_t>& words) {
+    if (words.empty()) {
+        return {};
+    }
+
+    REQUIRE(words.size() >= 4U);
+    REQUIRE(words[0] == kDebugTreeMagic);
+    REQUIRE(words[1] == kDebugTreeVersion);
+    REQUIRE(words[2] == kDebugTreeFixedRecordWords);
+    const std::uint32_t record_count = words[3];
+    std::size_t index = 4U;
+    std::vector<DebugTreeRecord> records{};
+    records.reserve(record_count);
+
+    for (std::uint32_t record_index = 0; record_index < record_count; record_index += 1U) {
+        REQUIRE(index + kDebugTreeFixedRecordWords <= words.size());
+        const std::size_t base = index;
+        DebugTreeRecord record{};
+        record.handle = ReadDebugTreeHandle(words, base);
+        record.parent = ReadDebugTreeHandle(words, base + 2U);
+        record.node_type = words[base + 4U];
+        record.flags = words[base + 5U];
+        record.behavior_flags = words[base + 6U];
+        record.semantic_role = words[base + 7U];
+        record.bounds = Bounds{
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 8U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 9U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 10U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 11U]),
+        };
+        record.visible_bounds = Bounds{
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 12U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 13U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 14U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 15U]),
+        };
+        record.padding = Bounds{
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 16U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 17U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 18U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 19U]),
+        };
+        record.margin = Bounds{
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 20U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 21U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 22U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 23U]),
+        };
+        record.border = Bounds{
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 24U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 25U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 26U]),
+            effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 27U]),
+        };
+        record.bg_color = words[base + 28U];
+        record.border_color = words[base + 29U];
+        record.border_style = words[base + 30U];
+        record.radius_tl = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 31U]);
+        record.radius_tr = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 32U]);
+        record.radius_br = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 33U]);
+        record.radius_bl = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 34U]);
+        record.opacity = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 35U]);
+        record.font_id = words[base + 36U];
+        record.font_size = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 37U]);
+        record.text_color = words[base + 38U];
+        record.nearest_scroll_ancestor = ReadDebugTreeHandle(words, base + 39U);
+        record.scroll_offset_x = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 41U]);
+        record.scroll_offset_y = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 42U]);
+        record.scroll_content_width = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 43U]);
+        record.scroll_content_height = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 44U]);
+        record.scroll_viewport_width = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 45U]);
+        record.scroll_viewport_height = effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 46U]);
+        record.scroll_proxy_target = ReadDebugTreeHandle(words, base + 47U);
+        record.text_align = words[base + 49U];
+        record.text_vertical_align = words[base + 50U];
+        record.visibility = words[base + 51U];
+        index += kDebugTreeFixedRecordWords;
+        record.node_id = ReadDebugTreeString(words, index);
+        record.semantic_label = ReadDebugTreeString(words, index);
+        records.push_back(std::move(record));
+    }
+
+    return records;
+}
+
 inline std::unordered_map<std::uint64_t, GlyphRunInfo> ReadGlyphRuns(const std::vector<std::uint32_t>& words) {
     std::unordered_map<std::uint64_t, GlyphRunInfo> result{};
 
@@ -773,10 +1005,10 @@ inline std::unordered_map<std::uint64_t, GlyphRunInfo> ReadGlyphRuns(const std::
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -786,6 +1018,9 @@ inline std::unordered_map<std::uint64_t, GlyphRunInfo> ReadGlyphRuns(const std::
             break;
         case CMD_SET_HIGHLIGHTS:
             i += 5U + (static_cast<std::size_t>(words[i + 4U]) * 4U);
+            break;
+        case CMD_SET_HIGHLIGHTS_COLORED:
+            i += 4U + (static_cast<std::size_t>(words[i + 3U]) * 5U);
             break;
         case CMD_SET_GLYPH_RUN: {
             const std::uint64_t handle =
@@ -805,10 +1040,62 @@ inline std::unordered_map<std::uint64_t, GlyphRunInfo> ReadGlyphRuns(const std::
                     effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 2U]),
                     0U,
                     words[base + 3U],
+                    run.color,
+                    run.font_size,
                 });
             }
             result[handle] = run;
             i += 7U + (static_cast<std::size_t>(glyph_count) * 4U);
+            break;
+        }
+        case CMD_SET_GLYPH_RUN_COLORED: {
+            const std::uint64_t handle =
+                (static_cast<std::uint64_t>(words[i + 2U]) << 32U) |
+                static_cast<std::uint64_t>(words[i + 1U]);
+            GlyphRunInfo run{};
+            run.font_id = words[i + 3U];
+            run.font_size = effindom::v2::ui::CommandBuilder::WordToFloat(words[i + 4U]);
+            const std::uint32_t glyph_count = words[i + 5U];
+            run.glyphs.reserve(glyph_count);
+            for (std::uint32_t glyph_index = 0U; glyph_index < glyph_count; glyph_index += 1U) {
+                const std::size_t base = i + 6U + (static_cast<std::size_t>(glyph_index) * 5U);
+                run.glyphs.push_back(effindom::v2::ui::GlyphPlacement{
+                    words[base],
+                    effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 1U]),
+                    effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 2U]),
+                    0U,
+                    words[base + 3U],
+                    words[base + 4U],
+                    run.font_size,
+                });
+            }
+            result[handle] = run;
+            i += 6U + (static_cast<std::size_t>(glyph_count) * 5U);
+            break;
+        }
+        case CMD_SET_GLYPH_RUN_STYLED: {
+            const std::uint64_t handle =
+                (static_cast<std::uint64_t>(words[i + 2U]) << 32U) |
+                static_cast<std::uint64_t>(words[i + 1U]);
+            GlyphRunInfo run{};
+            run.font_id = words[i + 3U];
+            run.font_size = effindom::v2::ui::CommandBuilder::WordToFloat(words[i + 4U]);
+            const std::uint32_t glyph_count = words[i + 5U];
+            run.glyphs.reserve(glyph_count);
+            for (std::uint32_t glyph_index = 0U; glyph_index < glyph_count; glyph_index += 1U) {
+                const std::size_t base = i + 6U + (static_cast<std::size_t>(glyph_index) * 6U);
+                run.glyphs.push_back(effindom::v2::ui::GlyphPlacement{
+                    words[base],
+                    effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 1U]),
+                    effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 2U]),
+                    0U,
+                    words[base + 3U],
+                    words[base + 4U],
+                    effindom::v2::ui::CommandBuilder::WordToFloat(words[base + 5U]),
+                });
+            }
+            result[handle] = run;
+            i += 6U + (static_cast<std::size_t>(glyph_count) * 6U);
             break;
         }
         case CMD_COMMIT_PAINT_ORDER:
@@ -855,10 +1142,10 @@ inline std::unordered_map<std::uint64_t, CaretInfo> ReadCarets(const std::vector
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -887,6 +1174,12 @@ inline std::unordered_map<std::uint64_t, CaretInfo> ReadCarets(const std::vector
             break;
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
+            break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
@@ -932,10 +1225,10 @@ inline std::unordered_map<std::uint64_t, HighlightInfo> ReadHighlights(const std
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -998,6 +1291,12 @@ inline std::unordered_map<std::uint64_t, HighlightInfo> ReadHighlights(const std
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
             break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
+            break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
             break;
@@ -1045,10 +1344,10 @@ inline std::size_t CountCommand(const std::vector<std::uint32_t>& words, std::ui
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -1059,8 +1358,17 @@ inline std::size_t CountCommand(const std::vector<std::uint32_t>& words, std::ui
         case CMD_SET_HIGHLIGHTS:
             i += 5U + (static_cast<std::size_t>(words[i + 4U]) * 4U);
             break;
+        case CMD_SET_HIGHLIGHTS_COLORED:
+            i += 4U + (static_cast<std::size_t>(words[i + 3U]) * 5U);
+            break;
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
+            break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
@@ -1103,10 +1411,10 @@ inline std::vector<std::uint64_t> ReadPaintOrder(const std::vector<std::uint32_t
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -1119,6 +1427,12 @@ inline std::vector<std::uint64_t> ReadPaintOrder(const std::vector<std::uint32_t
             break;
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
+            break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER: {
             const std::size_t handle_count = static_cast<std::size_t>(words[i + 1U]);
@@ -1169,10 +1483,10 @@ inline std::vector<effindom::v2::ui::SceneInstruction> ReadScene(const std::vect
             break;
         case CMD_SET_IMAGE:
         case CMD_SET_SVG:
-            i += 5U;
+            i += 7U;
             break;
         case CMD_SET_IMAGE_NINE:
-            i += 8U;
+            i += 10U;
             break;
         case CMD_SET_TEXT_FADE:
             i += 4U;
@@ -1185,6 +1499,12 @@ inline std::vector<effindom::v2::ui::SceneInstruction> ReadScene(const std::vect
             break;
         case CMD_SET_GLYPH_RUN:
             i += 7U + (static_cast<std::size_t>(words[i + 6U]) * 4U);
+            break;
+        case CMD_SET_GLYPH_RUN_COLORED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 5U);
+            break;
+        case CMD_SET_GLYPH_RUN_STYLED:
+            i += 6U + (static_cast<std::size_t>(words[i + 5U]) * 6U);
             break;
         case CMD_COMMIT_PAINT_ORDER:
             i += 2U + (static_cast<std::size_t>(words[i + 1U]) * 2U);
@@ -1215,7 +1535,7 @@ inline std::vector<effindom::v2::ui::SceneInstruction> ReadScene(const std::vect
 
 using namespace test_ui_support;
 
-extern "C" void as_on_pointer_event(ui_handle_t handle, uint32_t event_enum);
+extern "C" void as_on_pointer_event(ui_handle_t handle, UiEvent event_enum);
 extern "C" void as_on_focus_changed(ui_handle_t handle, bool is_focused);
 extern "C" void as_on_text_changed(ui_handle_t handle, const uint8_t* utf8_str, uint32_t len);
 extern "C" void as_on_selection_changed(ui_handle_t handle, uint32_t start_idx, uint32_t end_idx);
