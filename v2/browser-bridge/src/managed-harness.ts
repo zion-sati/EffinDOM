@@ -4,4 +4,6 @@ export * from './managed-harness/types';
 export * from './managed-harness/host-events';
 export * from './managed-harness/host-services';
 export * from './managed-harness/worker-types';
-export { readHostAccentColor, HarnessUiChrome, waitForFrame } from './managed-harness/ui-chrome';
+export * from './managed-harness/abi-version';
+export * from './managed-harness/persisted-restore-policy';
+export * from './managed-harness/ui-chrome';
