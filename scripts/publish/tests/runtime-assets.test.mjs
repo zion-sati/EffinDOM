@@ -1,6 +1,6 @@
 import { strict as assert } from 'node:assert';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -77,6 +77,7 @@ try {
   assert.equal(manifest.runtime_set_hash, runtimeSetHash);
   assert.match(manifest.assets.fonts['Example.ttf'].url, /^\.\.\/assets\/Example\..+\.ttf$/);
   assert.equal(readFileSync(join(destination, 'CNAME'), 'utf8'), 'runtimes.effindom.dev\n');
+  assert.equal(existsSync(join(destination, '.nojekyll')), false);
   console.log('runtime-assets publisher tests passed');
 } finally {
   rmSync(root, { recursive: true, force: true });

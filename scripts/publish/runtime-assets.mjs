@@ -263,9 +263,6 @@ Files under \`v2/assets/\` and hashed manifests under \`v2/manifests/\` are publ
 Runtime releases are staged by the canonical publisher in the EffinDOM repository. This repository does not build runtime binaries from source.
 `;
   writeAtomic(join(destination, 'README.md'), readme);
-  if (!existsSync(join(destination, '.nojekyll'))) {
-    writeFileSync(join(destination, '.nojekyll'), '');
-  }
   if (!existsSync(join(destination, 'CNAME'))) {
     writeFileSync(join(destination, 'CNAME'), 'runtimes.effindom.dev\n', 'utf8');
   }
