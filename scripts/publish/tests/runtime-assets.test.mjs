@@ -76,7 +76,7 @@ try {
   const manifest = JSON.parse(readFileSync(join(destination, 'v2', 'manifests', `${runtimeSetHash}.json`), 'utf8'));
   assert.equal(manifest.runtime_set_hash, runtimeSetHash);
   assert.match(manifest.assets.fonts['Example.ttf'].url, /^\.\.\/assets\/Example\..+\.ttf$/);
-  assert.equal(readFileSync(join(destination, 'CNAME'), 'utf8'), 'runtime.effindom.dev\n');
+  assert.equal(readFileSync(join(destination, 'CNAME'), 'utf8'), 'runtimes.effindom.dev\n');
   console.log('runtime-assets publisher tests passed');
 } finally {
   rmSync(root, { recursive: true, force: true });

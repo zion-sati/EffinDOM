@@ -267,7 +267,7 @@ Runtime releases are staged by the canonical publisher in the EffinDOM repositor
     writeFileSync(join(destination, '.nojekyll'), '');
   }
   if (!existsSync(join(destination, 'CNAME'))) {
-    writeFileSync(join(destination, 'CNAME'), 'runtime.effindom.dev\n', 'utf8');
+    writeFileSync(join(destination, 'CNAME'), 'runtimes.effindom.dev\n', 'utf8');
   }
   if (!existsSync(join(destination, '.gitignore'))) {
     writeFileSync(join(destination, '.gitignore'), '.DS_Store\n', 'utf8');
