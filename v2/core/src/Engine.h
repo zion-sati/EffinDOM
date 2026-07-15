@@ -150,6 +150,17 @@ struct CommandBufferStats {
     std::uint32_t ignored_commands = 0;
     std::uint32_t truncated_buffers = 0;
     std::uint32_t unknown_commands = 0;
+    std::uint64_t glyph_run_commands = 0;
+    std::uint64_t glyphs_decoded = 0;
+    std::uint64_t glyph_vector_capacity_growths = 0;
+    std::uint64_t glyph_vector_capacity_added = 0;
+};
+
+struct GlyphRenderStats {
+    std::uint64_t glyph_blob_builds = 0;
+    std::uint64_t glyph_blob_cache_hits = 0;
+    std::uint64_t uncached_glyph_blob_builds = 0;
+    std::uint64_t styled_run_glyph_copies = 0;
 };
 
 class Engine {
@@ -174,9 +185,14 @@ public:
     void EndViewportPan(double timestamp_ms);
     bool TickViewportPanMomentum(double timestamp_ms);
     void ClearViewportPanMomentum();
-    void RegisterFont(std::uint32_t font_id, const std::uint8_t* bytes, std::uint32_t length);
+    void RegisterFont(
+        std::uint32_t font_id,
+        const std::uint8_t* bytes,
+        std::uint32_t length,
+        std::uint32_t face_index = 0U);
     void UnregisterFont(std::uint32_t font_id);
     void RegisterSvg(std::uint32_t svg_id, const std::uint8_t* bytes, std::uint32_t length);
+    void UnregisterSvg(std::uint32_t svg_id);
     void RegisterTextureRgba(
         std::uint32_t texture_id,
         const std::uint8_t* rgba,
@@ -234,6 +250,13 @@ public:
     std::optional<NodeDebugView> GetNodeForTesting(std::uint64_t handle) const;
     std::vector<SceneInstructionDebugView> GetSceneInstructionsForTesting() const;
     std::vector<std::uint64_t> GetPaintOrderForTesting() const;
+    GlyphRenderStats GetGlyphRenderStatsForTesting() const;
+    void ClearGlyphRenderStatsForTesting();
+    bool HasFontForTesting(std::uint32_t font_id) const;
+    bool FontHasGlyphForTesting(std::uint32_t font_id, std::uint32_t codepoint) const;
+    std::optional<std::pair<float, float>> GetSvgSizeForTesting(std::uint32_t svg_id) const;
+    std::optional<std::pair<std::uint32_t, std::uint32_t>> GetTextureSizeForTesting(std::uint32_t texture_id) const;
+    std::size_t TextureCountForTesting() const;
 
     std::uint32_t physical_width() const;
     std::uint32_t physical_height() const;

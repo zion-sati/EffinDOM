@@ -345,6 +345,21 @@ bool UiRuntime::SetText(std::uint64_t handle, const std::uint8_t* utf8_str, std:
     }
     const bool should_emit_text_state =
         node->is_editable || IsEditorTextNode(*node);
+    const auto emit_text_state = [&]() {
+        if (!should_emit_text_state) {
+            return;
+        }
+        const auto* text_ptr = node->text_content.empty()
+            ? nullptr
+            : reinterpret_cast<const std::uint8_t*>(node->text_content.data());
+        as_on_text_changed(handle, text_ptr, static_cast<std::uint32_t>(node->text_content.size()));
+        event_sink_.SelectionChanged(handle, node->selection_start, node->selection_end);
+    };
+    if (node->text_content.size() == static_cast<std::size_t>(len) &&
+        (len == 0U || std::memcmp(node->text_content.data(), utf8_str, len) == 0)) {
+        emit_text_state();
+        return true;
+    }
     if (len == 0U) {
         node->text_content.clear();
     } else {
@@ -374,13 +389,7 @@ bool UiRuntime::SetText(std::uint64_t handle, const std::uint8_t* utf8_str, std:
     }
     node->is_dirty = true;
     layout_dirty_ = true;
-    if (should_emit_text_state) {
-        const auto* text_ptr = node->text_content.empty()
-            ? nullptr
-            : reinterpret_cast<const std::uint8_t*>(node->text_content.data());
-        as_on_text_changed(handle, text_ptr, static_cast<std::uint32_t>(node->text_content.size()));
-        as_on_selection_changed(handle, node->selection_start, node->selection_end);
-    }
+    emit_text_state();
     return true;
 }
 
@@ -615,7 +624,11 @@ bool UiRuntime::SetTextObscured(std::uint64_t handle, bool is_password) {
     return true;
 }
 
-bool UiRuntime::RegisterFont(std::uint32_t font_id, const std::uint8_t* bytes, std::uint32_t length) {
+bool UiRuntime::RegisterFont(
+    std::uint32_t font_id,
+    const std::uint8_t* bytes,
+    std::uint32_t length,
+    std::uint32_t face_index) {
     if (font_id == 0U || bytes == nullptr || length == 0U) {
         return false;
     }
@@ -641,7 +654,7 @@ bool UiRuntime::RegisterFont(std::uint32_t font_id, const std::uint8_t* bytes, s
         nullptr);
     if (font.blob == nullptr) return false;
 
-    font.face = hb_face_create(font.blob, 0);
+    font.face = hb_face_create(font.blob, face_index);
     if (font.face == nullptr || hb_face_get_glyph_count(font.face) == 0U) { DestroyRegisteredFont(font); return false; }
 
     font.upem = hb_face_get_upem(font.face);
@@ -653,8 +666,13 @@ bool UiRuntime::RegisterFont(std::uint32_t font_id, const std::uint8_t* bytes, s
     font.has_extents = hb_font_get_h_extents(font.font, &font.extents);
     font.is_fixed_pitch = FontFaceIsFixedPitch(font.face);
     font.is_ascii_fixed_pitch = DetectAsciiFixedPitchFont(font.bytes);
+    font.generation = next_font_generation_++;
+    if (next_font_generation_ == 0U) {
+        next_font_generation_ = 1U;
+    }
 
-    hb_buffer_t* bullet_buffer = hb_buffer_create();
+    ShapingBufferLease bullet_buffer_lease = AcquireShapingBuffer();
+    hb_buffer_t* bullet_buffer = bullet_buffer_lease.get();
     if (bullet_buffer != nullptr) {
         static constexpr char kBulletUtf8[] = "\xE2\x80\xA2";
         hb_buffer_add_utf8(bullet_buffer, kBulletUtf8, 3, 0, 3);
@@ -665,7 +683,6 @@ bool UiRuntime::RegisterFont(std::uint32_t font_id, const std::uint8_t* bytes, s
         if (glyphs != nullptr && glyph_count > 0U) {
             font.bullet_glyph_id = glyphs[0].codepoint;
         }
-        hb_buffer_destroy(bullet_buffer);
     }
     font.tofu_glyph_id = ResolveNominalGlyph(font.font, 0x25A1U);
     if (!font.tofu_glyph_id.has_value()) {
@@ -674,6 +691,7 @@ bool UiRuntime::RegisterFont(std::uint32_t font_id, const std::uint8_t* bytes, s
 
     auto existing = font_registry_.find(font_id);
     if (existing != font_registry_.end()) {
+        fixed_pitch_metrics_cache_.EraseFontGeneration(font_id, existing->second.generation);
         DestroyRegisteredFont(existing->second);
         existing->second = std::move(font);
         reported_missing_font_coverage_keys_.clear();
@@ -692,6 +710,7 @@ bool UiRuntime::UnregisterFont(std::uint32_t font_id) {
     if (existing == font_registry_.end()) {
         return false;
     }
+    fixed_pitch_metrics_cache_.EraseFontGeneration(font_id, existing->second.generation);
     DestroyRegisteredFont(existing->second);
     font_registry_.erase(existing);
     font_fallbacks_.erase(font_id);
@@ -729,9 +748,9 @@ bool UiRuntime::UnregisterFontFallback(std::uint32_t font_id, std::uint32_t fall
 }
 
 void UiRuntime::InvalidateAllTextLayoutForFontChange() {
-    for (UINode& node : node_pool_) {
-        if (!node.is_active || !node.is_text_node) {
-            continue;
+    node_store_.Traversal().ForEachActive([&](std::uint64_t, UINode& node) {
+        if (!node.is_text_node) {
+            return;
         }
         ClearDynamicTextFastPathCache(node);
         InvalidateTextLayoutCache(node);
@@ -739,7 +758,7 @@ void UiRuntime::InvalidateAllTextLayoutForFontChange() {
         if (node.yg_node != nullptr) {
             YGNodeMarkDirty(node.yg_node);
         }
-    }
+    });
     layout_dirty_ = true;
 }
 
@@ -775,16 +794,16 @@ bool UiRuntime::RegisterIcuData(const std::uint8_t* bytes, std::uint32_t length)
     }
 
     icu_data_registered_ = true;
-    for (UINode& node : node_pool_) {
-        if (!node.is_active || !node.is_text_node) {
-            continue;
+    node_store_.Traversal().ForEachActive([&](std::uint64_t, UINode& node) {
+        if (!node.is_text_node) {
+            return;
         }
         InvalidateTextLayoutCache(node);
         node.is_dirty = true;
         if (node.yg_node != nullptr) {
             YGNodeMarkDirty(node.yg_node);
         }
-    }
+    });
     layout_dirty_ = true;
     return true;
 }
@@ -793,20 +812,20 @@ void UiRuntime::FontLoaded(std::uint32_t font_id) {
     if (font_id == 0U) {
         return;
     }
-    for (UINode& node : node_pool_) {
-        if (!node.is_active || !node.is_text_node) {
-            continue;
+    node_store_.Traversal().ForEachActive([&](std::uint64_t, UINode& node) {
+        if (!node.is_text_node) {
+            return;
         }
         const std::vector<std::uint32_t> font_chain = ResolveFontChain(node.font_id);
         if (std::find(font_chain.begin(), font_chain.end(), font_id) == font_chain.end()) {
-            continue;
+            return;
         }
         InvalidateTextLayoutCache(node);
         if (node.yg_node != nullptr) {
             YGNodeMarkDirty(node.yg_node);
         }
         node.is_dirty = true;
-    }
+    });
     layout_dirty_ = true;
 }
 
@@ -1139,6 +1158,10 @@ bool UiRuntime::TryApplyIncrementalNonWrapLayoutCache(UINode& node, std::string_
     return TryApplyIncrementalNonWrapLayoutCacheImpl(node, previous_text);
 }
 
+bool UiRuntime::TryApplyIncrementalNonWrapLayoutCache(UINode& node, const TextEdit& edit) const {
+    return TryApplyIncrementalNonWrapLayoutCacheImpl(node, edit);
+}
+
 std::vector<std::int32_t> UiRuntime::ComputeBreakCandidates(std::string_view utf8) const {
     return ComputeBreakCandidatesImpl(utf8);
 }
@@ -1188,6 +1211,20 @@ void UiRuntime::EmitTextGlyphRun(
         [&node](const GlyphPlacement& glyph) {
             return glyph.font_size > 0.0f && std::abs(glyph.font_size - node.font_size) >= 0.001f;
         });
+    if (text_commit_profile_active_) {
+        current_text_commit_profile_.glyph_run_commands += 1U;
+        current_text_commit_profile_.glyphs_emitted += glyphs.size();
+        if (has_per_glyph_font_size) {
+            current_text_commit_profile_.glyph_run_styled_commands += 1U;
+            current_text_commit_profile_.glyph_run_encoded_words += 6U + (glyphs.size() * 6U);
+        } else if (has_per_glyph_color) {
+            current_text_commit_profile_.glyph_run_colored_commands += 1U;
+            current_text_commit_profile_.glyph_run_encoded_words += 6U + (glyphs.size() * 5U);
+        } else {
+            current_text_commit_profile_.glyph_run_plain_commands += 1U;
+            current_text_commit_profile_.glyph_run_encoded_words += 7U + (glyphs.size() * 4U);
+        }
+    }
     if (has_per_glyph_font_size) {
         builder.SetGlyphRunStyled(handle, node.font_id, node.font_size, glyphs);
     } else if (has_per_glyph_color) {
@@ -1238,7 +1275,7 @@ UiRuntime::TextRenderPlan UiRuntime::BuildPreparedTextRenderPlan(
         line_y += paragraph.line_height;
     }
     plan.height = line_y;
-    plan.style_highlights = BuildStyleInlineRects(node);
+    plan.style_highlights = BuildStyleInlineRects(node, std::nullopt);
     return plan;
 }
 
@@ -1263,9 +1300,8 @@ bool UiRuntime::PrepareNode(std::uint64_t handle) {
     // Run paragraph layout
     const ParagraphLayout paragraph = LayoutParagraph(*node, max_width);
 
-    // Store line metrics
-    node->break_offsets = paragraph.break_offsets;
-    node->line_widths = paragraph.line_widths;
+    // LayoutParagraph retains line metrics on the node and returns a read-only
+    // view. Do not copy the document-sized arrays back onto their owner.
     node->line_height = paragraph.line_height;
     node->visible_line_count = paragraph.visible_line_count;
     node->total_line_count = paragraph.total_line_count;

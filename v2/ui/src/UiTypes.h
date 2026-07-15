@@ -243,7 +243,6 @@ struct UINode {
     bool smooth_scroll_active = false;
     bool scroll_enabled_x = true;
     bool scroll_enabled_y = true;
-    bool show_scrollbars = true;
     float friction = 0.95f;
     bool scroll_friction_overridden = false;
     float edge_hot_zone = 20.0f;

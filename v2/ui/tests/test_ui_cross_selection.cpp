@@ -68,7 +68,7 @@ TEST_CASE("v2 ui collapsed cross-selection inside a selection area clears select
     highlights = ReadHighlights(ReadCommandBuffer());
     CHECK(carets.find(text) == carets.end());
     CHECK(highlights.find(text) == highlights.end());
-    CHECK_FALSE(GetRuntime().cross_selection_active_);
+    CHECK_FALSE(GetRuntime().Selection().state().cross_active);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
     CHECK(g_cross_selection_changes.back().text.empty());
@@ -124,15 +124,15 @@ TEST_CASE("v2 ui pointer cross-selection switches between selection areas", "[v2
         text_a,
         node_a->abs_x + 1.0f,
         node_a->abs_y + (node_a->line_height * 0.5f));
-    CHECK(GetRuntime().selection_area_handle_ == area_a);
+    CHECK(GetRuntime().Selection().state().area_handle == area_a);
 
     UiTestPointerEvent(
         UI_EVENT_POINTER_DOWN,
         text_b,
         node_b->abs_x + 1.0f,
         node_b->abs_y + (node_b->line_height * 0.5f));
-    CHECK(GetRuntime().selection_area_handle_ == area_b);
-    CHECK(GetRuntime().cross_selection_active_);
+    CHECK(GetRuntime().Selection().state().area_handle == area_b);
+    CHECK(GetRuntime().Selection().state().cross_active);
 }
 
 TEST_CASE("v2 ui selection area barrier stops CollectSelectionAreaNodes from entering subtree", "[v2][ui][unit][cross-selection]") {
@@ -254,20 +254,20 @@ TEST_CASE("v2 ui SetSelectionAreaBarrier toggles flag and marks collection dirty
     ui_node_add_child(area, node);
 
     auto& runtime = GetRuntime();
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_dirty_ = false;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes_dirty = false;
 
     // Enable barrier — must mark dirty
     ui_set_selection_area_barrier(node, true);
     CHECK(runtime.Resolve(node)->is_selection_area_barrier);
-    CHECK(runtime.selection_area_nodes_dirty_);
+    CHECK(runtime.Selection().state().area_nodes_dirty);
 
-    runtime.selection_area_nodes_dirty_ = false;
+    runtime.Selection().state().area_nodes_dirty = false;
 
     // Disable barrier — must mark dirty again
     ui_set_selection_area_barrier(node, false);
     CHECK_FALSE(runtime.Resolve(node)->is_selection_area_barrier);
-    CHECK(runtime.selection_area_nodes_dirty_);
+    CHECK(runtime.Selection().state().area_nodes_dirty);
 
     // Invalid handle returns false gracefully
     CHECK_FALSE(runtime.SetSelectionAreaBarrier(UI_INVALID_HANDLE, true));
@@ -332,23 +332,23 @@ TEST_CASE("v2 ui clear selection clears active cross-selection when target text 
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = area;
-    runtime.start_node_handle_ = text;
-    runtime.start_index_ = 1U;
-    runtime.end_node_handle_ = text;
-    runtime.end_index_ = 4U;
-    runtime.selection_area_nodes_.assign(1U, text);
-    runtime.selection_area_nodes_dirty_ = false;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().start_node_handle = text;
+    runtime.Selection().state().start_index = 1U;
+    runtime.Selection().state().end_node_handle = text;
+    runtime.Selection().state().end_index = 4U;
+    runtime.Selection().state().area_nodes.assign(1U, text);
+    runtime.Selection().state().area_nodes_dirty = false;
 
     ResetInteractionLogs();
     ui_clear_selection(text);
 
-    CHECK_FALSE(runtime.cross_selection_active_);
-    CHECK(runtime.selection_area_handle_ == UI_INVALID_HANDLE);
-    CHECK(runtime.start_node_handle_ == UI_INVALID_HANDLE);
-    CHECK(runtime.end_node_handle_ == UI_INVALID_HANDLE);
-    CHECK(runtime.selection_area_nodes_.empty());
+    CHECK_FALSE(runtime.Selection().state().cross_active);
+    CHECK(runtime.Selection().state().area_handle == UI_INVALID_HANDLE);
+    CHECK(runtime.Selection().state().start_node_handle == UI_INVALID_HANDLE);
+    CHECK(runtime.Selection().state().end_node_handle == UI_INVALID_HANDLE);
+    CHECK(runtime.Selection().state().area_nodes.empty());
     REQUIRE(g_cross_selection_changes.size() == 1U);
     CHECK(g_cross_selection_changes[0].handle == area);
     CHECK(g_cross_selection_changes[0].text.empty());
@@ -388,25 +388,25 @@ TEST_CASE("v2 ui retarget selection moves active cross-selection endpoints betwe
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = area_a;
-    runtime.start_node_handle_ = text_a;
-    runtime.start_index_ = 1U;
-    runtime.end_node_handle_ = text_a;
-    runtime.end_index_ = 4U;
-    runtime.selection_area_nodes_.assign(1U, text_a);
-    runtime.selection_area_nodes_dirty_ = false;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = area_a;
+    runtime.Selection().state().start_node_handle = text_a;
+    runtime.Selection().state().start_index = 1U;
+    runtime.Selection().state().end_node_handle = text_a;
+    runtime.Selection().state().end_index = 4U;
+    runtime.Selection().state().area_nodes.assign(1U, text_a);
+    runtime.Selection().state().area_nodes_dirty = false;
 
     ResetInteractionLogs();
     ui_retarget_selection(text_a, text_b);
 
-    CHECK(runtime.cross_selection_active_);
-    CHECK(runtime.selection_area_handle_ == area_b);
-    CHECK(runtime.start_node_handle_ == text_b);
-    CHECK(runtime.end_node_handle_ == text_b);
-    CHECK_FALSE(runtime.selection_area_nodes_dirty_);
-    REQUIRE(runtime.selection_area_nodes_.size() == 1U);
-    CHECK(runtime.selection_area_nodes_.front() == text_b);
+    CHECK(runtime.Selection().state().cross_active);
+    CHECK(runtime.Selection().state().area_handle == area_b);
+    CHECK(runtime.Selection().state().start_node_handle == text_b);
+    CHECK(runtime.Selection().state().end_node_handle == text_b);
+    CHECK_FALSE(runtime.Selection().state().area_nodes_dirty);
+    REQUIRE(runtime.Selection().state().area_nodes.size() == 1U);
+    CHECK(runtime.Selection().state().area_nodes.front() == text_b);
     REQUIRE(g_cross_selection_changes.size() == 2U);
     CHECK(g_cross_selection_changes[0].handle == area_a);
     CHECK(g_cross_selection_changes[0].text.empty());

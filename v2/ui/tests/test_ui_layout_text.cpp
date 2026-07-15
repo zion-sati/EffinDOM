@@ -1,5 +1,78 @@
 #include "TestUiSupport.h"
 
+TEST_CASE("v2 retained rich style geometry is bounded while prepared output remains complete", "[v2][ui][layout][text][bounded-style-paint]") {
+    using effindom::v2::ui::CommandBuilder;
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterTestFont(1U);
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    std::string content{};
+    for (std::size_t line = 0U; line < 1000U; line += 1U) {
+        if (line != 0U) {
+            content += '\n';
+        }
+        content += "rich retained line " + std::to_string(line);
+    }
+
+    ui_set_root(root);
+    ui_resize_window(240.0f, 120.0f);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 18.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(content.data()), static_cast<std::uint32_t>(content.size()));
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, text);
+    ui_commit_frame();
+
+    const std::uint32_t runs_words[] = {
+        0U,
+        static_cast<std::uint32_t>(content.size()),
+        1U,
+        CommandBuilder::FloatToWord(18.0f),
+        0xFF223344U,
+        0x80336699U,
+        3U,
+    };
+    GetRuntime().ClearTextGeometryProfile();
+    ui_set_text_style_runs(text, 1U, runs_words);
+    ui_commit_frame();
+
+    const auto retained_profile = GetRuntime().text_geometry_profile();
+    CHECK(retained_profile.bounded_calls == 1U);
+    CHECK(retained_profile.unrestricted_calls == 0U);
+    CHECK(retained_profile.lines_visited <= 8U);
+    CHECK(retained_profile.style_rectangles_emitted <= 24U);
+    CHECK(retained_profile.style_rectangles_emitted > 0U);
+
+    GetRuntime().ClearTextGeometryProfile();
+    REQUIRE(ui_prepare_node(text) == 1U);
+    const auto prepared_profile = GetRuntime().text_geometry_profile();
+    CHECK(prepared_profile.bounded_calls == 0U);
+    CHECK(prepared_profile.unrestricted_calls == 1U);
+    CHECK(prepared_profile.lines_visited == 1000U);
+    CHECK(prepared_profile.style_rectangles_emitted == 3000U);
+
+    ui_set_scroll_offset(scroll, 0.0f, 6000.0f);
+    GetRuntime().ClearTextGeometryProfile();
+    ui_commit_frame();
+    const auto scrolled_profile = GetRuntime().text_geometry_profile();
+    CHECK(scrolled_profile.bounded_calls == 1U);
+    CHECK(scrolled_profile.lines_visited <= 8U);
+    CHECK(scrolled_profile.style_rectangles_emitted <= 24U);
+    CHECK(scrolled_profile.style_rectangles_emitted > 0U);
+}
+
 TEST_CASE("v2 ui style runs emit a colored glyph command with per-glyph colors", "[v2][ui][layout][text]") {
     ui_reset();
     RegisterTestFont(1U);
@@ -1085,7 +1158,7 @@ TEST_CASE("v2 ui text and layout setters cover enums, fonts, measurement, and st
     CHECK(GetRuntime().SetSelectable(text, false, 0x40112233U));
     CHECK(GetRuntime().SetCaretColor(text, 0xFF445566U));
     GetRuntime().SetInteractionTime(4321U);
-    CHECK(GetRuntime().interaction_time_ms_ == 4321U);
+    CHECK(GetRuntime().Input().state().interaction_time_ms == 4321U);
     CHECK_FALSE(GetRuntime().SetTextOverflow(text, 99U));
     CHECK_FALSE(GetRuntime().SetTextOverflowFade(box, true, false));
     CHECK_FALSE(GetRuntime().SetText(text, nullptr, 1U));
@@ -1319,7 +1392,7 @@ TEST_CASE("v2 ui cross-node copy and shift-click extension use stitched text", "
         0,
         UI_KEY_MOD_SHIFT);
 
-    REQUIRE(GetRuntime().cross_selection_active_);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().text == "Alpha\nBeta");
 
@@ -1492,41 +1565,41 @@ TEST_CASE("v2 ui cross-selection keyboard vertical extension traverses wrapped l
     const std::uint32_t expected_wrapped_down =
         runtime.GetStringIndexFromPoint(*wrapped_node, first_line_local_x, wrapped_node->line_height * 1.5f);
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = root;
-    runtime.selection_area_nodes_dirty_ = true;
-    runtime.start_node_handle_ = wrapped;
-    runtime.start_index_ = first_line_anchor;
-    runtime.end_node_handle_ = wrapped;
-    runtime.end_index_ = first_line_selection_end;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = root;
+    runtime.Selection().state().area_nodes_dirty = true;
+    runtime.Selection().state().start_node_handle = wrapped;
+    runtime.Selection().state().start_index = first_line_anchor;
+    runtime.Selection().state().end_node_handle = wrapped;
+    runtime.Selection().state().end_index = first_line_selection_end;
     runtime.SetFocus(wrapped);
     ResetInteractionLogs();
 
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowDown"), 9U, UI_KEY_MOD_SHIFT);
 
-    CHECK(runtime.end_node_handle_ == wrapped);
-    CHECK(runtime.end_index_ == expected_wrapped_down);
+    CHECK(runtime.Selection().state().end_node_handle == wrapped);
+    CHECK(runtime.Selection().state().end_index == expected_wrapped_down);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
 
     const float preferred_abs_x = wrapped_node->abs_x + first_line_local_x;
     const std::uint32_t expected_above_up =
         runtime.GetStringIndexFromPoint(*above_node, preferred_abs_x - above_node->abs_x, above_node->line_height * 0.5f);
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = root;
-    runtime.selection_area_nodes_dirty_ = true;
-    runtime.start_node_handle_ = wrapped;
-    runtime.start_index_ = first_line_anchor;
-    runtime.end_node_handle_ = wrapped;
-    runtime.end_index_ = first_line_selection_end;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = root;
+    runtime.Selection().state().area_nodes_dirty = true;
+    runtime.Selection().state().start_node_handle = wrapped;
+    runtime.Selection().state().start_index = first_line_anchor;
+    runtime.Selection().state().end_node_handle = wrapped;
+    runtime.Selection().state().end_index = first_line_selection_end;
     runtime.SetFocus(wrapped);
     ResetInteractionLogs();
 
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowUp"), 7U, UI_KEY_MOD_SHIFT);
 
-    CHECK(runtime.end_node_handle_ == above);
-    CHECK(runtime.end_index_ == expected_above_up);
-    CHECK(runtime.focused_handle_ == above);
+    CHECK(runtime.Selection().state().end_node_handle == above);
+    CHECK(runtime.Selection().state().end_index == expected_above_up);
+    CHECK(runtime.Focus().FocusedHandle() == above);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
 
     wrapped_node = runtime.ResolveMutable(wrapped);
@@ -1544,20 +1617,20 @@ TEST_CASE("v2 ui cross-selection keyboard vertical extension traverses wrapped l
     const std::uint32_t expected_below_down =
         runtime.GetStringIndexFromPoint(*below_node, (wrapped_node->abs_x + last_line_local_x) - below_node->abs_x, below_node->line_height * 0.5f);
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = root;
-    runtime.selection_area_nodes_dirty_ = true;
-    runtime.start_node_handle_ = wrapped;
-    runtime.start_index_ = last_line_anchor;
-    runtime.end_node_handle_ = wrapped;
-    runtime.end_index_ = last_line_selection_end;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = root;
+    runtime.Selection().state().area_nodes_dirty = true;
+    runtime.Selection().state().start_node_handle = wrapped;
+    runtime.Selection().state().start_index = last_line_anchor;
+    runtime.Selection().state().end_node_handle = wrapped;
+    runtime.Selection().state().end_index = last_line_selection_end;
     runtime.SetFocus(wrapped);
     ResetInteractionLogs();
 
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowDown"), 9U, UI_KEY_MOD_SHIFT);
 
-    CHECK(runtime.end_node_handle_ == below);
-    CHECK(runtime.end_index_ == expected_below_down);
-    CHECK(runtime.focused_handle_ == below);
+    CHECK(runtime.Selection().state().end_node_handle == below);
+    CHECK(runtime.Selection().state().end_index == expected_below_down);
+    CHECK(runtime.Focus().FocusedHandle() == below);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
 }

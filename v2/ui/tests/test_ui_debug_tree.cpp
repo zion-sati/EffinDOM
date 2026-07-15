@@ -112,7 +112,6 @@ TEST_CASE("v2 ui debug tree keeps offscreen scroll descendants with clipped boun
     ui_set_width(scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(scroll, 40.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_scroll_enabled(scroll, false, true);
-    ui_set_show_scrollbars(scroll, false);
     ui_set_width(content, 80.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_height(content, 140.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_width(spacer, 80.0f, UI_SIZE_UNIT_PIXEL);
@@ -135,7 +134,6 @@ TEST_CASE("v2 ui debug tree keeps offscreen scroll descendants with clipped boun
     CHECK((scroll_record.behavior_flags & kDebugTreeBehaviorScrollView) != 0U);
     CHECK((scroll_record.behavior_flags & kDebugTreeBehaviorScrollEnabledX) == 0U);
     CHECK((scroll_record.behavior_flags & kDebugTreeBehaviorScrollEnabledY) != 0U);
-    CHECK((scroll_record.behavior_flags & kDebugTreeBehaviorShowScrollbars) == 0U);
     CHECK(scroll_record.scroll_content_height == Approx(140.0f));
     CHECK(scroll_record.scroll_viewport_width == Approx(80.0f));
     CHECK(scroll_record.scroll_viewport_height == Approx(40.0f));

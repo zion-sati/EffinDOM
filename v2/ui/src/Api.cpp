@@ -417,10 +417,6 @@ void ui_set_scroll_enabled(ui_handle_t handle, bool enabled_x, bool enabled_y) {
     (void)effindom::v2::ui::GetRuntime().SetScrollEnabled(handle, enabled_x, enabled_y);
 }
 
-void ui_set_show_scrollbars(ui_handle_t handle, bool show_scrollbars) {
-    (void)effindom::v2::ui::GetRuntime().SetShowScrollbars(handle, show_scrollbars);
-}
-
 void ui_set_scroll_friction(ui_handle_t handle, float friction) {
     (void)effindom::v2::ui::GetRuntime().SetScrollFriction(handle, friction);
 }

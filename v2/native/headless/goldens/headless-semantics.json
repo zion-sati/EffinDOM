@@ -1,0 +1,8 @@
+{
+  "records": [
+    {"role": 4, "handle": 4294967298, "bounds": [10.0, 10.0, 300.0, 34.0], "state": 0, "label": "Native conformance"},
+    {"role": 6, "handle": 4294967299, "bounds": [10.0, 44.0, 300.0, 72.0], "state": 0, "label": "Native scrolling fixture"},
+    {"role": 2, "handle": 4294967301, "bounds": [10.0, 116.0, 300.0, 48.0], "state": 1664, "label": "Native editor"},
+    {"role": 1, "handle": 4294967302, "bounds": [10.0, 164.0, 300.0, 40.0], "state": 0, "label": "Continue"}
+  ]
+}

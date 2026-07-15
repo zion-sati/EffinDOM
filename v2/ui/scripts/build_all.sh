@@ -93,8 +93,11 @@ if ! cmake_output="$(
 fi
 printf '%s\n' "${cmake_output}" | grep -v "^-- " || true
 
-cmake --build "${NATIVE_BUILD_DIR}" --target effindom_v2_ui_tests --parallel "${CPU_COUNT}"
+cmake --build "${NATIVE_BUILD_DIR}" \
+  --target effindom_v2_ui_tests effindom_v2_headless_tests effindom_v2_headless_conformance \
+  --parallel "${CPU_COUNT}"
 "${NATIVE_BUILD_DIR}/v2/ui/effindom_v2_ui_tests"
+ctest --test-dir "${NATIVE_BUILD_DIR}/v2/native/headless" --output-on-failure --parallel "${CPU_COUNT}"
 green "Native v2/ui tests passed"
 
 step "4/5  Wasm bundles and browser assets"

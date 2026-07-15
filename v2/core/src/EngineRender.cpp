@@ -721,6 +721,9 @@ void Engine::Impl::DrawTextContent(
                 copy.glyphs = std::move(run_glyphs);
                 return copy;
             }();
+            glyph_render_stats.glyph_blob_builds += 1U;
+            glyph_render_stats.uncached_glyph_blob_builds += 1U;
+            glyph_render_stats.styled_run_glyph_copies += style_run_end - style_run_start;
             const sk_sp<SkTextBlob> blob = BuildGlyphBlob(run_node, fonts);
             if (blob) {
                 SkPaint glyph_paint;
@@ -736,15 +739,19 @@ void Engine::Impl::DrawTextContent(
     detail::DisplayNode& mutable_node = const_cast<detail::DisplayNode&>(node);
     sk_sp<SkTextBlob> blob{};
     if (!use_glyph_blob_cache) {
+        glyph_render_stats.glyph_blob_builds += 1U;
+        glyph_render_stats.uncached_glyph_blob_builds += 1U;
         blob = BuildGlyphBlob(node, fonts);
     } else if (mutable_node.glyphs.empty()) {
         ReleaseGlyphBlobCache(mutable_node);
     } else if (
         mutable_node.cached_glyph_blob != nullptr &&
         mutable_node.cached_glyph_blob_version == mutable_node.glyph_blob_version) {
+        glyph_render_stats.glyph_blob_cache_hits += 1U;
         TouchGlyphBlobCache(mutable_node);
         blob = mutable_node.cached_glyph_blob;
     } else {
+        glyph_render_stats.glyph_blob_builds += 1U;
         StoreGlyphBlobCache(mutable_node, BuildGlyphBlob(mutable_node, fonts));
         blob = mutable_node.cached_glyph_blob;
     }

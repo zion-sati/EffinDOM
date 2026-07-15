@@ -63,11 +63,10 @@ TEST_CASE("v2 ui pointer move without button does not drag stale scroll state", 
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.active_scroll_handle_ = scroll;
-    runtime.active_scroll_dragged_ = false;
-    runtime.primary_pointer_down_ = false;
-    runtime.last_pointer_logical_x_ = 40.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    (*runtime.scroll_coordinator_).BeginPointerDrag(scroll);
+    runtime.Input().state().primary_pointer_down = false;
+    runtime.Input().state().last_pointer_logical_x = 40.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
 
     UiTestPointerEvent(UI_EVENT_POINTER_MOVE, content, 48.0f, 54.0f);
 
@@ -102,17 +101,17 @@ TEST_CASE("v2 ui touch endpoint drag suppresses stale editable caret drag", "[v2
     REQUIRE(node != nullptr);
     node->selection_start = 6U;
     node->selection_end = 10U;
-    runtime.active_selection_handle_ = text;
-    runtime.active_selection_dragged_ = false;
-    runtime.touch_text_tap_handle_ = text;
-    runtime.touch_text_tap_moved_ = true;
+    runtime.Selection().state().active_handle = text;
+    runtime.Selection().state().active_dragged = false;
+    runtime.Input().state().touch_text_tap_handle = text;
+    runtime.Input().state().touch_text_tap_moved = true;
 
     REQUIRE(runtime.BeginSelectionEndpointDrag(text, 0U));
-    CHECK(runtime.touch_text_tap_handle_ == UI_INVALID_HANDLE);
-    CHECK_FALSE(runtime.touch_text_tap_moved_);
-    CHECK(runtime.selection_handle_drag_active_);
+    CHECK(runtime.Input().state().touch_text_tap_handle == UI_INVALID_HANDLE);
+    CHECK_FALSE(runtime.Input().state().touch_text_tap_moved);
+    CHECK(runtime.Selection().state().handle_drag_active);
 
-    runtime.primary_pointer_down_ = true;
+    runtime.Input().state().primary_pointer_down = true;
     const auto [target_x, target_line] = runtime.GetLocalPositionFromIndex(*node, 0U);
     REQUIRE(target_line == 0);
     const float target_y = node->abs_y + (node->line_height * 0.5f);
@@ -126,7 +125,72 @@ TEST_CASE("v2 ui touch endpoint drag suppresses stale editable caret drag", "[v2
 
     CHECK(node->selection_start == 0U);
     CHECK(node->selection_end == 10U);
-    CHECK(runtime.selection_handle_drag_active_);
+    CHECK(runtime.Selection().state().handle_drag_active);
+}
+
+TEST_CASE("v2 ui touch editable focus commits on tap release and yields moved gestures to scrolling", "[v2][ui][text-edit][touch-focus]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+    ui_set_root(root);
+    ui_resize_window(260.0f, 120.0f);
+    ui_set_width(root, 260.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(text, 300.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_editable(text, true);
+    ui_set_focusable(text, true, 0);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("alpha beta gamma"), 16U);
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const float x = node->abs_x + 24.0f;
+    const float y = node->abs_y + 60.0f;
+
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, x, y, 71, UI_POINTER_TYPE_TOUCH);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, x, y - 30.0f, 71, UI_POINTER_TYPE_TOUCH);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
+    const auto* moved_scroll = GetRuntime().Resolve(scroll);
+    REQUIRE(moved_scroll != nullptr);
+    CHECK(moved_scroll->scroll_offset_y > 0.0f);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, x, y - 30.0f, 71, UI_POINTER_TYPE_TOUCH);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
+
+    const auto* scrolled_text = GetRuntime().Resolve(text);
+    REQUIRE(scrolled_text != nullptr);
+    const float tap_x = scrolled_text->abs_x + 12.0f;
+    const float tap_y = scrolled_text->abs_y + 10.0f;
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, tap_x, tap_y, 72, UI_POINTER_TYPE_TOUCH);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, tap_x, tap_y, 72, UI_POINTER_TYPE_TOUCH);
+    CHECK(GetRuntime().Focus().FocusedHandle() == text);
+
+    const auto* focused_node = GetRuntime().Resolve(text);
+    REQUIRE(focused_node != nullptr);
+    const std::uint32_t initial_caret = focused_node->selection_end;
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, tap_x, tap_y, 73, UI_POINTER_TYPE_TOUCH);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, tap_x + 80.0f, tap_y, 73, UI_POINTER_TYPE_TOUCH);
+    const auto* dragged_node = GetRuntime().Resolve(text);
+    REQUIRE(dragged_node != nullptr);
+    CHECK(dragged_node->selection_end != initial_caret);
+    UiTestPointerEvent(UI_EVENT_POINTER_UP, text, tap_x + 80.0f, tap_y, 73, UI_POINTER_TYPE_TOUCH);
 }
 
 
@@ -154,9 +218,9 @@ TEST_CASE("v2 ui wheel events scroll the hovered scroll view", "[v2][ui][input]"
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.last_hovered_handle_ = content;
-    runtime.last_pointer_logical_x_ = 40.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    runtime.Input().state().last_hovered_handle = content;
+    runtime.Input().state().last_pointer_logical_x = 40.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
 
     ui_on_wheel_event(0.0f, 28.0f);
 
@@ -222,18 +286,18 @@ TEST_CASE("v2 ui wheel events do not latch onto a sibling scroll view outside it
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.last_hovered_handle_ = gap;
-    runtime.last_pointer_logical_x_ = 164.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    runtime.Input().state().last_hovered_handle = gap;
+    runtime.Input().state().last_pointer_logical_x = 164.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
     ui_on_wheel_event(0.0f, 20.0f);
 
     const auto* scroll_node = runtime.Resolve(scroll);
     REQUIRE(scroll_node != nullptr);
     CHECK(scroll_node->scroll_offset_y == Approx(0.0f));
 
-    runtime.last_hovered_handle_ = track;
-    runtime.last_pointer_logical_x_ = 172.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    runtime.Input().state().last_hovered_handle = track;
+    runtime.Input().state().last_pointer_logical_x = 172.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
     ui_on_wheel_event(0.0f, 16.0f);
     CHECK(scroll_node->scroll_offset_y == Approx(0.0f));
 }
@@ -283,9 +347,9 @@ TEST_CASE("v2 ui wheel and touch scroll share scroll-box proxy routing", "[v2][u
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.last_hovered_handle_ = gap;
-    runtime.last_pointer_logical_x_ = 164.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    runtime.Input().state().last_hovered_handle = gap;
+    runtime.Input().state().last_pointer_logical_x = 164.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
 
     ui_on_wheel_event(0.0f, 20.0f);
 
@@ -294,14 +358,14 @@ TEST_CASE("v2 ui wheel and touch scroll share scroll-box proxy routing", "[v2][u
     CHECK(scroll_node->scroll_offset_y == Approx(20.0f));
 
     ui_touch_scroll_begin(gap, 164.0f, 40.0f);
-    CHECK(runtime.active_scroll_handle_ == scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == scroll);
 
     ui_touch_scroll_update(0.0f, 16.0f);
     CHECK(runtime.Resolve(scroll)->scroll_offset_y == Approx(36.0f));
     CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(960.0f));
 
     ui_touch_scroll_end();
-    CHECK(runtime.active_scroll_handle_ == UI_INVALID_HANDLE);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == UI_INVALID_HANDLE);
     CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(960.0f));
 }
 
@@ -357,9 +421,9 @@ TEST_CASE("v2 ui nested scroll-box proxy hands wheel and touch scrolling to an a
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.last_hovered_handle_ = scroll_box;
-    runtime.last_pointer_logical_x_ = 40.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    runtime.Input().state().last_hovered_handle = scroll_box;
+    runtime.Input().state().last_pointer_logical_x = 40.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
     ui_on_wheel_event(0.0f, -20.0f);
 
     REQUIRE(runtime.Resolve(outer_scroll) != nullptr);
@@ -368,9 +432,9 @@ TEST_CASE("v2 ui nested scroll-box proxy hands wheel and touch scrolling to an a
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(0.0f));
 
     ui_touch_scroll_begin(scroll_box, 40.0f, 40.0f);
-    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == inner_scroll);
     ui_touch_scroll_update(0.0f, -15.0f);
-    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == outer_scroll);
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(5.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(0.0f));
 
@@ -383,9 +447,9 @@ TEST_CASE("v2 ui nested scroll-box proxy hands wheel and touch scrolling to an a
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(140.0f));
 
     ui_touch_scroll_begin(scroll_box, 40.0f, 40.0f);
-    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == inner_scroll);
     ui_touch_scroll_update(0.0f, 15.0f);
-    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == outer_scroll);
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(55.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(140.0f));
 }
@@ -442,9 +506,9 @@ TEST_CASE("v2 ui clipped overflow does not retarget wheel scrolling through a sc
     auto& runtime = GetRuntime();
     CHECK(runtime.ResolveScrollTarget(inner_content, 116.0f, 40.0f) == outer_scroll);
 
-    runtime.last_hovered_handle_ = inner_content;
-    runtime.last_pointer_logical_x_ = 116.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    runtime.Input().state().last_hovered_handle = inner_content;
+    runtime.Input().state().last_pointer_logical_x = 116.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
     ui_on_wheel_event(0.0f, 20.0f);
 
     const auto* outer_node = runtime.Resolve(outer_scroll);
@@ -496,8 +560,8 @@ TEST_CASE("v2 ui horizontal wheel and touch fall back to an ancestor that can sc
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.last_pointer_logical_x_ = 40.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    runtime.Input().state().last_pointer_logical_x = 40.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
     ui_on_wheel_event(24.0f, 0.0f);
 
     const auto* outer_node = runtime.Resolve(outer_scroll);
@@ -508,9 +572,9 @@ TEST_CASE("v2 ui horizontal wheel and touch fall back to an ancestor that can sc
     CHECK(inner_node->scroll_offset_y == Approx(0.0f));
 
     ui_touch_scroll_begin(inner_scroll, 40.0f, 40.0f);
-    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == inner_scroll);
     ui_touch_scroll_update(30.0f, 0.0f);
-    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == outer_scroll);
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(54.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(0.0f));
 }
@@ -559,8 +623,8 @@ TEST_CASE("v2 ui vertical wheel and touch fall back to an ancestor once the nest
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.last_pointer_logical_x_ = 40.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    runtime.Input().state().last_pointer_logical_x = 40.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
     ui_on_wheel_event(0.0f, -20.0f);
 
     const auto* outer_node = runtime.Resolve(outer_scroll);
@@ -571,9 +635,9 @@ TEST_CASE("v2 ui vertical wheel and touch fall back to an ancestor once the nest
     CHECK(inner_node->scroll_offset_y == Approx(0.0f));
 
     ui_touch_scroll_begin(inner_scroll, 40.0f, 40.0f);
-    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == inner_scroll);
     ui_touch_scroll_update(0.0f, -15.0f);
-    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == outer_scroll);
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(5.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(0.0f));
 
@@ -586,9 +650,9 @@ TEST_CASE("v2 ui vertical wheel and touch fall back to an ancestor once the nest
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(140.0f));
 
     ui_touch_scroll_begin(inner_scroll, 40.0f, 40.0f);
-    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == inner_scroll);
     ui_touch_scroll_update(0.0f, 15.0f);
-    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == outer_scroll);
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_y == Approx(55.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_y == Approx(140.0f));
 }
@@ -638,17 +702,17 @@ TEST_CASE("v2 ui horizontal wheel and touch fall back to an ancestor when the ne
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.last_pointer_logical_x_ = 40.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    runtime.Input().state().last_pointer_logical_x = 40.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
 
     ui_on_wheel_event(20.0f, 0.0f);
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(50.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_x == Approx(140.0f));
 
     ui_touch_scroll_begin(inner_scroll, 40.0f, 40.0f);
-    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == inner_scroll);
     ui_touch_scroll_update(15.0f, 0.0f);
-    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == outer_scroll);
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(65.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_x == Approx(140.0f));
 
@@ -656,15 +720,15 @@ TEST_CASE("v2 ui horizontal wheel and touch fall back to an ancestor when the ne
     ui_set_scroll_offset(inner_scroll, 0.0f, 0.0f);
     ui_commit_frame();
 
-    runtime.last_pointer_logical_x_ = 10.0f;
+    runtime.Input().state().last_pointer_logical_x = 10.0f;
     ui_on_wheel_event(-20.0f, 0.0f);
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(45.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_x == Approx(0.0f));
 
     ui_touch_scroll_begin(inner_scroll, 10.0f, 40.0f);
-    CHECK(runtime.active_scroll_handle_ == inner_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == inner_scroll);
     ui_touch_scroll_update(-15.0f, 0.0f);
-    CHECK(runtime.active_scroll_handle_ == outer_scroll);
+    CHECK((*runtime.scroll_coordinator_).ActiveDragHandle() == outer_scroll);
     CHECK(runtime.Resolve(outer_scroll)->scroll_offset_x == Approx(30.0f));
     CHECK(runtime.Resolve(inner_scroll)->scroll_offset_x == Approx(0.0f));
 }
@@ -756,7 +820,7 @@ TEST_CASE("v2 ui touch scroll updates a scroll view and preserves fling velocity
     ui_commit_frame();
 
     ui_touch_scroll_begin(content, 40.0f, 40.0f);
-    CHECK(GetRuntime().active_scroll_handle_ == scroll);
+    CHECK((*GetRuntime().scroll_coordinator_).ActiveDragHandle() == scroll);
     CHECK(ui_touch_scroll_allows_pull_to_refresh());
 
     ui_touch_scroll_update(0.0f, 28.0f);
@@ -766,7 +830,7 @@ TEST_CASE("v2 ui touch scroll updates a scroll view and preserves fling velocity
     CHECK_FALSE(ui_touch_scroll_allows_pull_to_refresh());
 
     ui_touch_scroll_end();
-    CHECK(GetRuntime().active_scroll_handle_ == UI_INVALID_HANDLE);
+    CHECK((*GetRuntime().scroll_coordinator_).ActiveDragHandle() == UI_INVALID_HANDLE);
     CHECK(GetRuntime().Resolve(scroll)->scroll_velocity_y == Approx(1680.0f));
 
     ui_commit_frame();
@@ -873,7 +937,7 @@ TEST_CASE("v2 ui cross-node selection covers intermediate nodes and clears on em
     CHECK_FALSE(highlights.at(middle).rects.empty());
 
     UiTestPointerEvent(UI_EVENT_POINTER_DOWN, root, 2.0f, 2.0f);
-    CHECK_FALSE(GetRuntime().cross_selection_active_);
+    CHECK_FALSE(GetRuntime().Selection().state().cross_active);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
     CHECK(g_cross_selection_changes.back().text.empty());
@@ -921,8 +985,8 @@ TEST_CASE("v2 ui selection-area select-all uses cross-selection and clears on cl
     REQUIRE(text_node != nullptr);
 
     CHECK(GetRuntime().SelectAllText(text));
-    CHECK(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().active_selection_handle_ == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Selection().state().active_handle == UI_INVALID_HANDLE);
     CHECK(text_node->selection_start == 0U);
     CHECK(text_node->selection_end == 0U);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
@@ -947,7 +1011,7 @@ TEST_CASE("v2 ui selection-area select-all uses cross-selection and clears on cl
         text_node->abs_x + click_x + 0.5f,
         text_node->abs_y + (text_node->line_height * 0.5f));
 
-    CHECK_FALSE(GetRuntime().cross_selection_active_);
+    CHECK_FALSE(GetRuntime().Selection().state().cross_active);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
     CHECK(g_cross_selection_changes.back().text.empty());
@@ -1017,18 +1081,18 @@ TEST_CASE("v2 ui mouse drag cross-selection keeps its anchor for shift horizonta
         second_node->abs_x + end_x + 0.5f,
         second_node->abs_y + (second_node->line_height * 0.5f));
 
-    CHECK(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().start_node_handle_ == first);
-    CHECK(GetRuntime().start_index_ == 2U);
-    CHECK(GetRuntime().end_node_handle_ == second);
-    CHECK(GetRuntime().end_index_ == 3U);
+    CHECK(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Selection().state().start_node_handle == first);
+    CHECK(GetRuntime().Selection().state().start_index == 2U);
+    CHECK(GetRuntime().Selection().state().end_node_handle == second);
+    CHECK(GetRuntime().Selection().state().end_index == 3U);
     ResetInteractionLogs();
 
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowRight"), 10U, UI_KEY_MOD_SHIFT);
 
-    CHECK(GetRuntime().start_node_handle_ == first);
-    CHECK(GetRuntime().start_index_ == 2U);
-    CHECK(GetRuntime().end_node_handle_ == second);
-    CHECK(GetRuntime().end_index_ == 4U);
+    CHECK(GetRuntime().Selection().state().start_node_handle == first);
+    CHECK(GetRuntime().Selection().state().start_index == 2U);
+    CHECK(GetRuntime().Selection().state().end_node_handle == second);
+    CHECK(GetRuntime().Selection().state().end_index == 4U);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
 }

@@ -20,9 +20,9 @@ TEST_CASE("v2 ui private editing helpers cover guard paths", "[v2][ui][unit][edi
     REQUIRE(text_node != nullptr);
     REQUIRE(box_node != nullptr);
 
-    GetRuntime().active_selection_handle_ = text;
+    GetRuntime().Selection().state().active_handle = text;
     CHECK(GetRuntime().SetSelectable(text, false, 0x40007AFFU));
-    CHECK(GetRuntime().active_selection_handle_ == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Selection().state().active_handle == UI_INVALID_HANDLE);
     CHECK_FALSE(GetRuntime().SetSelectable(box, true, 0x40007AFFU));
     CHECK_FALSE(GetRuntime().SetCaretColor(box, 0xFF000000U));
 
@@ -32,13 +32,13 @@ TEST_CASE("v2 ui private editing helpers cover guard paths", "[v2][ui][unit][edi
     text_node->text_content = "abc";
     text_node->selection_start = 2U;
     text_node->selection_end = 2U;
-    GetRuntime().focused_handle_ = UI_INVALID_HANDLE;
+    GetRuntime().SetFocus(UI_INVALID_HANDLE);
     GetRuntime().SetInteractionTime(91U);
     GetRuntime().HandleImeUpdate(text, nullptr, 0U, 5U);
     CHECK(text_node->text_content.empty());
     CHECK(text_node->selection_start == 0U);
     CHECK(text_node->selection_end == 0U);
-    CHECK(GetRuntime().focused_handle_ == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
     text_node->text_content = "same";
     text_node->selection_start = 2U;
     text_node->selection_end = 2U;
@@ -83,7 +83,7 @@ TEST_CASE("v2 ui private editing helpers cover guard paths", "[v2][ui][unit][edi
     CHECK(GetRuntime().IndexForLineBegin(plain_node, 1U) == 0U);
     CHECK(GetRuntime().IndexForLineEnd(plain_node, 1U) == 0U);
     CHECK(GetRuntime().IndexForVerticalMove(plain_node, 1U, true) == 0U);
-    CHECK(GetRuntime().BuildSelectionRects(plain_node, 0U, 0U).empty());
+    CHECK(GetRuntime().BuildSelectionRects(plain_node, 0U, 0U, std::nullopt).empty());
 
     effindom::v2::ui::UINode helper{};
     helper.is_text_node = true;
@@ -151,7 +151,7 @@ TEST_CASE("v2 ui programmatic text selection emits the requested range without f
     CHECK(g_selection_changes.front().handle == text);
     CHECK(g_selection_changes.front().start == 9U);
     CHECK(g_selection_changes.front().end == 9U);
-    CHECK(GetRuntime().focused_handle_ == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
 }
 
 TEST_CASE("v2 ui private editable mutation helpers cover undo and delete branches", "[v2][ui][unit][editing]") {
@@ -195,7 +195,7 @@ TEST_CASE("v2 ui private editable mutation helpers cover undo and delete branche
     node->is_text_node = true;
     node->is_selectable = true;
     node->is_editable = true;
-    GetRuntime().focused_handle_ = text;
+    GetRuntime().SetFocus(text);
 
     node->text_content = "abc";
     node->selection_start = 0U;
@@ -255,7 +255,7 @@ TEST_CASE("v2 ui private editing helpers preserve multiline delete boundary sema
     node->is_text_node = true;
     node->is_selectable = true;
     node->is_editable = true;
-    GetRuntime().focused_handle_ = text;
+    GetRuntime().SetFocus(text);
 
     struct DeleteCase {
         const char* name;
@@ -448,9 +448,11 @@ TEST_CASE("v2 ui private text editing key helpers keep readonly shift-extension 
     node.line_height = 20.0f;
     node.visible_line_count = 1U;
 
-    GetRuntime().focused_handle_ = 99U;
-    GetRuntime().selection_anchor_handle_ = 77U;
-    GetRuntime().selection_anchor_index_ = 3U;
+    const std::uint64_t focus_handle = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(focus_handle != UI_INVALID_HANDLE);
+    GetRuntime().SetFocus(focus_handle);
+    GetRuntime().Selection().state().anchor_handle = 77U;
+    GetRuntime().Selection().state().anchor_index = 3U;
 
     CHECK_FALSE(GetRuntime().HandleTextEditingKey(node, std::string_view{}, 0U));
     CHECK_FALSE(GetRuntime().HandleTextEditingKey(node, "Q", 0U));
@@ -471,9 +473,9 @@ TEST_CASE("v2 ui private text editing key helpers keep readonly shift-extension 
 
     node.selection_start = 4U;
     node.selection_end = 4U;
-    GetRuntime().selection_anchor_handle_ = 12U;
+    GetRuntime().Selection().state().anchor_handle = 12U;
     CHECK_FALSE(GetRuntime().HandleTextEditingKey(node, "ArrowRight", UI_KEY_MOD_SHIFT));
-    CHECK(GetRuntime().selection_anchor_handle_ == 12U);
+    CHECK(GetRuntime().Selection().state().anchor_handle == 12U);
     CHECK(node.selection_start == 4U);
     CHECK(node.selection_end == 4U);
 
@@ -488,12 +490,12 @@ TEST_CASE("v2 ui private text editing key helpers keep readonly shift-extension 
 
     node.selection_start = 10U;
     node.selection_end = 12U;
-    GetRuntime().selection_anchor_handle_ = 77U;
+    GetRuntime().Selection().state().anchor_handle = 77U;
     CHECK(GetRuntime().HandleTextEditingKey(node, "ArrowLeft", UI_KEY_MOD_SHIFT));
     CHECK(GetRuntime().HandleTextEditingKey(node, "ArrowLeft", UI_KEY_MOD_SHIFT));
     CHECK(GetRuntime().HandleTextEditingKey(node, "ArrowLeft", UI_KEY_MOD_SHIFT));
-    CHECK(GetRuntime().selection_anchor_handle_ == 99U);
-    CHECK(GetRuntime().selection_anchor_index_ == 10U);
+    CHECK(GetRuntime().Selection().state().anchor_handle == focus_handle);
+    CHECK(GetRuntime().Selection().state().anchor_index == 10U);
     CHECK(node.selection_start == 10U);
     CHECK(node.selection_end == 9U);
 
@@ -555,11 +557,6 @@ TEST_CASE("v2 ui private input and node helpers cover cleanup branches", "[v2][u
     ui_reset();
     UseRecordingInteractionCallbacks();
 
-    GetRuntime().RebuildFocusOrder();
-    CHECK_FALSE(GetRuntime().focus_order_dirty_);
-    std::vector<std::uint64_t> out{};
-    GetRuntime().AppendFocusableHandles(UI_INVALID_HANDLE, out);
-    CHECK(out.empty());
     CHECK(GetRuntime().GetNextFocusable(UI_INVALID_HANDLE, true) == UI_INVALID_HANDLE);
 
     const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
@@ -574,13 +571,13 @@ TEST_CASE("v2 ui private input and node helpers cover cleanup branches", "[v2][u
     CHECK(GetRuntime().SubtreeContains(root, text));
     CHECK_FALSE(GetRuntime().SubtreeContains(effindom::v2::ui::PackHandle(123U, 1U), text));
 
-    GetRuntime().last_hovered_handle_ = text;
-    GetRuntime().active_selection_handle_ = text;
-    GetRuntime().focused_handle_ = text;
+    GetRuntime().Input().state().last_hovered_handle = text;
+    GetRuntime().Selection().state().active_handle = text;
+    GetRuntime().SetFocus(text);
     CHECK(GetRuntime().DeleteNode(root));
-    CHECK(GetRuntime().focused_handle_ == UI_INVALID_HANDLE);
-    CHECK(GetRuntime().last_hovered_handle_ == UI_INVALID_HANDLE);
-    CHECK(GetRuntime().active_selection_handle_ == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Input().state().last_hovered_handle == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Selection().state().active_handle == UI_INVALID_HANDLE);
 
     const std::uint64_t root2 = ui_create_node(UI_NODE_FLEX_BOX);
     const std::uint64_t child2 = ui_create_node(UI_NODE_FLEX_BOX);
@@ -590,11 +587,11 @@ TEST_CASE("v2 ui private input and node helpers cover cleanup branches", "[v2][u
     REQUIRE(text2 != UI_INVALID_HANDLE);
     ui_node_add_child(root2, child2);
     ui_node_add_child(child2, text2);
-    GetRuntime().last_hovered_handle_ = text2;
-    GetRuntime().active_selection_handle_ = text2;
+    GetRuntime().Input().state().last_hovered_handle = text2;
+    GetRuntime().Selection().state().active_handle = text2;
     CHECK(GetRuntime().RemoveChild(root2, child2));
-    CHECK(GetRuntime().last_hovered_handle_ == UI_INVALID_HANDLE);
-    CHECK(GetRuntime().active_selection_handle_ == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Input().state().last_hovered_handle == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Selection().state().active_handle == UI_INVALID_HANDLE);
 
     auto* text_node = GetRuntime().ResolveMutable(text2);
     REQUIRE(text_node != nullptr);
@@ -603,12 +600,9 @@ TEST_CASE("v2 ui private input and node helpers cover cleanup branches", "[v2][u
     text_node->is_dirty = false;
     GetRuntime().SetFocus(text2);
     GetRuntime().SetFocus(effindom::v2::ui::PackHandle(999U, 1U));
-    CHECK(GetRuntime().focused_handle_ == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
     CHECK(text_node->is_dirty);
 
-    GetRuntime().focus_order_ = {1U, 2U, 3U};
-    GetRuntime().focus_order_dirty_ = false;
-    CHECK(GetRuntime().GetNextFocusable(3U, false) == 2U);
     GetRuntime().HandleKeyEvent(UI_KEY_EVENT_UP, reinterpret_cast<const std::uint8_t*>("a"), 1U, 0U);
     GetRuntime().HandleKeyEvent(UI_KEY_EVENT_DOWN, nullptr, 1U, 0U);
 }

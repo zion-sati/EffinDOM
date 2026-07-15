@@ -1,13 +1,13 @@
 #include "UiRuntime.h"
 
 #include "CommandBuilder.h"
+#include "UiDebugTreeProjector.h"
+#include "UiSemanticProjector.h"
+#include "UiTreePainter.h"
+#include "UiSceneGeometryResolver.h"
 #include "effindom_ui.h"
 
 #include <algorithm>
-#include <chrono>
-#include <cctype>
-#include <cmath>
-#include <cstring>
 #include <chrono>
 #include <cctype>
 #include <cmath>
@@ -19,31 +19,8 @@ namespace effindom::v2::ui {
 namespace {
 
 using ProfileClock = std::chrono::steady_clock;
-constexpr double kNominalFrameMs = 1000.0 / 60.0;
-constexpr double kMaxFrameDeltaMs = 100.0;
-constexpr float kTerminalMomentumVelocityPxPerSecond = 120.0f;
-constexpr float kTerminalMomentumFriction = 0.88f;
-constexpr float kMomentumStopDisplacementPx = 0.32f;
-constexpr float kSmoothScrollTimeConstantMs = 70.0f;
-constexpr float kSmoothScrollStopDistancePx = 0.2f;
-
 double ElapsedMilliseconds(ProfileClock::time_point start, ProfileClock::time_point end) {
     return std::chrono::duration<double, std::milli>(end - start).count();
-}
-
-bool IsValidTimestamp(double timestamp_ms) {
-    return std::isfinite(timestamp_ms) && timestamp_ms >= 0.0;
-}
-
-double ClampFrameDeltaMs(double delta_ms) {
-    if (!std::isfinite(delta_ms) || delta_ms < 0.0) {
-        return 0.0;
-    }
-    return std::min(delta_ms, kMaxFrameDeltaMs);
-}
-
-float VelocityStopThreshold(float displacement_threshold_px) {
-    return displacement_threshold_px / static_cast<float>(kNominalFrameMs / 1000.0);
 }
 
 bool MatchesShortcutCharacter(std::string_view key, char expected) {
@@ -59,515 +36,213 @@ float FocusedTextCaretScrollOverscan(const UINode& node) {
     return caret_width + caret_margin;
 }
 
-bool IsHorizontalFlexDirection(YGFlexDirection direction) {
-    return direction == YGFlexDirectionRow || direction == YGFlexDirectionRowReverse;
-}
-
-class SemanticBufferBuilder {
-public:
-    enum StateFlags : std::uint32_t {
-        HAS_SELECTED = 1U << 0U,
-        IS_SELECTED = 1U << 1U,
-        HAS_EXPANDED = 1U << 2U,
-        IS_EXPANDED = 1U << 3U,
-        HAS_DISABLED = 1U << 4U,
-        IS_DISABLED = 1U << 5U,
-        HAS_VALUE_RANGE = 1U << 6U,
-        HAS_READONLY = 1U << 7U,
-        IS_READONLY = 1U << 8U,
-        HAS_MULTILINE = 1U << 9U,
-        IS_MULTILINE = 1U << 10U,
-    };
-
-    explicit SemanticBufferBuilder(std::vector<std::uint32_t>& words)
-        : words_(words) {}
-
-    void Clear() {
-        words_.clear();
-        words_.push_back(0U);
-    }
-
-    void AddRecord(
-        UiSemanticRole role,
-        std::uint64_t handle,
-        float x,
-        float y,
-        float width,
-        float height,
-        const UINode& node,
-        std::string_view label) {
-        std::uint32_t state_flags = 0U;
-        if (node.has_semantic_selected) {
-            state_flags |= HAS_SELECTED;
-            if (node.semantic_selected) {
-                state_flags |= IS_SELECTED;
-            }
-        }
-        if (node.has_semantic_expanded) {
-            state_flags |= HAS_EXPANDED;
-            if (node.semantic_expanded) {
-                state_flags |= IS_EXPANDED;
-            }
-        }
-        if (node.has_semantic_disabled) {
-            state_flags |= HAS_DISABLED;
-            if (node.semantic_disabled) {
-                state_flags |= IS_DISABLED;
-            }
-        }
-        if (node.has_semantic_value_range) {
-            state_flags |= HAS_VALUE_RANGE;
-        }
-        if (node.semantic_role == UI_SEMANTIC_TEXTBOX) {
-            state_flags |= HAS_READONLY;
-            if (!node.is_editable) {
-                state_flags |= IS_READONLY;
-            }
-            state_flags |= HAS_MULTILINE;
-            if (node.max_lines != 1) {
-                state_flags |= IS_MULTILINE;
-            }
-        }
-
-        words_.push_back(static_cast<std::uint32_t>(role));
-        words_.push_back(static_cast<std::uint32_t>(handle & 0xFFFFFFFFULL));
-        words_.push_back(static_cast<std::uint32_t>(handle >> 32U));
-        words_.push_back(CommandBuilder::FloatToWord(x));
-        words_.push_back(CommandBuilder::FloatToWord(y));
-        words_.push_back(CommandBuilder::FloatToWord(width));
-        words_.push_back(CommandBuilder::FloatToWord(height));
-        words_.push_back(state_flags);
-        words_.push_back(static_cast<std::uint32_t>(node.semantic_checked_state));
-        words_.push_back(static_cast<std::uint32_t>(node.semantic_orientation));
-        words_.push_back(CommandBuilder::FloatToWord(node.semantic_value_now));
-        words_.push_back(CommandBuilder::FloatToWord(node.semantic_value_min));
-        words_.push_back(CommandBuilder::FloatToWord(node.semantic_value_max));
-        words_.push_back(static_cast<std::uint32_t>(label.size()));
-
-        const std::size_t word_count = (label.size() + 3U) / 4U;
-        const std::size_t start = words_.size();
-        words_.resize(start + word_count, 0U);
-        if (!label.empty()) {
-            std::memcpy(words_.data() + start, label.data(), label.size());
-        }
-        words_[0] += 1U;
-    }
-
-private:
-    std::vector<std::uint32_t>& words_;
-};
-
-class DebugTreeBufferBuilder {
-public:
-    static constexpr std::uint32_t kMagic = 0x44544231U; // DTB1
-    static constexpr std::uint32_t kVersion = 1U;
-    static constexpr std::uint32_t kFixedRecordWords = 52U;
-
-    enum NodeFlags : std::uint32_t {
-        IS_ACTIVE = 1U << 0U,
-        IS_VISIBLE_NORMAL = 1U << 1U,
-        CLIP_TO_BOUNDS = 1U << 2U,
-        IS_CLIPPED_OR_EMPTY = 1U << 3U,
-        HAS_NODE_ID = 1U << 4U,
-        HAS_SEMANTIC_LABEL = 1U << 5U,
-        HAS_BOX_STYLE = 1U << 6U,
-        HAS_LAYER_EFFECT = 1U << 7U,
-        HAS_DROP_SHADOW = 1U << 8U,
-        HAS_BACKGROUND_BLUR = 1U << 9U,
-        HAS_LINEAR_GRADIENT = 1U << 10U,
-        HAS_IMAGE = 1U << 11U,
-        HAS_IMAGE_NINE = 1U << 12U,
-        HAS_SVG = 1U << 13U,
-        HAS_TEXT_STYLE_RUNS = 1U << 14U,
-    };
-
-    enum BehaviorFlags : std::uint32_t {
-        IS_INTERACTIVE = 1U << 0U,
-        IS_FOCUSABLE = 1U << 1U,
-        IS_SELECTABLE = 1U << 2U,
-        IS_EDITABLE = 1U << 3U,
-        IS_PORTAL = 1U << 4U,
-        IS_SCROLL_VIEW = 1U << 5U,
-        IS_GRID = 1U << 6U,
-        IS_SELECTION_AREA = 1U << 7U,
-        IS_SELECTION_AREA_BARRIER = 1U << 8U,
-        IS_CUSTOM_DRAWABLE = 1U << 9U,
-        SCROLL_ENABLED_X = 1U << 10U,
-        SCROLL_ENABLED_Y = 1U << 11U,
-        SHOW_SCROLLBARS = 1U << 12U,
-        IS_TEXT_NODE = 1U << 13U,
-        IS_SVG_NODE = 1U << 14U,
-        EDITOR_COMMAND_KEYS = 1U << 15U,
-        EDITOR_ACCEPTS_TAB = 1U << 16U,
-        IS_TEXT_EDITOR = 1U << 17U,
-    };
-
-    explicit DebugTreeBufferBuilder(std::vector<std::uint32_t>& words)
-        : words_(words) {}
-
-    void Clear() {
-        words_.clear();
-        words_.push_back(kMagic);
-        words_.push_back(kVersion);
-        words_.push_back(kFixedRecordWords);
-        words_.push_back(0U);
-    }
-
-    void AddWord(std::uint32_t value) {
-        words_.push_back(value);
-    }
-
-    void AddFloat(float value) {
-        words_.push_back(CommandBuilder::FloatToWord(value));
-    }
-
-    void AddHandle(std::uint64_t handle) {
-        words_.push_back(static_cast<std::uint32_t>(handle & 0xFFFFFFFFULL));
-        words_.push_back(static_cast<std::uint32_t>(handle >> 32U));
-    }
-
-    void AddString(std::string_view value) {
-        words_.push_back(static_cast<std::uint32_t>(value.size()));
-        const std::size_t word_count = (value.size() + 3U) / 4U;
-        const std::size_t start = words_.size();
-        words_.resize(start + word_count, 0U);
-        if (!value.empty()) {
-            std::memcpy(words_.data() + start, value.data(), value.size());
-        }
-    }
-
-    void FinishRecord() {
-        words_[3] += 1U;
-    }
-
-private:
-    std::vector<std::uint32_t>& words_;
-};
-
-constexpr std::size_t kDefaultTextboxSemanticLabelMaxCodepoints = 1000U;
-
-std::size_t Utf8PrefixLengthForCodepoints(std::string_view text, std::size_t max_codepoints) {
-    std::size_t offset = 0U;
-    std::size_t count = 0U;
-    while (offset < text.size() && count < max_codepoints) {
-        const unsigned char lead = static_cast<unsigned char>(text[offset]);
-        std::size_t advance = 1U;
-        if ((lead & 0xE0U) == 0xC0U && offset + 1U < text.size()) {
-            advance = 2U;
-        } else if ((lead & 0xF0U) == 0xE0U && offset + 2U < text.size()) {
-            advance = 3U;
-        } else if ((lead & 0xF8U) == 0xF0U && offset + 3U < text.size()) {
-            advance = 4U;
-        }
-        offset += advance;
-        count += 1U;
-    }
-    return offset;
-}
-
-std::string BuildSemanticLabel(const UINode& node) {
-    if (!node.semantic_label.empty()) {
-        return node.semantic_label;
-    }
-    if (node.is_text_node && !node.text_content.empty()) {
-        if (node.is_obscured) {
-            return "\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2\xE2\x80\xA2";
-        }
-        if (node.semantic_role == UI_SEMANTIC_TEXTBOX) {
-            const std::size_t prefix_length =
-                Utf8PrefixLengthForCodepoints(node.text_content, kDefaultTextboxSemanticLabelMaxCodepoints);
-            if (prefix_length < node.text_content.size()) {
-                return node.text_content.substr(0U, prefix_length) + "...";
-            }
-        }
-        return node.text_content;
-    }
-    return {};
-}
-
-bool IntersectRect(Rect& rect, const Rect& clip) {
-    const float left = std::max(rect.x, clip.x);
-    const float top = std::max(rect.y, clip.y);
-    const float right = std::min(rect.x + rect.width, clip.x + clip.width);
-    const float bottom = std::min(rect.y + rect.height, clip.y + clip.height);
-    rect.x = left;
-    rect.y = top;
-    rect.width = std::max(0.0f, right - left);
-    rect.height = std::max(0.0f, bottom - top);
-    return rect.width > 0.0f && rect.height > 0.0f;
-}
-
 } // namespace
 
 UiRuntime::UiRuntime()
-    : string_arena_(kFrameArenaCapacity, 0U) {
+    : UiRuntime(GetGlobalUiPlatformHost()) {}
+
+UiRuntime::UiRuntime(UiPlatformHost& platform_host)
+    : platform_host_(platform_host),
+      string_arena_(kFrameArenaCapacity, 0U) {
     command_buffer_.reserve(1024);
     semantic_buffer_.reserve(256);
+    focus_coordinator_ = std::make_unique<FocusCoordinator>(node_store_.Reader(), event_sink_);
+    scroll_coordinator_ = std::make_unique<ScrollCoordinator>(
+        node_store_.Reader(),
+        node_store_.Writer(),
+        node_store_.Traversal(),
+        VisibilityResolver(node_store_.Reader()),
+        [this](const UINode& node, float layout_width) {
+            const Rect text_bounds = ComputeTextContentBounds(node);
+            const ParagraphLayout paragraph = LayoutParagraph(
+                node,
+                text_bounds.width > 0.0f ? std::optional<float>(text_bounds.width) : std::nullopt);
+            float width = std::max(layout_width, paragraph.width);
+            if ((node.is_editable || IsEditorTextNode(node)) && paragraph.width > text_bounds.width + 0.001f) {
+                width += FocusedTextCaretScrollOverscan(node);
+            }
+            return width;
+        },
+        event_sink_,
+        [this](const UINode& node) { return ResolveScrollFriction(node); });
+    input_router_ = std::make_unique<InputRouter>(
+        node_store_.Reader(),
+        node_store_.Writer(),
+        node_store_.Traversal(),
+        Focus(),
+        Selection(),
+        (*scroll_coordinator_),
+        static_cast<SelectionHost&>(*this),
+        event_sink_,
+        static_cast<InputRouter::Host&>(*this));
+    layout_coordinator_ = std::make_unique<LayoutCoordinator>(
+        node_store_.Reader(),
+        node_store_.Writer(),
+        (*scroll_coordinator_));
+    tree_painter_ = std::make_unique<TreePainter>(
+        node_store_.Reader(),
+        node_store_.Writer(),
+        VisibilityResolver(node_store_.Reader()),
+        layout_dirty_,
+        static_cast<const GridLayoutSource&>(*this),
+        TextPaintAccess(*this));
+    scene_geometry_resolver_ = std::make_unique<SceneGeometryResolver>(
+        node_store_.Writer(),
+        static_cast<const GridLayoutSource&>(*this));
+    frame_commit_coordinator_ = std::make_unique<FrameCommitCoordinator>(
+        node_store_,
+        command_buffer_,
+        pending_prepare_commands_,
+        semantic_buffer_,
+        debug_tree_buffer_,
+        pending_text_scroll_metric_handles_,
+        window_width_,
+        window_height_,
+        layout_dirty_,
+        *layout_coordinator_,
+        *scroll_coordinator_,
+        selection_coordinator_,
+        *tree_painter_,
+        static_cast<FrameCommitHost&>(*this));
     debug_tree_buffer_.reserve(512);
 }
 
-void UiRuntime::ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_handle) {
-    UINode* node = ResolveMutable(handle);
-    if (node == nullptr || node->yg_node == nullptr) {
+UiRuntime::~UiRuntime() {
+    for (auto& [font_id, font] : font_registry_) {
+        (void)font_id;
+        DestroyRegisteredFont(font);
+    }
+    font_registry_.clear();
+    DestroyShapingBuffers();
+}
+
+UiRuntime::ShapingBufferLease::~ShapingBufferLease() {
+    Release();
+}
+
+UiRuntime::ShapingBufferLease::ShapingBufferLease(ShapingBufferLease&& other) noexcept
+    : owner_(other.owner_), index_(other.index_), buffer_(other.buffer_) {
+    other.owner_ = nullptr;
+    other.buffer_ = nullptr;
+}
+
+UiRuntime::ShapingBufferLease& UiRuntime::ShapingBufferLease::operator=(ShapingBufferLease&& other) noexcept {
+    if (this != &other) {
+        Release();
+        owner_ = other.owner_;
+        index_ = other.index_;
+        buffer_ = other.buffer_;
+        other.owner_ = nullptr;
+        other.buffer_ = nullptr;
+    }
+    return *this;
+}
+
+void UiRuntime::ShapingBufferLease::Release() {
+    if (owner_ != nullptr && buffer_ != nullptr) {
+        owner_->ReleaseShapingBuffer(index_, buffer_);
+    }
+    owner_ = nullptr;
+    buffer_ = nullptr;
+}
+
+UiRuntime::ShapingBufferLease UiRuntime::AcquireShapingBuffer() const {
+    for (std::size_t index = 0U; index < shaping_buffers_.size(); index += 1U) {
+        ShapingBufferEntry& entry = shaping_buffers_[index];
+        if (!entry.leased && entry.buffer != nullptr) {
+            hb_buffer_reset(entry.buffer);
+            entry.leased = true;
+            shaping_resource_profile_.buffer_cache_hits += 1U;
+            if (text_commit_profile_active_) {
+                current_text_commit_profile_.shaping_buffer_cache_hits += 1U;
+            }
+            return ShapingBufferLease(this, index, entry.buffer);
+        }
+    }
+
+    hb_buffer_t* buffer = hb_buffer_create();
+    if (buffer == nullptr) {
+        return {};
+    }
+    shaping_resource_profile_.buffer_creations += 1U;
+    if (text_commit_profile_active_) {
+        current_text_commit_profile_.shaping_buffer_creations += 1U;
+    }
+    shaping_buffers_.push_back(ShapingBufferEntry{buffer, true});
+    return ShapingBufferLease(this, shaping_buffers_.size() - 1U, buffer);
+}
+
+void UiRuntime::ReleaseShapingBuffer(std::size_t index, hb_buffer_t* buffer) const {
+    if (index >= shaping_buffers_.size()) {
         return;
     }
-
-    if (node->has_width) {
-        switch (node->width_unit) {
-        case UI_SIZE_UNIT_PIXEL:
-            YGNodeStyleSetWidth(node->yg_node, node->width);
-            break;
-        case UI_SIZE_UNIT_AUTO:
-            YGNodeStyleSetWidthAuto(node->yg_node);
-            break;
-        case UI_SIZE_UNIT_PERCENT:
-            YGNodeStyleSetWidthPercent(node->yg_node, node->width);
-            break;
-        default:
-            YGNodeStyleSetWidthAuto(node->yg_node);
-            break;
-        }
-    } else {
-        YGNodeStyleSetWidthAuto(node->yg_node);
+    ShapingBufferEntry& entry = shaping_buffers_[index];
+    if (entry.buffer != buffer || !entry.leased) {
+        return;
     }
-
-    if (node->has_height) {
-        switch (node->height_unit) {
-        case UI_SIZE_UNIT_PIXEL:
-            YGNodeStyleSetHeight(node->yg_node, node->height);
-            break;
-        case UI_SIZE_UNIT_AUTO:
-            YGNodeStyleSetHeightAuto(node->yg_node);
-            break;
-        case UI_SIZE_UNIT_PERCENT:
-            YGNodeStyleSetHeightPercent(node->yg_node, node->height);
-            break;
-        default:
-            YGNodeStyleSetHeightAuto(node->yg_node);
-            break;
-        }
-    } else {
-        YGNodeStyleSetHeightAuto(node->yg_node);
-    }
-
-    if (node->has_flex_basis) {
-        YGNodeStyleSetFlexBasis(node->yg_node, node->flex_basis);
-    } else {
-        YGNodeStyleSetFlexBasisAuto(node->yg_node);
-    }
-    YGNodeStyleSetFlexGrow(node->yg_node, 0.0f);
-
-    YGNodeStyleSetAlignSelf(node->yg_node, YGAlignAuto);
-    if (node->has_align_self) {
-        switch (node->align_self) {
-        case UI_ALIGN_SELF_AUTO:
-            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignAuto);
-            break;
-        case UI_ALIGN_SELF_START:
-            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexStart);
-            break;
-        case UI_ALIGN_SELF_CENTER:
-            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignCenter);
-            break;
-        case UI_ALIGN_SELF_END:
-            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexEnd);
-            break;
-        case UI_ALIGN_SELF_STRETCH:
-            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignStretch);
-            break;
-        default:
-            YGNodeStyleSetAlignSelf(node->yg_node, YGAlignAuto);
-            break;
-        }
-    }
-
-    if (parent_handle == UI_INVALID_HANDLE) {
-        if (node->fill_width) {
-            YGNodeStyleSetWidthPercent(node->yg_node, 100.0f);
-        } else if (node->has_fill_width_percent) {
-            YGNodeStyleSetWidthPercent(node->yg_node, node->fill_width_percent);
-        }
-        if (node->fill_height) {
-            YGNodeStyleSetHeightPercent(node->yg_node, 100.0f);
-        } else if (node->has_fill_height_percent) {
-            YGNodeStyleSetHeightPercent(node->yg_node, node->fill_height_percent);
-        }
-    } else {
-        const UINode* parent = Resolve(parent_handle);
-        if (parent != nullptr && parent->yg_node != nullptr) {
-            const bool parent_is_horizontal = IsHorizontalFlexDirection(YGNodeStyleGetFlexDirection(parent->yg_node));
-            const bool auto_sized_width =
-                !node->fill_width &&
-                !node->has_fill_width_percent &&
-                (!node->has_width || node->width_unit == UI_SIZE_UNIT_AUTO);
-            const bool auto_sized_height =
-                !node->fill_height &&
-                !node->has_fill_height_percent &&
-                (!node->has_height || node->height_unit == UI_SIZE_UNIT_AUTO);
-            if (parent->is_scroll_view && !node->has_align_self) {
-                const bool cross_axis_auto_sized = parent_is_horizontal ? auto_sized_height : auto_sized_width;
-                const bool child_is_horizontal = IsHorizontalFlexDirection(YGNodeStyleGetFlexDirection(node->yg_node));
-                if (cross_axis_auto_sized && child_is_horizontal != parent_is_horizontal) {
-                    YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexStart);
-                }
-            }
-            if (!parent->is_scroll_view && !node->has_align_self && !node->children.empty()) {
-                const bool cross_axis_explicit_auto =
-                    parent_is_horizontal
-                        ? (node->has_height && node->height_unit == UI_SIZE_UNIT_AUTO)
-                        : (node->has_width && node->width_unit == UI_SIZE_UNIT_AUTO);
-                if (cross_axis_explicit_auto) {
-                    YGNodeStyleSetAlignSelf(node->yg_node, YGAlignFlexStart);
-                }
-            }
-            if (node->has_fill_width_percent || (node->fill_width && parent_is_horizontal)) {
-                if (node->has_resolved_fill_width) {
-                    YGNodeStyleSetWidth(node->yg_node, node->resolved_fill_width);
-                } else {
-                    YGNodeStyleSetWidthAuto(node->yg_node);
-                }
-            }
-            if (node->has_fill_height_percent || (node->fill_height && !parent_is_horizontal)) {
-                if (node->has_resolved_fill_height) {
-                    YGNodeStyleSetHeight(node->yg_node, node->resolved_fill_height);
-                } else {
-                    YGNodeStyleSetHeightAuto(node->yg_node);
-                }
-            }
-            if (node->fill_width && !parent_is_horizontal) {
-                YGNodeStyleSetAlignSelf(node->yg_node, YGAlignStretch);
-            }
-            if (node->fill_height && parent_is_horizontal) {
-                YGNodeStyleSetAlignSelf(node->yg_node, YGAlignStretch);
-            }
-        }
-    }
-
-    for (const std::uint64_t child_handle : node->children) {
-        ApplyLayoutStyles(child_handle, handle);
-    }
+    hb_buffer_reset(entry.buffer);
+    entry.leased = false;
 }
 
-float UiRuntime::ComputeFillAxisAvailableSpace(
+void UiRuntime::DestroyShapingBuffers() {
+    for (ShapingBufferEntry& entry : shaping_buffers_) {
+        if (entry.buffer != nullptr) {
+            hb_buffer_destroy(entry.buffer);
+            shaping_resource_profile_.buffer_destructions += 1U;
+            entry.buffer = nullptr;
+        }
+        entry.leased = false;
+    }
+    shaping_buffers_.clear();
+}
+
+UiRuntime::VisualGeometryWindow UiRuntime::ResolveVisualGeometryWindow(
     const UINode& node,
-    const UINode* parent,
-    bool width_axis,
-    bool parent_is_horizontal) const {
-    if (parent == nullptr || parent->yg_node == nullptr) {
-        return width_axis ? window_width_ : window_height_;
+    const ParagraphLayout& paragraph,
+    const Rect& scene_visible_bounds,
+    float node_abs_x,
+    float node_abs_y) const {
+    VisualGeometryWindow window{};
+    window.local_clip = Rect{
+        scene_visible_bounds.x - node_abs_x,
+        scene_visible_bounds.y - node_abs_y,
+        std::max(scene_visible_bounds.width, 0.0f),
+        std::max(scene_visible_bounds.height, 0.0f),
+    };
+    const std::size_t line_count = paragraph.visible_line_count;
+    if (line_count == 0U || window.local_clip.width <= 0.0f || window.local_clip.height <= 0.0f) {
+        return window;
+    }
+    if (paragraph.height <= 0.0f) {
+        window.line_end = line_count;
+        return window;
     }
 
-    const float parent_content_width = std::max(
-        0.0f,
-        YGNodeLayoutGetWidth(parent->yg_node) -
-            YGNodeLayoutGetBorder(parent->yg_node, YGEdgeLeft) -
-            YGNodeLayoutGetBorder(parent->yg_node, YGEdgeRight) -
-            YGNodeLayoutGetPadding(parent->yg_node, YGEdgeLeft) -
-            YGNodeLayoutGetPadding(parent->yg_node, YGEdgeRight));
-    const float parent_content_height = std::max(
-        0.0f,
-        YGNodeLayoutGetHeight(parent->yg_node) -
-            YGNodeLayoutGetBorder(parent->yg_node, YGEdgeTop) -
-            YGNodeLayoutGetBorder(parent->yg_node, YGEdgeBottom) -
-            YGNodeLayoutGetPadding(parent->yg_node, YGEdgeTop) -
-            YGNodeLayoutGetPadding(parent->yg_node, YGEdgeBottom));
-    float available = width_axis ? parent_content_width : parent_content_height;
-    const bool main_axis = width_axis == parent_is_horizontal;
-
-    if (main_axis) {
-        for (const std::uint64_t sibling_handle : parent->children) {
-            const UINode* sibling = Resolve(sibling_handle);
-            if (sibling == nullptr || sibling->yg_node == nullptr || sibling == &node) {
-                continue;
-            }
-            if (YGNodeStyleGetPositionType(sibling->yg_node) == YGPositionTypeAbsolute) {
-                continue;
-            }
-            const bool sibling_uses_main_axis_available_space = width_axis
-                ? (sibling->fill_width || sibling->has_fill_width_percent || (sibling->has_width && sibling->width_unit == UI_SIZE_UNIT_PERCENT))
-                : (sibling->fill_height || sibling->has_fill_height_percent || (sibling->has_height && sibling->height_unit == UI_SIZE_UNIT_PERCENT));
-            if (sibling_uses_main_axis_available_space) {
-                continue;
-            }
-            if (width_axis) {
-                available -=
-                    YGNodeLayoutGetWidth(sibling->yg_node) +
-                    YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeLeft) +
-                    YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeRight);
-            } else {
-                available -=
-                    YGNodeLayoutGetHeight(sibling->yg_node) +
-                    YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeTop) +
-                    YGNodeLayoutGetMargin(sibling->yg_node, YGEdgeBottom);
-            }
-        }
+    const float content_offset_y = GetAlignedTextYOffset(node, paragraph.height);
+    const float relative_top = window.local_clip.y - content_offset_y;
+    const float relative_bottom = window.local_clip.y + window.local_clip.height - content_offset_y;
+    if (relative_bottom <= 0.0f || relative_top >= paragraph.height) {
+        return window;
     }
 
-    if (parent != nullptr) {
-        if (width_axis) {
-            available -=
-                YGNodeLayoutGetMargin(node.yg_node, YGEdgeLeft) +
-                YGNodeLayoutGetMargin(node.yg_node, YGEdgeRight);
-        } else {
-            available -=
-                YGNodeLayoutGetMargin(node.yg_node, YGEdgeTop) +
-                YGNodeLayoutGetMargin(node.yg_node, YGEdgeBottom);
-        }
+    window.line_start = LineIndexForYOffset(node, std::max(relative_top, 0.0f), line_count);
+    const auto end_it = std::lower_bound(
+        node.line_y_offsets.begin(),
+        node.line_y_offsets.begin() + static_cast<std::ptrdiff_t>(line_count + 1U),
+        std::max(relative_bottom, 0.0f));
+    window.line_end = static_cast<std::size_t>(std::clamp<std::ptrdiff_t>(
+        std::distance(node.line_y_offsets.begin(), end_it),
+        0,
+        static_cast<std::ptrdiff_t>(line_count)));
+    if (window.line_end <= window.line_start) {
+        window.line_start = 0U;
+        window.line_end = 0U;
     }
-
-    return std::max(0.0f, available);
-}
-
-bool UiRuntime::ResolveFillPercentLayout(std::uint64_t handle, std::uint64_t parent_handle) {
-    UINode* node = ResolveMutable(handle);
-    if (node == nullptr || node->yg_node == nullptr) {
-        return false;
-    }
-
-    bool changed = false;
-    const UINode* parent = parent_handle == UI_INVALID_HANDLE ? nullptr : Resolve(parent_handle);
-    const bool parent_is_horizontal =
-        parent != nullptr && parent->yg_node != nullptr && IsHorizontalFlexDirection(YGNodeStyleGetFlexDirection(parent->yg_node));
-
-    if (parent_handle != UI_INVALID_HANDLE && (node->has_fill_width_percent || (node->fill_width && parent_is_horizontal))) {
-        const float available = ComputeFillAxisAvailableSpace(*node, parent, true, parent_is_horizontal);
-        const float percent = node->fill_width ? 100.0f : node->fill_width_percent;
-        const float resolved = available * (percent / 100.0f);
-        if (!node->has_resolved_fill_width || std::abs(node->resolved_fill_width - resolved) > 0.01f) {
-            YGNodeStyleSetWidth(node->yg_node, resolved);
-            node->resolved_fill_width = resolved;
-            node->has_resolved_fill_width = true;
-            changed = true;
-        }
-    }
-    if (parent_handle != UI_INVALID_HANDLE && (node->has_fill_height_percent || (node->fill_height && !parent_is_horizontal))) {
-        const float available = ComputeFillAxisAvailableSpace(*node, parent, false, parent_is_horizontal);
-        const float percent = node->fill_height ? 100.0f : node->fill_height_percent;
-        const float resolved = available * (percent / 100.0f);
-        if (!node->has_resolved_fill_height || std::abs(node->resolved_fill_height - resolved) > 0.01f) {
-            YGNodeStyleSetHeight(node->yg_node, resolved);
-            node->resolved_fill_height = resolved;
-            node->has_resolved_fill_height = true;
-            changed = true;
-        }
-    }
-
-    for (const std::uint64_t child_handle : node->children) {
-        changed = ResolveFillPercentLayout(child_handle, handle) || changed;
-    }
-    return changed;
+    return window;
 }
 
 void UiRuntime::Reset() {
-    for (UINode& node : node_pool_) {
-        if (node.yg_node != nullptr) {
-            YGNodeFree(node.yg_node);
-            node.yg_node = nullptr;
-        }
-        node.children.clear();
-        node.children.shrink_to_fit();
-        node = UINode{};
-    }
+    node_store_.Reset();
     node_id_map_.clear();
     grid_side_tables_.clear();
     pending_text_scroll_metric_handles_.clear();
@@ -575,66 +250,20 @@ void UiRuntime::Reset() {
     semantic_buffer_.clear();
     debug_tree_buffer_.clear();
     semantic_scope_stack_.clear();
-    pending_creations_.clear();
-    pending_deletions_.clear();
     pending_prepare_commands_.clear();
-    root_handle_ = UI_INVALID_HANDLE;
-    last_hovered_handle_ = UI_INVALID_HANDLE;
+    Input().Reset();
     pending_caret_visibility_handle_ = UI_INVALID_HANDLE;
-    focused_handle_ = UI_INVALID_HANDLE;
-    active_selection_handle_ = UI_INVALID_HANDLE;
+    Focus().Reset();
+    Selection().Reset();
     text_find_handle_ = UI_INVALID_HANDLE;
     text_find_start_ = 0U;
     text_find_end_ = 0U;
     text_find_highlights_.clear();
-    active_selection_dragged_ = false;
-    selection_handle_drag_active_ = false;
-    active_selection_drag_endpoint_ = 1U;
-    active_selection_stationary_index_ = 0U;
-    active_scroll_handle_ = UI_INVALID_HANDLE;
-    active_touch_scroll_handle_x_ = UI_INVALID_HANDLE;
-    active_touch_scroll_handle_y_ = UI_INVALID_HANDLE;
-    active_scroll_dragged_ = false;
-    has_last_touch_scroll_timestamp_ = false;
-    last_touch_scroll_timestamp_ms_ = 0.0;
-    has_last_commit_timestamp_ = false;
-    last_commit_timestamp_ms_ = 0.0;
-    coarse_pointer_mode_ = false;
-    platform_family_ = PlatformFamily::Unknown;
-    primary_pointer_down_ = false;
+    (*scroll_coordinator_).ResetInteraction();
+    frame_commit_coordinator_->ResetClock();
     ClearAutoScrollState();
-    last_pointer_logical_x_ = 0.0f;
-    last_pointer_logical_y_ = 0.0f;
-    interaction_time_ms_ = 0;
-    last_click_handle_ = UI_INVALID_HANDLE;
-    last_click_x_ = 0.0f;
-    last_click_y_ = 0.0f;
-    touch_text_tap_handle_ = UI_INVALID_HANDLE;
-    touch_text_tap_logical_x_ = 0.0f;
-    touch_text_tap_logical_y_ = 0.0f;
-    touch_text_tap_moved_ = false;
-    click_count_ = 0;
-    last_click_time_ms_ = 0;
-    selection_anchor_handle_ = UI_INVALID_HANDLE;
-    selection_anchor_index_ = 0;
-    active_selection_stationary_index_ = 0U;
-    selection_horizontal_extend_active_ = false;
-    cross_selection_active_ = false;
-    cross_selection_dragged_ = false;
-    cross_selection_horizontal_extend_active_ = false;
-    selection_area_handle_ = UI_INVALID_HANDLE;
-    start_node_handle_ = UI_INVALID_HANDLE;
-    start_index_ = 0U;
-    end_node_handle_ = UI_INVALID_HANDLE;
-    end_index_ = 0U;
-    selection_area_nodes_.clear();
-    current_selection_hit_rects_.clear();
-    selection_area_nodes_dirty_ = false;
-    pending_focus_node_id_.clear();
     window_width_ = 800.0f;
     window_height_ = 600.0f;
-    focus_order_.clear();
-    focus_order_dirty_ = true;
     layout_dirty_ = true;
     reported_missing_font_coverage_keys_.clear();
     next_semantic_scope_token_ = 1U;
@@ -650,11 +279,15 @@ const UiRuntime::TextCommitProfile& UiRuntime::last_text_commit_profile() const 
 void UiRuntime::ClearTextCommitProfile() {
     current_text_commit_profile_ = TextCommitProfile{};
     last_text_commit_profile_ = TextCommitProfile{};
+    pending_text_edit_profile_ = TextCommitProfile{};
     text_commit_profile_active_ = false;
 }
 
 void UiRuntime::ResetCurrentTextCommitProfile() const {
-    current_text_commit_profile_ = TextCommitProfile{};
+    if (!text_commit_profile_active_) {
+        current_text_commit_profile_ = pending_text_edit_profile_;
+        pending_text_edit_profile_ = TextCommitProfile{};
+    }
     text_commit_profile_active_ = true;
 }
 
@@ -672,6 +305,22 @@ void UiRuntime::ClearDynamicTextPrepareProfile() {
     current_dynamic_text_prepare_profile_ = DynamicTextPrepareProfile{};
     last_dynamic_text_prepare_profile_ = DynamicTextPrepareProfile{};
     dynamic_text_prepare_profile_active_ = false;
+}
+
+const UiRuntime::ShapingResourceProfile& UiRuntime::shaping_resource_profile() const {
+    return shaping_resource_profile_;
+}
+
+void UiRuntime::ClearShapingResourceProfile() {
+    shaping_resource_profile_ = ShapingResourceProfile{};
+}
+
+const UiRuntime::TextGeometryProfile& UiRuntime::text_geometry_profile() const {
+    return text_geometry_profile_;
+}
+
+void UiRuntime::ClearTextGeometryProfile() {
+    text_geometry_profile_ = TextGeometryProfile{};
 }
 
 void UiRuntime::ResetCurrentDynamicTextPrepareProfile() const {
@@ -693,27 +342,18 @@ void UiRuntime::RecordDynamicTextFastPathFallback() const {
 }
 
 void UiRuntime::SetPlatformFamily(std::uint32_t platform_family) {
-    switch (static_cast<PlatformFamily>(platform_family)) {
-    case PlatformFamily::Apple:
-    case PlatformFamily::Windows:
-    case PlatformFamily::Linux:
-        platform_family_ = static_cast<PlatformFamily>(platform_family);
-        break;
-    default:
-        platform_family_ = PlatformFamily::Unknown;
-        break;
-    }
+    Input().SetPlatformFamily(platform_family);
 }
 
 bool UiRuntime::IsApplePlatformFamily() const {
-    return platform_family_ == PlatformFamily::Apple;
+    return Input().IsApplePlatformFamily();
 }
 
 float UiRuntime::DefaultTouchScrollFriction() const {
-    if (!coarse_pointer_mode_) {
+    if (!Input().state().coarse_pointer_mode) {
         return 0.95f;
     }
-    if (platform_family_ == PlatformFamily::Apple) {
+    if (Input().state().platform_family == PlatformFamily::Apple) {
         return 0.960f;
     }
     return 0.955f;
@@ -774,332 +414,63 @@ std::uintptr_t UiRuntime::ArenaAlloc(std::uint32_t byte_length) {
     return reinterpret_cast<std::uintptr_t>(string_arena_.data() + offset);
 }
 
-bool UiRuntime::ApplyScrollOffset(
-    std::uint64_t handle,
-    UINode& node,
-    float offset_x,
-    float offset_y,
-    bool notify) {
-    const float viewport_width = GetScrollViewportWidth(node);
-    const float viewport_height = GetScrollViewportHeight(node);
-    const float max_x = std::max(0.0f, node.scroll_content_width - viewport_width);
-    const float max_y = std::max(0.0f, node.scroll_content_height - viewport_height);
-    const float clamped_x = node.scroll_enabled_x ? std::clamp(offset_x, 0.0f, max_x) : 0.0f;
-    const float clamped_y = node.scroll_enabled_y ? std::clamp(offset_y, 0.0f, max_y) : 0.0f;
-    if (std::abs(node.scroll_offset_x - clamped_x) < 0.001f && std::abs(node.scroll_offset_y - clamped_y) < 0.001f) {
-        return false;
-    }
-
-    if (node.is_applying_scroll_offset) {
-        node.scroll_offset_x = clamped_x;
-        node.scroll_offset_y = clamped_y;
-        node.scroll_offset_dirty = true;
-        if (notify) {
-            node.has_deferred_scroll_notification = true;
-        }
-        return true;
-    }
-
-    node.is_applying_scroll_offset = true;
-    node.scroll_offset_x = clamped_x;
-    node.scroll_offset_y = clamped_y;
-    node.scroll_offset_dirty = true;
-    if (notify) {
-        NotifyScrollChanged(handle, node);
-        constexpr std::uint32_t kMaxDeferredScrollNotifications = 4U;
-        std::uint32_t deferred_notifications = 0U;
-        while (node.has_deferred_scroll_notification &&
-               deferred_notifications < kMaxDeferredScrollNotifications) {
-            node.has_deferred_scroll_notification = false;
-            NotifyScrollChanged(handle, node);
-            deferred_notifications += 1U;
-        }
-        if (node.has_deferred_scroll_notification) {
-            node.has_pending_scroll_offset = true;
-            node.pending_scroll_offset_x = node.scroll_offset_x;
-            node.pending_scroll_offset_y = node.scroll_offset_y;
-            node.pending_scroll_offset_generation += 1U;
-            node.has_deferred_scroll_notification = false;
-        }
-    }
-    node.is_applying_scroll_offset = false;
-    return true;
-}
-
-void UiRuntime::NotifyScrollChanged(std::uint64_t handle, UINode& node) {
-    const float viewport_width = GetScrollViewportWidth(node);
-    const float viewport_height = GetScrollViewportHeight(node);
-    as_on_scroll(
-        handle,
-        node.scroll_offset_x,
-        node.scroll_offset_y,
-        node.scroll_content_width,
-        node.scroll_content_height,
-        viewport_width,
-        viewport_height);
-    node.reported_scroll_offset_x = node.scroll_offset_x;
-    node.reported_scroll_offset_y = node.scroll_offset_y;
-    node.reported_scroll_content_width = node.scroll_content_width;
-    node.reported_scroll_content_height = node.scroll_content_height;
-    node.reported_viewport_width = viewport_width;
-    node.reported_viewport_height = viewport_height;
-    node.has_reported_scroll_state = true;
-}
-
-void UiRuntime::UpdateScrollMetrics(std::uint64_t handle, UINode& node) {
-    if (!node.is_scroll_view || node.yg_node == nullptr) {
-        return;
-    }
-
-    node.layout_width = YGNodeLayoutGetWidth(node.yg_node);
-    node.layout_height = YGNodeLayoutGetHeight(node.yg_node);
-
-    const Rect content_bounds = ComputeContentBounds(node, 0.0f, 0.0f);
-    float content_width = 0.0f;
-    float content_height = 0.0f;
-    for (const std::uint64_t child_handle : node.children) {
-        const UINode* child = Resolve(child_handle);
-        if (child == nullptr || child->yg_node == nullptr) {
-            continue;
-        }
-        if (child->visibility == UI_VISIBILITY_COLLAPSED) {
-            continue;
-        }
-        float child_content_width = YGNodeLayoutGetWidth(child->yg_node);
-        if (child->is_text_node && !child->text_wrap) {
-            const Rect child_text_bounds = ComputeTextContentBounds(*child);
-            const ParagraphLayout paragraph = LayoutParagraph(
-                *child,
-                child_text_bounds.width > 0.0f ? std::optional<float>(child_text_bounds.width) : std::nullopt);
-            child_content_width = std::max(child_content_width, paragraph.width);
-            const bool has_horizontal_text_overflow =
-                paragraph.width > (child_text_bounds.width + 0.001f);
-            if ((child->is_editable || IsEditorTextNode(*child)) &&
-                has_horizontal_text_overflow) {
-                child_content_width += FocusedTextCaretScrollOverscan(*child);
-            }
-        }
-        content_width = std::max(
-            content_width,
-            YGNodeLayoutGetLeft(child->yg_node) + child_content_width + YGNodeLayoutGetMargin(child->yg_node, YGEdgeRight) - content_bounds.x);
-        content_height = std::max(
-            content_height,
-            YGNodeLayoutGetTop(child->yg_node) + YGNodeLayoutGetHeight(child->yg_node) + YGNodeLayoutGetMargin(child->yg_node, YGEdgeBottom) - content_bounds.y);
-    }
-
-    node.scroll_content_width = node.has_explicit_scroll_content_width
-        ? node.explicit_scroll_content_width
-        : std::max(content_width, 0.0f);
-    node.scroll_content_height = node.has_explicit_scroll_content_height
-        ? node.explicit_scroll_content_height
-        : std::max(content_height, 0.0f);
-    const std::uint64_t pending_generation = node.pending_scroll_offset_generation;
-    const float target_x = node.has_pending_scroll_offset ? node.pending_scroll_offset_x : node.scroll_offset_x;
-    const float target_y = node.has_pending_scroll_offset ? node.pending_scroll_offset_y : node.scroll_offset_y;
-    const bool offset_changed = ApplyScrollOffset(handle, node, target_x, target_y, true);
-    if (!offset_changed) {
-        const bool metrics_changed = !node.has_reported_scroll_state ||
-            std::abs(node.reported_scroll_offset_x - node.scroll_offset_x) >= 0.001f ||
-            std::abs(node.reported_scroll_offset_y - node.scroll_offset_y) >= 0.001f ||
-            std::abs(node.reported_scroll_content_width - node.scroll_content_width) >= 0.001f ||
-            std::abs(node.reported_scroll_content_height - node.scroll_content_height) >= 0.001f ||
-            std::abs(node.reported_viewport_width - GetScrollViewportWidth(node)) >= 0.001f ||
-            std::abs(node.reported_viewport_height - GetScrollViewportHeight(node)) >= 0.001f;
-        if (metrics_changed) {
-            NotifyScrollChanged(handle, node);
-        }
-    }
-    if (node.pending_scroll_offset_generation == pending_generation) {
-        node.has_pending_scroll_offset = false;
-    }
-}
-
-void UiRuntime::CommitFrame(double timestamp_ms) {
-    const ProfileClock::time_point commit_start = ProfileClock::now();
-    double scroll_delta_ms = kNominalFrameMs;
-    if (IsValidTimestamp(timestamp_ms)) {
-        if (has_last_commit_timestamp_) {
-            scroll_delta_ms = ClampFrameDeltaMs(timestamp_ms - last_commit_timestamp_ms_);
-        }
-        last_commit_timestamp_ms_ = timestamp_ms;
-        has_last_commit_timestamp_ = true;
-    } else if (has_last_commit_timestamp_) {
-        last_commit_timestamp_ms_ += kNominalFrameMs;
-    }
-    const float scroll_delta_seconds = static_cast<float>(scroll_delta_ms / 1000.0);
-    ResetCurrentTextCommitProfile();
-    command_buffer_.clear();
+void UiRuntime::ResetCommitFrameArena() {
     ResetFrameArena();
-    SemanticBufferBuilder semantic_builder(semantic_buffer_);
-    semantic_builder.Clear();
-    DebugTreeBufferBuilder debug_tree_builder(debug_tree_buffer_);
-    debug_tree_builder.Clear();
+}
 
-    CommandBuilder builder(command_buffer_);
+void UiRuntime::BeginCommitProfile() {
+    ResetCurrentTextCommitProfile();
+}
 
-    for (const std::uint64_t handle : pending_deletions_) {
-        builder.DeleteNode(handle);
-    }
-    pending_deletions_.clear();
+void UiRuntime::FinishCommitProfile(double total_commit_ms) {
+    FinishCurrentTextCommitProfile(total_commit_ms);
+}
 
-    for (const std::uint64_t handle : pending_creations_) {
-        if (UINode* node = ResolveMutable(handle); node != nullptr && node->needs_creation) {
-            builder.CreateNode(handle);
-            node->needs_creation = false;
-        }
-    }
-    pending_creations_.clear();
+void UiRuntime::RecordCommitLayoutProfile(const LayoutResult& result) {
+    current_text_commit_profile_.yoga_layout_ms += result.yoga_layout_ms;
+    current_text_commit_profile_.scroll_metrics_ms += result.scroll_metrics_ms;
+    current_text_commit_profile_.layout_stabilization_passes += result.stabilization_passes;
+}
 
-    // Merge any pending prepare commands (from ui_prepare_node) into the buffer
-    if (!pending_prepare_commands_.empty()) {
-        command_buffer_.insert(command_buffer_.end(),
-                               pending_prepare_commands_.begin(),
-                               pending_prepare_commands_.end());
-        pending_prepare_commands_.clear();
-    }
+void UiRuntime::RecordCommitPaintProfile(double walk_tree_ms) {
+    current_text_commit_profile_.walk_tree_ms += walk_tree_ms;
+}
 
-    UINode* root = ResolveMutable(root_handle_);
-    if (root == nullptr || root->yg_node == nullptr) {
-        if (!command_buffer_.empty()) {
-            builder.CommitPaintOrder({});
-            builder.CommitScene({});
-        }
-        layout_dirty_ = false;
-        pending_text_scroll_metric_handles_.clear();
-        FinishCurrentTextCommitProfile(ElapsedMilliseconds(commit_start, ProfileClock::now()));
+void UiRuntime::UpdateCommitAutoScrollSelection() {
+    if (!(*scroll_coordinator_).HasAutoScroll()) {
         return;
     }
 
-    bool emit_layout_updates = layout_dirty_;
-    if (layout_dirty_) {
-        constexpr std::uint32_t kMaxLayoutStabilizationPasses = 4U;
-        std::uint32_t layout_pass = 0U;
-        do {
-            layout_dirty_ = false;
-            ApplyLayoutStyles(root_handle_, UI_INVALID_HANDLE);
-            const ProfileClock::time_point layout_start = ProfileClock::now();
-            YGNodeCalculateLayout(root->yg_node, window_width_, window_height_, YGDirectionLTR);
-            current_text_commit_profile_.yoga_layout_ms += ElapsedMilliseconds(layout_start, ProfileClock::now());
+    scene_geometry_resolver_->Resolve(node_store_.RootHandle());
+    SelectionAutoScrollRequest request{};
+    request.active = true;
+    request.touch_tap_moved = Input().state().touch_text_tap_moved;
+    request.touch_tap_handle = Input().state().touch_text_tap_handle;
+    request.logical_x = Input().state().last_pointer_logical_x;
+    request.logical_y = Input().state().last_pointer_logical_y;
 
-            const ProfileClock::time_point scroll_metrics_start = ProfileClock::now();
-            for (std::uint64_t index = 1U; index < node_pool_.size(); index += 1U) {
-                UINode& node = node_pool_[index];
-                if (!node.is_active || !node.is_scroll_view) {
-                    continue;
-                }
-                const std::uint64_t handle =
-                    (static_cast<std::uint64_t>(node.generation) << 32U) | static_cast<std::uint64_t>(index);
-                UpdateScrollMetrics(handle, node);
-            }
-            current_text_commit_profile_.scroll_metrics_ms +=
-                ElapsedMilliseconds(scroll_metrics_start, ProfileClock::now());
-            if (ResolveFillPercentLayout(root_handle_, UI_INVALID_HANDLE)) {
-                layout_dirty_ = true;
-            }
-            emit_layout_updates = emit_layout_updates || layout_dirty_;
-            layout_pass += 1U;
-        } while (layout_dirty_ && layout_pass < kMaxLayoutStabilizationPasses);
-    } else {
-        const ProfileClock::time_point scroll_metrics_start = ProfileClock::now();
-        for (std::uint64_t index = 1U; index < node_pool_.size(); index += 1U) {
-            UINode& node = node_pool_[index];
-            if (!node.is_active || !node.is_scroll_view) {
-                continue;
-            }
-            if (!node.has_pending_scroll_offset) {
-                continue;
-            }
-            const std::uint64_t handle =
-                (static_cast<std::uint64_t>(node.generation) << 32U) | static_cast<std::uint64_t>(index);
-            const std::uint64_t pending_generation = node.pending_scroll_offset_generation;
-            (void)ApplyScrollOffset(handle, node, node.pending_scroll_offset_x, node.pending_scroll_offset_y, true);
-            if (node.pending_scroll_offset_generation == pending_generation) {
-                node.has_pending_scroll_offset = false;
-            }
+    node_store_.Traversal().ForEachActive([&](std::uint64_t handle, UINode& node) {
+        if (!node.is_text_node || !node.is_selectable || node.visibility != UI_VISIBILITY_NORMAL) {
+            return;
         }
-        current_text_commit_profile_.scroll_metrics_ms +=
-            ElapsedMilliseconds(scroll_metrics_start, ProfileClock::now());
-    }
+        const Rect text_bounds = ComputeTextContentBounds(node);
+        (void)LayoutParagraph(
+            node,
+            text_bounds.width > 0.0f ? std::optional<float>(text_bounds.width) : std::nullopt);
+        request.is_editor_text_node = IsEditorTextNode(node);
+        Selection().UpdateAutoScrollSelection(
+            *this,
+            request,
+            handle,
+            node,
+            node.abs_x,
+            node.abs_y,
+            node.layout_width,
+            node.layout_height);
+    });
+}
 
-    if (auto_scroll_active_) {
-        if (UINode* scroll_node = ResolveMutable(auto_scroll_view_handle_); scroll_node != nullptr) {
-            (void)ApplyScrollOffset(
-                auto_scroll_view_handle_,
-                *scroll_node,
-                scroll_node->scroll_offset_x + (auto_scroll_factor_x_ * scroll_node->auto_scroll_speed),
-                scroll_node->scroll_offset_y + (auto_scroll_factor_y_ * scroll_node->auto_scroll_speed),
-                true);
-        } else {
-            ClearAutoScrollState();
-        }
-    }
-
-    for (std::uint64_t index = 1U; index < node_pool_.size(); index += 1U) {
-        UINode& node = node_pool_[index];
-        if (!node.is_active || !node.is_scroll_view) {
-            continue;
-        }
-        const std::uint64_t handle =
-            (static_cast<std::uint64_t>(node.generation) << 32U) | static_cast<std::uint64_t>(index);
-        if (node.smooth_scroll_active) {
-            const float blend = scroll_delta_ms <= 0.0
-                ? 0.0f
-                : 1.0f - std::exp(-static_cast<float>(scroll_delta_ms) / kSmoothScrollTimeConstantMs);
-            const float remaining_x = node.smooth_scroll_target_x - node.scroll_offset_x;
-            const float remaining_y = node.smooth_scroll_target_y - node.scroll_offset_y;
-            const bool reached_target =
-                std::abs(remaining_x) <= kSmoothScrollStopDistancePx &&
-                std::abs(remaining_y) <= kSmoothScrollStopDistancePx;
-            const float next_x = reached_target
-                ? node.smooth_scroll_target_x
-                : node.scroll_offset_x + (remaining_x * blend);
-            const float next_y = reached_target
-                ? node.smooth_scroll_target_y
-                : node.scroll_offset_y + (remaining_y * blend);
-            const bool changed = ApplyScrollOffset(handle, node, next_x, next_y, true);
-            if (reached_target || !changed) {
-                node.smooth_scroll_active = false;
-                node.smooth_scroll_target_x = node.scroll_offset_x;
-                node.smooth_scroll_target_y = node.scroll_offset_y;
-            }
-            continue;
-        }
-        if (active_scroll_handle_ == handle ||
-            active_touch_scroll_handle_x_ == handle ||
-            active_touch_scroll_handle_y_ == handle) {
-            continue;
-        }
-        if (std::abs(node.scroll_velocity_x) < VelocityStopThreshold(0.001f) &&
-            std::abs(node.scroll_velocity_y) < VelocityStopThreshold(0.001f)) {
-            node.scroll_velocity_x = 0.0f;
-            node.scroll_velocity_y = 0.0f;
-            continue;
-        }
-        const float friction = ResolveScrollFriction(node);
-        const float frame_factor = static_cast<float>(scroll_delta_ms / kNominalFrameMs);
-        float effective_friction = friction;
-        const float max_velocity = std::max(std::abs(node.scroll_velocity_x), std::abs(node.scroll_velocity_y));
-        if (max_velocity < kTerminalMomentumVelocityPxPerSecond && frame_factor > 0.0f) {
-            effective_friction *= kTerminalMomentumFriction;
-        }
-        const float decay = frame_factor <= 0.0f ? 1.0f : std::pow(effective_friction, frame_factor);
-        const float nominal_seconds = static_cast<float>(kNominalFrameMs / 1000.0);
-        const float displacement_factor = effective_friction > 0.0f && effective_friction < 1.0f
-            ? nominal_seconds * ((1.0f - decay) / (1.0f - effective_friction))
-            : scroll_delta_seconds;
-        const float next_x = node.scroll_offset_x + (node.scroll_velocity_x * displacement_factor);
-        const float next_y = node.scroll_offset_y + (node.scroll_velocity_y * displacement_factor);
-        const bool changed = ApplyScrollOffset(handle, node, next_x, next_y, true);
-        node.scroll_velocity_x *= decay;
-        node.scroll_velocity_y *= decay;
-        if (!changed ||
-            (std::abs(node.scroll_velocity_x) < VelocityStopThreshold(kMomentumStopDisplacementPx) &&
-             std::abs(node.scroll_velocity_y) < VelocityStopThreshold(kMomentumStopDisplacementPx))) {
-            node.scroll_velocity_x = 0.0f;
-            node.scroll_velocity_y = 0.0f;
-        }
-    }
-
+void UiRuntime::ResolveCommitCaretVisibility() {
     if (pending_caret_visibility_handle_ != UI_INVALID_HANDLE) {
         const ProfileClock::time_point caret_visibility_start = ProfileClock::now();
         if (UINode* caret_node = ResolveMutable(pending_caret_visibility_handle_);
@@ -1111,754 +482,31 @@ void UiRuntime::CommitFrame(double timestamp_ms) {
         pending_caret_visibility_handle_ = UI_INVALID_HANDLE;
     }
     pending_text_scroll_metric_handles_.clear();
+}
 
-    std::vector<std::uint64_t> paint_order{};
-    std::vector<SceneInstruction> scene{};
-    std::vector<std::uint64_t> deferred_portal_roots{};
-    current_selection_hit_rects_.clear();
-    paint_order.reserve(node_pool_.size() / 4U);
-    scene.reserve(node_pool_.size() / 4U);
-    deferred_portal_roots.reserve(node_pool_.size() / 8U);
-
-    const bool needs_follow_up_layout = layout_dirty_;
-    layout_dirty_ = emit_layout_updates;
-
-    const ProfileClock::time_point walk_tree_start = ProfileClock::now();
-    WalkTree(root_handle_, 0.0f, 0.0f, 0.0f, 0.0f, false, builder, paint_order, scene, deferred_portal_roots);
-    for (std::size_t index = 0; index < deferred_portal_roots.size(); index += 1U) {
-        UINode* portal = ResolveMutable(deferred_portal_roots[index]);
-        if (portal != nullptr) {
-            const float child_origin_x = portal->abs_x - (portal->is_scroll_view ? portal->scroll_offset_x : 0.0f);
-            const float child_origin_y = portal->abs_y - (portal->is_scroll_view ? portal->scroll_offset_y : 0.0f);
-            const float child_scene_x = portal->abs_x;
-            const float child_scene_y = portal->abs_y;
-            const bool inherited_scroll_dirty =
-                portal->scroll_offset_dirty ||
-                std::abs(portal->abs_x - portal->scene_x) >= 0.001f ||
-                std::abs(portal->abs_y - portal->scene_y) >= 0.001f;
-            if (portal->clip_to_bounds || portal->is_scroll_view) {
-                scene.push_back(SceneInstruction{OP_PUSH_CLIP, deferred_portal_roots[index]});
-            }
-            if (portal->is_scroll_view &&
-                (std::abs(portal->scroll_offset_x) >= 0.001f || std::abs(portal->scroll_offset_y) >= 0.001f)) {
-                scene.push_back(SceneInstruction{
-                    OP_PUSH_TRANSLATE,
-                    deferred_portal_roots[index],
-                    -portal->scroll_offset_x,
-                    -portal->scroll_offset_y,
-                });
-            }
-            for (const std::uint64_t child_handle : portal->children) {
-                WalkTree(
-                    child_handle,
-                    child_origin_x,
-                    child_origin_y,
-                    child_scene_x,
-                    child_scene_y,
-                    inherited_scroll_dirty,
-                    builder,
-                    paint_order,
-                    scene,
-                    deferred_portal_roots);
-            }
-            if (portal->is_scroll_view &&
-                (std::abs(portal->scroll_offset_x) >= 0.001f || std::abs(portal->scroll_offset_y) >= 0.001f)) {
-                scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
-            }
-            if (portal->clip_to_bounds || portal->is_scroll_view) {
-                scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
-            }
-            portal->scroll_offset_dirty = false;
-        }
-    }
-    current_text_commit_profile_.walk_tree_ms += ElapsedMilliseconds(walk_tree_start, ProfileClock::now());
-
-    const std::uint64_t semantic_scope_root = GetActiveSemanticScopeRoot();
-
+void UiRuntime::BuildCommitSemantics(const std::vector<std::uint64_t>& paint_order) {
     const ProfileClock::time_point semantic_start = ProfileClock::now();
-    for (const std::uint64_t handle : paint_order) {
-        UINode* node = ResolveMutable(handle);
-        if (node == nullptr) {
-            continue;
-        }
-        UiSemanticRole semantic_role = node->semantic_role;
-        const std::string label = BuildSemanticLabel(*node);
-        if (semantic_role == UI_SEMANTIC_NONE) {
-            if (!node->is_text_node || label.empty()) {
-                continue;
-            }
-            bool has_semantic_ancestor = false;
-            for (std::uint64_t current = node->parent_handle; current != UI_INVALID_HANDLE;) {
-                const UINode* ancestor = Resolve(current);
-                if (ancestor == nullptr) {
-                    break;
-                }
-                if (ancestor->semantic_role != UI_SEMANTIC_NONE) {
-                    has_semantic_ancestor = true;
-                    break;
-                }
-                current = ancestor->parent_handle;
-            }
-            if (has_semantic_ancestor) {
-                continue;
-            }
-            semantic_role = UI_SEMANTIC_STATIC_TEXT;
-        }
-        if (semantic_scope_root != UI_INVALID_HANDLE && !SubtreeContains(semantic_scope_root, handle)) {
-            continue;
-        }
-        Rect visible_bounds = ComputeVisibleBounds(*node);
-        if (semantic_role == UI_SEMANTIC_TEXTBOX && node->max_lines != 1) {
-            const UINode* parent = Resolve(node->parent_handle);
-            if (parent != nullptr && parent->is_scroll_view) {
-                visible_bounds = ComputeClipBounds(*parent);
-                for (std::uint64_t current = parent->parent_handle; current != UI_INVALID_HANDLE;) {
-                    const UINode* ancestor = Resolve(current);
-                    if (ancestor == nullptr) {
-                        break;
-                    }
-                    if ((ancestor->clip_to_bounds || ancestor->is_scroll_view) &&
-                        !IntersectRect(visible_bounds, ComputeClipBounds(*ancestor))) {
-                        break;
-                    }
-                    if (ancestor->is_portal) {
-                        break;
-                    }
-                    current = ancestor->parent_handle;
-                }
-            }
-        }
-        if (visible_bounds.width <= 0.0f || visible_bounds.height <= 0.0f) {
-            continue;
-        }
-        semantic_builder.AddRecord(
-            semantic_role,
-            handle,
-            visible_bounds.x,
-            visible_bounds.y,
-            visible_bounds.width,
-            visible_bounds.height,
-            *node,
-            label);
-    }
+    const VisibilityResolver visibility = VisibilityResolver(node_store_.Reader());
+    const SemanticProjector projector(node_store_.Reader(), visibility);
+    projector.Build(
+        paint_order,
+        GetActiveSemanticScopeRoot(),
+        [this](const UINode& node) { return ComputeVisibleBounds(node); },
+        semantic_buffer_);
     current_text_commit_profile_.semantic_sync_ms += ElapsedMilliseconds(semantic_start, ProfileClock::now());
-
-    BuildDebugTreeBuffer();
-
-    builder.CommitPaintOrder(paint_order);
-    builder.CommitScene(scene);
-    layout_dirty_ = needs_follow_up_layout;
-    FinishCurrentTextCommitProfile(ElapsedMilliseconds(commit_start, ProfileClock::now()));
 }
 
-void UiRuntime::BuildDebugTreeBuffer() {
-    DebugTreeBufferBuilder builder(debug_tree_buffer_);
-    builder.Clear();
-    if (root_handle_ == UI_INVALID_HANDLE) {
-        return;
-    }
-    AppendDebugTreeRecord(root_handle_, UI_INVALID_HANDLE);
+void UiRuntime::CommitFrame(double timestamp_ms) {
+    frame_commit_coordinator_->Commit(timestamp_ms);
 }
 
-void UiRuntime::AppendDebugTreeRecord(std::uint64_t handle, std::uint64_t nearest_scroll_ancestor) {
-    const UINode* node = Resolve(handle);
-    if (node == nullptr || !node->is_active) {
-        return;
-    }
-
-    DebugTreeBufferBuilder builder(debug_tree_buffer_);
-    const Rect bounds{
-        node->abs_x,
-        node->abs_y,
-        std::max(0.0f, node->layout_width),
-        std::max(0.0f, node->layout_height),
-    };
-    const Rect visible_bounds = ComputeVisibleBounds(*node);
-    const EdgeInsets padding = ComputePaddingInsets(*node);
-    const EdgeInsets border = ComputeBorderInsets(*node);
-    const float margin_left = node->yg_node != nullptr ? YGNodeLayoutGetMargin(node->yg_node, YGEdgeLeft) : 0.0f;
-    const float margin_top = node->yg_node != nullptr ? YGNodeLayoutGetMargin(node->yg_node, YGEdgeTop) : 0.0f;
-    const float margin_right = node->yg_node != nullptr ? YGNodeLayoutGetMargin(node->yg_node, YGEdgeRight) : 0.0f;
-    const float margin_bottom = node->yg_node != nullptr ? YGNodeLayoutGetMargin(node->yg_node, YGEdgeBottom) : 0.0f;
-    const bool has_visible_bounds = visible_bounds.width > 0.0f && visible_bounds.height > 0.0f;
-    const bool clipped_or_empty =
-        !has_visible_bounds ||
-        std::abs(visible_bounds.x - bounds.x) >= 0.001f ||
-        std::abs(visible_bounds.y - bounds.y) >= 0.001f ||
-        std::abs(visible_bounds.width - bounds.width) >= 0.001f ||
-        std::abs(visible_bounds.height - bounds.height) >= 0.001f;
-    const std::string semantic_label = BuildSemanticLabel(*node);
-
-    std::uint32_t node_flags = DebugTreeBufferBuilder::IS_ACTIVE;
-    if (node->visibility == UI_VISIBILITY_NORMAL) {
-        node_flags |= DebugTreeBufferBuilder::IS_VISIBLE_NORMAL;
-    }
-    if (node->clip_to_bounds) {
-        node_flags |= DebugTreeBufferBuilder::CLIP_TO_BOUNDS;
-    }
-    if (clipped_or_empty) {
-        node_flags |= DebugTreeBufferBuilder::IS_CLIPPED_OR_EMPTY;
-    }
-    if (!node->node_id.empty()) {
-        node_flags |= DebugTreeBufferBuilder::HAS_NODE_ID;
-    }
-    if (!semantic_label.empty()) {
-        node_flags |= DebugTreeBufferBuilder::HAS_SEMANTIC_LABEL;
-    }
-    if (node->has_box_style) {
-        node_flags |= DebugTreeBufferBuilder::HAS_BOX_STYLE;
-    }
-    if (node->has_layer_effect) {
-        node_flags |= DebugTreeBufferBuilder::HAS_LAYER_EFFECT;
-    }
-    if (node->has_drop_shadow) {
-        node_flags |= DebugTreeBufferBuilder::HAS_DROP_SHADOW;
-    }
-    if (node->has_background_blur) {
-        node_flags |= DebugTreeBufferBuilder::HAS_BACKGROUND_BLUR;
-    }
-    if (node->has_linear_gradient) {
-        node_flags |= DebugTreeBufferBuilder::HAS_LINEAR_GRADIENT;
-    }
-    if (node->has_image) {
-        node_flags |= DebugTreeBufferBuilder::HAS_IMAGE;
-    }
-    if (node->has_image_nine) {
-        node_flags |= DebugTreeBufferBuilder::HAS_IMAGE_NINE;
-    }
-    if (node->has_svg) {
-        node_flags |= DebugTreeBufferBuilder::HAS_SVG;
-    }
-    if (node->has_text_style_runs) {
-        node_flags |= DebugTreeBufferBuilder::HAS_TEXT_STYLE_RUNS;
-    }
-
-    std::uint32_t behavior_flags = 0U;
-    if (node->is_interactive) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_INTERACTIVE;
-    }
-    if (node->is_focusable) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_FOCUSABLE;
-    }
-    if (node->is_selectable) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_SELECTABLE;
-    }
-    if (node->is_editable) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_EDITABLE;
-    }
-    if (node->is_text_editor) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_TEXT_EDITOR;
-    }
-    if (node->is_portal) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_PORTAL;
-    }
-    if (node->is_scroll_view) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_SCROLL_VIEW;
-    }
-    if (node->is_grid) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_GRID;
-    }
-    if (node->is_selection_area) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_SELECTION_AREA;
-    }
-    if (node->is_selection_area_barrier) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_SELECTION_AREA_BARRIER;
-    }
-    if (node->is_custom_drawable) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_CUSTOM_DRAWABLE;
-    }
-    if (node->scroll_enabled_x) {
-        behavior_flags |= DebugTreeBufferBuilder::SCROLL_ENABLED_X;
-    }
-    if (node->scroll_enabled_y) {
-        behavior_flags |= DebugTreeBufferBuilder::SCROLL_ENABLED_Y;
-    }
-    if (node->show_scrollbars) {
-        behavior_flags |= DebugTreeBufferBuilder::SHOW_SCROLLBARS;
-    }
-    if (node->is_text_node) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_TEXT_NODE;
-    }
-    if (node->is_svg_node) {
-        behavior_flags |= DebugTreeBufferBuilder::IS_SVG_NODE;
-    }
-    if (node->uses_editor_command_keys) {
-        behavior_flags |= DebugTreeBufferBuilder::EDITOR_COMMAND_KEYS;
-    }
-    if (node->accepts_tab) {
-        behavior_flags |= DebugTreeBufferBuilder::EDITOR_ACCEPTS_TAB;
-    }
-
-    builder.AddHandle(handle);
-    builder.AddHandle(node->parent_handle);
-    builder.AddWord(node->node_type);
-    builder.AddWord(node_flags);
-    builder.AddWord(behavior_flags);
-    builder.AddWord(static_cast<std::uint32_t>(node->semantic_role));
-    builder.AddFloat(bounds.x);
-    builder.AddFloat(bounds.y);
-    builder.AddFloat(bounds.width);
-    builder.AddFloat(bounds.height);
-    builder.AddFloat(visible_bounds.x);
-    builder.AddFloat(visible_bounds.y);
-    builder.AddFloat(has_visible_bounds ? visible_bounds.width : 0.0f);
-    builder.AddFloat(has_visible_bounds ? visible_bounds.height : 0.0f);
-    builder.AddFloat(padding.left);
-    builder.AddFloat(padding.top);
-    builder.AddFloat(padding.right);
-    builder.AddFloat(padding.bottom);
-    builder.AddFloat(margin_left);
-    builder.AddFloat(margin_top);
-    builder.AddFloat(margin_right);
-    builder.AddFloat(margin_bottom);
-    builder.AddFloat(border.left);
-    builder.AddFloat(border.top);
-    builder.AddFloat(border.right);
-    builder.AddFloat(border.bottom);
-    builder.AddWord(node->bg_color);
-    builder.AddWord(node->border_color);
-    builder.AddWord(node->border_style);
-    builder.AddFloat(node->corner_radius_tl);
-    builder.AddFloat(node->corner_radius_tr);
-    builder.AddFloat(node->corner_radius_br);
-    builder.AddFloat(node->corner_radius_bl);
-    builder.AddFloat(node->opacity);
-    builder.AddWord(node->font_id);
-    builder.AddFloat(node->font_size);
-    builder.AddWord(node->text_color);
-    builder.AddHandle(nearest_scroll_ancestor);
-    builder.AddFloat(node->scroll_offset_x);
-    builder.AddFloat(node->scroll_offset_y);
-    builder.AddFloat(node->scroll_content_width);
-    builder.AddFloat(node->scroll_content_height);
-    builder.AddFloat(GetScrollViewportWidth(*node));
-    builder.AddFloat(GetScrollViewportHeight(*node));
-    builder.AddHandle(node->scroll_proxy_target_handle);
-    builder.AddWord(node->text_align);
-    builder.AddWord(node->text_vertical_align);
-    builder.AddWord(static_cast<std::uint32_t>(node->visibility));
-    builder.AddString(node->node_id);
-    builder.AddString(semantic_label);
-    builder.FinishRecord();
-
-    const std::uint64_t child_scroll_ancestor = node->is_scroll_view ? handle : nearest_scroll_ancestor;
-    for (const std::uint64_t child_handle : node->children) {
-        AppendDebugTreeRecord(child_handle, child_scroll_ancestor);
-    }
-}
-
-void UiRuntime::EnsureHandleVisible(std::uint64_t handle) {
-    const UINode* target = Resolve(handle);
-    if (target == nullptr || !target->is_active || target->yg_node == nullptr) {
-        return;
-    }
-
-    float target_left = 0.0f;
-    float target_top = 0.0f;
-    float target_right = target->layout_width;
-    float target_bottom = target->layout_height;
-    std::uint64_t current_handle = handle;
-    while (current_handle != UI_INVALID_HANDLE) {
-        const UINode* current = Resolve(current_handle);
-        if (current == nullptr || current->yg_node == nullptr) {
-            break;
-        }
-        const std::uint64_t parent_handle = current->parent_handle;
-        if (parent_handle == UI_INVALID_HANDLE) {
-            break;
-        }
-        UINode* parent = ResolveMutable(parent_handle);
-        if (parent == nullptr || parent->yg_node == nullptr) {
-            break;
-        }
-
-        const float current_left = YGNodeLayoutGetLeft(current->yg_node);
-        const float current_top = YGNodeLayoutGetTop(current->yg_node);
-        target_left += current_left;
-        target_right += current_left;
-        target_top += current_top;
-        target_bottom += current_top;
-
-        if (parent->is_scroll_view) {
-            EnsureRectVisibleWithinScrollAncestor(
-                parent_handle,
-                target_left - parent->scroll_offset_x,
-                target_top - parent->scroll_offset_y,
-                target_right - parent->scroll_offset_x,
-                target_bottom - parent->scroll_offset_y,
-                &target_left,
-                &target_top,
-                &target_right,
-                &target_bottom);
-        }
-        current_handle = parent_handle;
-    }
-}
-
-const UINode* UiRuntime::ResolveTextSnapshotNode(std::uint64_t handle) const {
-    const UINode* node = Resolve(handle);
-    if (node == nullptr ||
-        !node->is_active ||
-        !node->is_text_node ||
-        node->is_editable ||
-        node->visibility != UI_VISIBILITY_NORMAL ||
-        !IsAttachedToRoot(handle)) {
-        return nullptr;
-    }
-    return node;
-}
-
-const UINode* UiRuntime::ResolveTextGeometryNode(std::uint64_t handle) const {
-    const UINode* node = Resolve(handle);
-    if (node == nullptr ||
-        !node->is_active ||
-        !node->is_text_node ||
-        node->visibility != UI_VISIBILITY_NORMAL ||
-        !IsAttachedToRoot(handle)) {
-        return nullptr;
-    }
-    return node;
-}
-
-void UiRuntime::AppendTextSnapshotHandles(std::uint64_t handle, std::vector<std::uint64_t>& out) const {
-    const UINode* node = Resolve(handle);
-    if (node == nullptr || !node->is_active || node->visibility != UI_VISIBILITY_NORMAL) {
-        return;
-    }
-    if (ResolveTextSnapshotNode(handle) != nullptr && !node->text_content.empty()) {
-        out.push_back(handle);
-    }
-    for (const std::uint64_t child_handle : node->children) {
-        AppendTextSnapshotHandles(child_handle, out);
-    }
-}
-
-std::vector<std::uint64_t> UiRuntime::GetTextSnapshotHandles() const {
-    std::vector<std::uint64_t> handles{};
-    if (root_handle_ == UI_INVALID_HANDLE) {
-        return handles;
-    }
-    AppendTextSnapshotHandles(root_handle_, handles);
-    return handles;
-}
-
-std::optional<Rect> UiRuntime::GetVisibleBounds(std::uint64_t handle) const {
-    const UINode* node = Resolve(handle);
-    if (node == nullptr) {
-        return std::nullopt;
-    }
-    const Rect bounds = ComputeVisibleBounds(*node);
-    if (bounds.width <= 0.0f || bounds.height <= 0.0f) {
-        return std::nullopt;
-    }
-    return bounds;
-}
-
-std::optional<std::string_view> UiRuntime::GetTextSnapshotDocument(std::uint64_t handle) const {
-    const UINode* node = ResolveTextSnapshotNode(handle);
-    if (node == nullptr) {
-        return std::nullopt;
-    }
-    return std::string_view(node->text_content);
-}
-
-bool UiRuntime::RevealTextRange(std::uint64_t handle, std::uint32_t start, std::uint32_t end) {
-    const UINode* node = ResolveTextSnapshotNode(handle);
-    if (node == nullptr || node->yg_node == nullptr) {
-        return false;
-    }
-
-    const std::uint32_t text_length = static_cast<std::uint32_t>(node->text_content.size());
-    const std::uint32_t clamped_start = std::min(start, text_length);
-    const std::uint32_t clamped_end = std::min(end, text_length);
-    const std::vector<Rect> scene_rects = GetTextRangeSceneRects(handle, clamped_start, clamped_end);
-    if (scene_rects.empty()) {
-        EnsureHandleVisible(handle);
-        return true;
-    }
-
-    float scene_left = scene_rects.front().x;
-    float scene_top = scene_rects.front().y;
-    float scene_right = scene_rects.front().x + scene_rects.front().width;
-    float scene_bottom = scene_rects.front().y + scene_rects.front().height;
-    for (std::size_t index = 1; index < scene_rects.size(); index += 1U) {
-        const Rect& rect = scene_rects[index];
-        scene_left = std::min(scene_left, rect.x);
-        scene_top = std::min(scene_top, rect.y);
-        scene_right = std::max(scene_right, rect.x + rect.width);
-        scene_bottom = std::max(scene_bottom, rect.y + rect.height);
-    }
-
-    float target_left = scene_left - node->abs_x;
-    float target_top = scene_top - node->abs_y;
-    float target_right = scene_right - node->abs_x;
-    float target_bottom = scene_bottom - node->abs_y;
-    std::uint64_t current_handle = handle;
-    while (current_handle != UI_INVALID_HANDLE) {
-        const UINode* current = Resolve(current_handle);
-        if (current == nullptr || current->yg_node == nullptr) {
-            break;
-        }
-        const std::uint64_t parent_handle = current->parent_handle;
-        if (parent_handle == UI_INVALID_HANDLE) {
-            break;
-        }
-        UINode* parent = ResolveMutable(parent_handle);
-        if (parent == nullptr || parent->yg_node == nullptr) {
-            break;
-        }
-
-        const float current_left = YGNodeLayoutGetLeft(current->yg_node);
-        const float current_top = YGNodeLayoutGetTop(current->yg_node);
-        target_left += current_left;
-        target_right += current_left;
-        target_top += current_top;
-        target_bottom += current_top;
-
-        if (parent->is_scroll_view) {
-            EnsureRectVisibleWithinScrollAncestor(
-                parent_handle,
-                target_left - parent->scroll_offset_x,
-                target_top - parent->scroll_offset_y,
-                target_right - parent->scroll_offset_x,
-                target_bottom - parent->scroll_offset_y,
-                &target_left,
-                &target_top,
-                &target_right,
-                &target_bottom);
-        }
-        current_handle = parent_handle;
-    }
-
-    return true;
-}
-
-bool UiRuntime::SetTextFindMatch(std::uint64_t handle, std::uint32_t start, std::uint32_t end) {
-    const UINode* resolved = ResolveTextSnapshotNode(handle);
-    if (resolved == nullptr) {
-        return false;
-    }
-
-    const std::uint32_t text_length = static_cast<std::uint32_t>(resolved->text_content.size());
-    const std::uint32_t clamped_start = std::min(start, text_length);
-    const std::uint32_t clamped_end = std::min(end, text_length);
-    if (clamped_start >= clamped_end) {
-        return false;
-    }
-
-    const std::uint64_t previous_handle = text_find_handle_;
-    text_find_handle_ = handle;
-    text_find_start_ = clamped_start;
-    text_find_end_ = clamped_end;
-
-    if (previous_handle != UI_INVALID_HANDLE && previous_handle != handle) {
-        if (UINode* previous = ResolveMutable(previous_handle); previous != nullptr) {
-            MarkTextSelectionVisualsDirty(*previous);
-        }
-    }
-    if (UINode* current = ResolveMutable(handle); current != nullptr) {
-        MarkTextSelectionVisualsDirty(*current);
-    }
-    return true;
-}
-
-void UiRuntime::ClearTextFindMatch() {
-    const std::uint64_t previous_handle = text_find_handle_;
-    text_find_handle_ = UI_INVALID_HANDLE;
-    text_find_start_ = 0U;
-    text_find_end_ = 0U;
-    if (previous_handle != UI_INVALID_HANDLE) {
-        if (UINode* previous = ResolveMutable(previous_handle); previous != nullptr) {
-            MarkTextSelectionVisualsDirty(*previous);
-        }
-    }
-}
-
-bool UiRuntime::PushTextFindHighlight(
-    std::uint64_t handle,
-    std::uint32_t start,
-    std::uint32_t end,
-    std::uint32_t color) {
-    const UINode* resolved = ResolveTextSnapshotNode(handle);
-    if (resolved == nullptr) {
-        return false;
-    }
-
-    const std::uint32_t text_length = static_cast<std::uint32_t>(resolved->text_content.size());
-    const std::uint32_t clamped_start = std::min(start, text_length);
-    const std::uint32_t clamped_end = std::min(end, text_length);
-    if (clamped_start >= clamped_end) {
-        return false;
-    }
-
-    text_find_highlights_.push_back(TextFindHighlight{
-        handle,
-        clamped_start,
-        clamped_end,
-        color,
-    });
-    if (UINode* node = ResolveMutable(handle); node != nullptr) {
-        MarkTextSelectionVisualsDirty(*node);
-    }
-    return true;
-}
-
-void UiRuntime::ClearTextFindHighlights() {
-    for (const TextFindHighlight& highlight : text_find_highlights_) {
-        if (UINode* node = ResolveMutable(highlight.handle); node != nullptr) {
-            MarkTextSelectionVisualsDirty(*node);
-        }
-    }
-    text_find_highlights_.clear();
-}
-
-void UiRuntime::EnsureRectVisibleWithinScrollAncestor(
-    std::uint64_t scroll_handle,
-    float target_left,
-    float target_top,
-    float target_right,
-    float target_bottom,
-    float* adjusted_left,
-    float* adjusted_top,
-    float* adjusted_right,
-    float* adjusted_bottom) {
-    UINode* scroll_node = ResolveMutable(scroll_handle);
-    if (scroll_node == nullptr || !scroll_node->is_scroll_view) {
-        return;
-    }
-
-    float offset_x = scroll_node->scroll_offset_x;
-    float offset_y = scroll_node->scroll_offset_y;
-    const float viewport_width = GetScrollViewportWidth(*scroll_node);
-    const float viewport_height = GetScrollViewportHeight(*scroll_node);
-    if (target_left < 0.0f) {
-        offset_x += target_left;
-    } else if (target_right > viewport_width) {
-        offset_x += target_right - viewport_width;
-    }
-    if (target_top < 0.0f) {
-        offset_y += target_top;
-    } else if (target_bottom > viewport_height) {
-        offset_y += target_bottom - viewport_height;
-    }
-
-    const float delta_x = offset_x - scroll_node->scroll_offset_x;
-    const float delta_y = offset_y - scroll_node->scroll_offset_y;
-    ApplyScrollOffset(scroll_handle, *scroll_node, offset_x, offset_y, true);
-
-    if (adjusted_left != nullptr) {
-        *adjusted_left = target_left - delta_x;
-    }
-    if (adjusted_top != nullptr) {
-        *adjusted_top = target_top - delta_y;
-    }
-    if (adjusted_right != nullptr) {
-        *adjusted_right = target_right - delta_x;
-    }
-    if (adjusted_bottom != nullptr) {
-        *adjusted_bottom = target_bottom - delta_y;
-    }
-}
-
-void UiRuntime::UpdateAncestorScrollMetrics(std::uint64_t handle) {
-    for (std::uint64_t current_handle = handle; current_handle != UI_INVALID_HANDLE;) {
-        const UINode* current = Resolve(current_handle);
-        if (current == nullptr) {
-            break;
-        }
-        const std::uint64_t parent_handle = current->parent_handle;
-        if (parent_handle == UI_INVALID_HANDLE) {
-            break;
-        }
-
-        UINode* parent = ResolveMutable(parent_handle);
-        if (parent == nullptr) {
-            break;
-        }
-        if (parent->is_scroll_view) {
-            UpdateScrollMetrics(parent_handle, *parent);
-        }
-        current_handle = parent_handle;
-    }
-}
-
-const std::vector<std::uint32_t>& UiRuntime::command_buffer() const {
-    return command_buffer_;
-}
-
-const std::vector<std::uint32_t>& UiRuntime::semantic_buffer() const {
-    return semantic_buffer_;
-}
-
-const std::vector<std::uint32_t>& UiRuntime::debug_tree_buffer() const {
-    return debug_tree_buffer_;
-}
-
-const std::vector<std::uint32_t>& UiRuntime::LiveFallbackFontBuffer() const {
-    RebuildLiveFallbackFontBuffer();
-    return live_fallback_font_buffer_;
-}
-
-const std::uint64_t& UiRuntime::root_handle() const {
-    return root_handle_;
-}
-
-bool UiRuntime::HasPendingVisualWork() const {
-    if (layout_dirty_ ||
-        !pending_creations_.empty() ||
-        !pending_deletions_.empty() ||
-        pending_caret_visibility_handle_ != UI_INVALID_HANDLE ||
-        auto_scroll_active_ ||
-        !pending_text_scroll_metric_handles_.empty()) {
-        return true;
-    }
-
-    for (std::uint64_t index = 1U; index < node_pool_.size(); index += 1U) {
-        const UINode& node = node_pool_[index];
-        if (!node.is_active) {
-            continue;
-        }
-        if (node.needs_creation ||
-            node.is_dirty ||
-            node.text_glyphs_dirty ||
-            node.text_selection_visuals_dirty ||
-            node.scroll_offset_dirty ||
-            node.has_pending_scroll_offset ||
-            node.smooth_scroll_active ||
-            std::abs(node.scroll_velocity_x) >= 0.001f ||
-            std::abs(node.scroll_velocity_y) >= 0.001f) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool UiRuntime::NeedsAnimationFrame() const {
-    for (std::uint64_t index = 1U; index < node_pool_.size(); index += 1U) {
-        const UINode& node = node_pool_[index];
-        if (!node.is_active || !node.is_scroll_view) {
-            continue;
-        }
-        if (node.smooth_scroll_active ||
-            std::abs(node.scroll_velocity_x) >= 0.001f || std::abs(node.scroll_velocity_y) >= 0.001f) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-bool UiRuntime::HasPointerAutoScroll() const {
-    return primary_pointer_down_ && auto_scroll_active_;
-}
-
-float UiRuntime::window_width() const {
-    return window_width_;
-}
-
-float UiRuntime::window_height() const {
-    return window_height_;
+void UiRuntime::BuildCommitDebugTree() {
+    const VisibilityResolver visibility = VisibilityResolver(node_store_.Reader());
+    const DebugTreeProjector projector(node_store_.Reader(), visibility);
+    projector.Build(
+        node_store_.RootHandle(),
+        [this](const UINode& node) { return ComputeVisibleBounds(node); },
+        debug_tree_buffer_);
 }
 
 YGSize UiRuntime::MeasureTextCallback(
@@ -1873,854 +521,8 @@ YGSize UiRuntime::MeasureTextCallback(
     return node == nullptr ? YGSize{0.0f, 0.0f} : GetRuntime().MeasureTextNode(*node, width, width_mode);
 }
 
-void UiRuntime::WalkTree(
-    std::uint64_t handle,
-    float parent_abs_x,
-    float parent_abs_y,
-    float parent_scene_x,
-    float parent_scene_y,
-    bool inherited_scroll_dirty,
-    CommandBuilder& builder,
-    std::vector<std::uint64_t>& paint_order,
-    std::vector<SceneInstruction>& scene,
-    std::vector<std::uint64_t>& deferred_portal_roots) {
-    UINode* node = ResolveMutable(handle);
-    if (node == nullptr || node->yg_node == nullptr) {
-        return;
-    }
-
-    const float abs_x = parent_abs_x + YGNodeLayoutGetLeft(node->yg_node);
-    const float abs_y = parent_abs_y + YGNodeLayoutGetTop(node->yg_node);
-    const float scene_x = parent_scene_x + YGNodeLayoutGetLeft(node->yg_node);
-    const float scene_y = parent_scene_y + YGNodeLayoutGetTop(node->yg_node);
-    const float width = YGNodeLayoutGetWidth(node->yg_node);
-    const float height = YGNodeLayoutGetHeight(node->yg_node);
-    node->abs_x = abs_x;
-    node->abs_y = abs_y;
-    node->scene_x = scene_x;
-    node->scene_y = scene_y;
-    node->layout_width = width;
-    node->layout_height = height;
-    if (node->visibility != UI_VISIBILITY_NORMAL) {
-        if (node->is_text_node) {
-            node->text_render_window_valid = false;
-            node->text_render_line_start = 0U;
-            node->text_render_line_end = 0U;
-            node->nonwrap_render_fragment_window_valid = false;
-            node->nonwrap_render_fragment_start = 0U;
-            node->nonwrap_render_fragment_end = 0U;
-        }
-        node->scroll_offset_dirty = false;
-        return;
-    }
-    Rect visible_bounds{abs_x, abs_y, width, height};
-    if (visible_bounds.width <= 0.0f || visible_bounds.height <= 0.0f) {
-        visible_bounds.width = 0.0f;
-        visible_bounds.height = 0.0f;
-    } else {
-        for (std::uint64_t current = node->parent_handle; current != UI_INVALID_HANDLE;) {
-            const UINode* parent = Resolve(current);
-            if (parent == nullptr) {
-                break;
-            }
-            if ((parent->clip_to_bounds || parent->is_scroll_view) &&
-                !IntersectRect(visible_bounds, ComputeClipBounds(*parent))) {
-                break;
-            }
-            if (parent->is_portal) {
-                break;
-            }
-            current = parent->parent_handle;
-        }
-    }
-    const bool emit_layout_updates = layout_dirty_;
-    const bool scroll_dirty = inherited_scroll_dirty || node->scroll_offset_dirty;
-    Rect text_bounds{};
-    ParagraphLayout text_paragraph{};
-    bool text_render_window_visible = false;
-    bool text_render_window_changed = false;
-    std::size_t text_render_line_start = 0U;
-    std::size_t text_render_line_end = 0U;
-    bool nonwrap_fragment_window_visible = false;
-    bool nonwrap_fragment_window_changed = false;
-    NonWrappingFragmentWindow nonwrap_fragment_window{};
-    if (node->is_text_node) {
-        text_bounds = ComputeTextContentBounds(*node);
-        text_paragraph =
-            LayoutParagraph(*node, text_bounds.width > 0.0f ? std::optional<float>(text_bounds.width) : std::nullopt);
-        const bool uses_internal_textbox_viewport =
-            IsSingleLineEditorTextNode(*node);
-        if (!node->text_wrap && !uses_internal_textbox_viewport) {
-            Rect nonwrap_visible_bounds{
-                abs_x,
-                abs_y,
-                width + std::max(text_paragraph.width - text_bounds.width, 0.0f),
-                height,
-            };
-            if (nonwrap_visible_bounds.width <= 0.0f || nonwrap_visible_bounds.height <= 0.0f) {
-                nonwrap_visible_bounds.width = 0.0f;
-                nonwrap_visible_bounds.height = 0.0f;
-            } else {
-                Rect window_clip{0.0f, 0.0f, window_width_, window_height_};
-                (void)IntersectRect(nonwrap_visible_bounds, window_clip);
-                for (std::uint64_t current = node->parent_handle; current != UI_INVALID_HANDLE;) {
-                    const UINode* parent = Resolve(current);
-                    if (parent == nullptr) {
-                        break;
-                    }
-                    if ((parent->clip_to_bounds || parent->is_scroll_view) &&
-                        !IntersectRect(nonwrap_visible_bounds, ComputeClipBounds(*parent))) {
-                        break;
-                    }
-                    if (parent->is_portal) {
-                        break;
-                    }
-                    current = parent->parent_handle;
-                }
-            }
-            visible_bounds = nonwrap_visible_bounds;
-        }
-        const bool can_reuse_render_window_cache =
-            !emit_layout_updates &&
-            !scroll_dirty &&
-            !node->text_glyphs_dirty &&
-            node->text_layout_cache_valid;
-        if (can_reuse_render_window_cache) {
-            text_render_window_visible = node->text_render_window_valid;
-            text_render_line_start = node->text_render_line_start;
-            text_render_line_end = node->text_render_line_end;
-            nonwrap_fragment_window_visible = node->nonwrap_render_fragment_window_valid;
-            nonwrap_fragment_window.start = node->nonwrap_render_fragment_start;
-            nonwrap_fragment_window.end = node->nonwrap_render_fragment_end;
-        } else {
-            const std::size_t line_count = text_paragraph.visible_line_count;
-            if (line_count > 0U && visible_bounds.width > 0.0f && visible_bounds.height > 0.0f) {
-                if (text_paragraph.height <= 0.0f) {
-                    text_render_line_end = line_count;
-                    text_render_window_visible = true;
-                } else {
-                    const float content_offset_y = GetAlignedTextYOffset(*node, text_paragraph.height);
-                    const float local_visible_top = visible_bounds.y - abs_y;
-                    const float local_visible_bottom = (visible_bounds.y + visible_bounds.height) - abs_y;
-                    const float relative_top = local_visible_top - content_offset_y;
-                    const float relative_bottom = local_visible_bottom - content_offset_y;
-                    if (relative_bottom > 0.0f && relative_top < text_paragraph.height) {
-                        text_render_line_start =
-                            LineIndexForYOffset(*node, std::max(relative_top, 0.0f), line_count);
-                        const auto end_it = std::lower_bound(
-                            node->line_y_offsets.begin(),
-                            node->line_y_offsets.begin() + static_cast<std::ptrdiff_t>(line_count + 1U),
-                            std::max(relative_bottom, 0.0f));
-                        text_render_line_end = static_cast<std::size_t>(std::clamp<std::ptrdiff_t>(
-                            std::distance(node->line_y_offsets.begin(), end_it),
-                            0,
-                            static_cast<std::ptrdiff_t>(line_count)));
-                        if (text_render_line_end > text_render_line_start) {
-                            text_render_window_visible = true;
-                        }
-                    }
-                }
-            }
-            const bool single_line_nonwrap_fragment_window =
-                text_render_window_visible &&
-                !node->text_wrap &&
-                !uses_internal_textbox_viewport &&
-                text_paragraph.total_line_count == 1U &&
-                node->nonwrap_fragment_cache_valid &&
-                !text_paragraph.line_widths.empty();
-            const bool multiline_nonwrap_fragment_window =
-                text_render_window_visible &&
-                !node->text_wrap &&
-                !uses_internal_textbox_viewport &&
-                text_paragraph.total_line_count > 1U &&
-                node->nonwrap_fragment_cache_valid;
-            if (single_line_nonwrap_fragment_window) {
-                const float x_offset = GetAlignedLineXOffset(*node, text_paragraph.line_widths.front());
-                nonwrap_fragment_window = ResolveNonWrappingFragmentWindow(
-                    *node,
-                    0U,
-                    (visible_bounds.x - abs_x) - x_offset,
-                    ((visible_bounds.x + visible_bounds.width) - abs_x) - x_offset);
-                nonwrap_fragment_window_visible = nonwrap_fragment_window.start < nonwrap_fragment_window.end;
-            }
-            text_render_window_changed =
-                node->text_render_window_valid != text_render_window_visible ||
-                (text_render_window_visible &&
-                 (node->text_render_line_start != text_render_line_start ||
-                  node->text_render_line_end != text_render_line_end));
-            nonwrap_fragment_window_changed =
-                node->nonwrap_render_fragment_window_valid != nonwrap_fragment_window_visible ||
-                (nonwrap_fragment_window_visible &&
-                 (node->nonwrap_render_fragment_start != nonwrap_fragment_window.start ||
-                  node->nonwrap_render_fragment_end != nonwrap_fragment_window.end));
-            if (multiline_nonwrap_fragment_window && scroll_dirty) {
-                nonwrap_fragment_window_changed = true;
-            }
-        }
-    }
-    const bool needs_content_update =
-        node->is_text_node
-        ? (emit_layout_updates ||
-           node->is_dirty ||
-           (scroll_dirty && (text_render_window_changed || nonwrap_fragment_window_changed)))
-        : (emit_layout_updates || node->is_dirty);
-    const bool selection_visuals_only_update =
-        node->is_text_node &&
-        node->text_selection_visuals_dirty &&
-        !node->text_glyphs_dirty &&
-        !emit_layout_updates &&
-        !text_render_window_changed &&
-        !nonwrap_fragment_window_changed;
-    const bool needs_bounds_update =
-        (needs_content_update && !selection_visuals_only_update) ||
-        (scroll_dirty && node->is_interactive);
-
-    if (auto_scroll_active_ &&
-        touch_text_tap_moved_ &&
-        touch_text_tap_handle_ == handle &&
-        node->is_text_node &&
-        node->is_selectable &&
-        (node->is_editable || IsEditorTextNode(*node))) {
-        const auto [clamped_x, clamped_y] = ClampPointToScrollViewport(handle, last_pointer_logical_x_, last_pointer_logical_y_);
-        const std::uint32_t next_selection = GetStringIndexFromPoint(
-            *node,
-            clamped_x - abs_x,
-            clamped_y - abs_y);
-        if (node->selection_start != next_selection || node->selection_end != next_selection) {
-            node->selection_start = next_selection;
-            node->selection_end = next_selection;
-            node->caret_trailing_edge = false;
-            MarkTextSelectionVisualsDirty(*node);
-            as_on_selection_changed(handle, node->selection_start, node->selection_end);
-        }
-    } else if (auto_scroll_active_ && active_selection_handle_ == handle && node->is_text_node && node->is_selectable) {
-        const auto [clamped_x, clamped_y] = ClampPointToScrollViewport(handle, last_pointer_logical_x_, last_pointer_logical_y_);
-        const std::uint32_t next_selection_end = GetStringIndexFromPoint(
-            *node,
-            clamped_x - abs_x,
-            clamped_y - abs_y);
-        std::uint32_t& dragged_endpoint =
-            active_selection_drag_endpoint_ == 0U
-            ? node->selection_start
-            : node->selection_end;
-        const std::uint32_t previous_start = node->selection_start;
-        const std::uint32_t previous_end = node->selection_end;
-        if (selection_handle_drag_active_) {
-            node->selection_start = std::min(active_selection_stationary_index_, next_selection_end);
-            node->selection_end = std::max(active_selection_stationary_index_, next_selection_end);
-        } else {
-            dragged_endpoint = next_selection_end;
-        }
-        if (node->selection_start != previous_start || node->selection_end != previous_end) {
-            as_on_selection_changed(
-                handle,
-                node->selection_start,
-                node->selection_end);
-        }
-    } else if (
-        auto_scroll_active_ &&
-        cross_selection_active_ &&
-        node->is_text_node &&
-        node->is_selectable &&
-        FindSelectionAreaAncestor(handle) == selection_area_handle_) {
-        const auto [clamped_x, clamped_y] = ClampPointToScrollViewport(
-            end_node_handle_ != UI_INVALID_HANDLE ? end_node_handle_ : handle,
-            last_pointer_logical_x_,
-            last_pointer_logical_y_);
-        if (clamped_x >= abs_x &&
-            clamped_x <= (abs_x + width) &&
-            clamped_y >= abs_y &&
-            clamped_y <= (abs_y + height)) {
-            (void)UpdateCrossSelectionEndpoint(handle, clamped_x, clamped_y);
-        }
-    }
-
-    if (visible_bounds.width <= 0.0f || visible_bounds.height <= 0.0f) {
-        if (node->is_text_node) {
-            node->text_render_window_valid = false;
-            node->text_render_line_start = 0U;
-            node->text_render_line_end = 0U;
-            node->nonwrap_render_fragment_window_valid = false;
-            node->nonwrap_render_fragment_start = 0U;
-            node->nonwrap_render_fragment_end = 0U;
-        }
-        paint_order.push_back(handle);
-        if (node->is_interactive) {
-            const Rect clip_bounds = (node->clip_to_bounds || node->is_scroll_view)
-                ? ComputeClipBounds(*node, scene_x, scene_y)
-                : Rect{scene_x, scene_y, width, height};
-            builder.SetBounds(
-                handle,
-                scene_x,
-                scene_y,
-                width,
-                height,
-                abs_x,
-                abs_y,
-                0.0f,
-                0.0f,
-                clip_bounds.x,
-                clip_bounds.y,
-                clip_bounds.width,
-                clip_bounds.height,
-                true,
-                ComputeClipMode(*node));
-        }
-        if (node->is_portal) {
-            deferred_portal_roots.push_back(handle);
-            node->scroll_offset_dirty = false;
-            return;
-        }
-        if (!node->is_portal) {
-            const float child_origin_x = abs_x - (node->is_scroll_view ? node->scroll_offset_x : 0.0f);
-            const float child_origin_y = abs_y - (node->is_scroll_view ? node->scroll_offset_y : 0.0f);
-            for (const std::uint64_t child_handle : node->children) {
-                ClearCulledSubtree(child_handle, child_origin_x, child_origin_y, scene_x, scene_y, builder, paint_order);
-            }
-        }
-        node->scroll_offset_dirty = false;
-        return;
-    }
-
-    if (needs_bounds_update) {
-        const Rect clip_bounds = (node->clip_to_bounds || node->is_scroll_view)
-            ? ComputeClipBounds(*node, scene_x, scene_y)
-            : Rect{scene_x, scene_y, width, height};
-        builder.SetBounds(
-            handle,
-            scene_x,
-            scene_y,
-            width,
-            height,
-            visible_bounds.x,
-            visible_bounds.y,
-            visible_bounds.width,
-            visible_bounds.height,
-            clip_bounds.x,
-            clip_bounds.y,
-            clip_bounds.width,
-            clip_bounds.height,
-            node->is_interactive,
-            ComputeClipMode(*node));
-    }
-    if (needs_content_update) {
-        if (!selection_visuals_only_update) {
-            if (node->has_box_style || node->bg_color != 0U) {
-                builder.SetBoxStyle(
-                    handle,
-                    node->bg_color,
-                    node->corner_radius_tl,
-                    node->corner_radius_tr,
-                    node->corner_radius_br,
-                    node->corner_radius_bl,
-                    node->border_width,
-                    node->border_color,
-                    node->border_style,
-                    node->border_dash_on,
-                    node->border_dash_off);
-            }
-            if (node->has_layer_effect) {
-                builder.SetLayerEffect(handle, node->opacity, node->blur_sigma, node->blend_mode);
-            }
-            if (node->has_drop_shadow) {
-                builder.SetDropShadow(
-                    handle,
-                    node->drop_shadow_color,
-                    node->drop_shadow_offset_x,
-                    node->drop_shadow_offset_y,
-                    node->drop_shadow_blur_sigma,
-                    node->drop_shadow_spread);
-            }
-            if (node->has_background_blur) {
-                builder.SetBackgroundBlur(handle, node->background_blur_sigma);
-            }
-            if (node->has_linear_gradient && !node->gradient_stops.empty()) {
-                builder.SetLinearGradient(
-                    handle,
-                    node->gradient_start_x,
-                    node->gradient_start_y,
-                    node->gradient_end_x,
-                    node->gradient_end_y,
-                    node->gradient_stops);
-            }
-            if (node->has_image) {
-                builder.SetImage(
-                    handle,
-                    node->texture_id,
-                    node->object_fit,
-                    node->image_sampling,
-                    node->image_max_aniso);
-            }
-            if (node->has_image_nine) {
-                builder.SetImageNine(
-                    handle,
-                    node->image_nine_texture_id,
-                    node->image_nine_inset_left,
-                    node->image_nine_inset_top,
-                    node->image_nine_inset_right,
-                    node->image_nine_inset_bottom,
-                    node->image_nine_sampling,
-                    node->image_nine_max_aniso);
-            }
-            if (node->is_svg_node || node->has_svg) {
-                builder.SetSvg(
-                    handle,
-                    node->has_svg ? node->svg_id : 0U,
-                    node->svg_tint_color,
-                    node->svg_sampling,
-                    node->svg_max_aniso);
-            }
-        }
-
-        if (node->is_text_node) {
-            const ParagraphLayout& paragraph = text_paragraph;
-            const bool uses_internal_textbox_viewport =
-                IsSingleLineEditorTextNode(*node);
-            const float text_offset_y = GetAlignedTextYOffset(*node, paragraph.height);
-            if (!selection_visuals_only_update) {
-                std::vector<GlyphPlacement> glyphs{};
-                const bool use_nonwrap_fragment_culling =
-                    !node->text_wrap &&
-                    !uses_internal_textbox_viewport &&
-                    node->nonwrap_fragment_cache_valid;
-                for (std::size_t line_index = text_render_line_start; line_index < text_render_line_end; line_index += 1U) {
-                    const std::int32_t start = paragraph.break_offsets[line_index];
-                    const std::int32_t end = paragraph.break_offsets[line_index + 1U];
-                    std::uint32_t line_start = static_cast<std::uint32_t>(start);
-                    std::string_view line_text(
-                        node->text_content.data() + line_start,
-                        static_cast<std::size_t>(end - start));
-                    while (!line_text.empty() && (line_text.front() == '\n' || line_text.front() == '\r')) {
-                        line_text.remove_prefix(1U);
-                        line_start += 1U;
-                    }
-                    if (line_text.empty()) {
-                        continue;
-                    }
-                    const float full_line_width =
-                        line_index < paragraph.line_widths.size() ? paragraph.line_widths[line_index] : 0.0f;
-                    const float x_offset = GetAlignedLineXOffset(*node, full_line_width);
-                    const float line_top = GetLineTopForIndex(*node, line_index);
-                    const float line_ascent = GetLineAscentForIndex(*node, line_index);
-                    const float line_y = text_offset_y + line_top;
-                    ShapedTextRun shaped{};
-                    float fragment_x_offset = 0.0f;
-                    std::optional<FragmentGeometrySlice> cached_slice{};
-                    const CachedVisualLineShape* cached_visual_line =
-                        !use_nonwrap_fragment_culling &&
-                        node->visual_line_shape_cache_valid &&
-                        line_index < node->visual_line_shapes.size()
-                        ? EnsureWrappedVisualLineShape(*node, line_index)
-                        : nullptr;
-                    if (use_nonwrap_fragment_culling) {
-                        const NonWrappingFragmentWindow fragment_window = ResolveNonWrappingFragmentWindow(
-                            *node,
-                            line_index,
-                            (visible_bounds.x - abs_x) - x_offset,
-                            ((visible_bounds.x + visible_bounds.width) - abs_x) - x_offset);
-                        if (fragment_window.start == fragment_window.end) {
-                            continue;
-                        }
-                        const NonWrappingTextFragment& first_fragment = node->nonwrap_fragments[fragment_window.start];
-                        const NonWrappingTextFragment& last_fragment = node->nonwrap_fragments[fragment_window.end - 1U];
-                        const std::uint32_t fragment_start =
-                            GetNonWrapFragmentAbsoluteStart(*node, line_index, first_fragment);
-                        const std::uint32_t fragment_end =
-                            GetNonWrapFragmentAbsoluteEnd(*node, line_index, last_fragment);
-                        if (fragment_end <= fragment_start || fragment_start < line_start) {
-                            continue;
-                        }
-                        const std::size_t local_fragment_start = static_cast<std::size_t>(fragment_start - line_start);
-                        const std::size_t local_fragment_end = static_cast<std::size_t>(fragment_end - line_start);
-                        if (local_fragment_end > line_text.size() || local_fragment_start >= local_fragment_end) {
-                            continue;
-                        }
-                        FragmentGeometrySlice slice{};
-                        if (TryBuildFragmentGeometrySliceFromLogicalLineShape(*node, line_index, fragment_start, fragment_end, slice)) {
-                            shaped = slice.shaped;
-                            fragment_x_offset = slice.slice_x;
-                            cached_slice = std::move(slice);
-                        } else {
-                            if (!ShapeText(
-                                    line_text.substr(local_fragment_start, local_fragment_end - local_fragment_start),
-                                    node->font_id,
-                                    node->font_size,
-                                    shaped,
-                                    node->is_obscured)) {
-                                continue;
-                            }
-                            fragment_x_offset = first_fragment.x;
-                            FragmentGeometrySlice fallback_slice{};
-                            fallback_slice.line_start = line_start;
-                            fallback_slice.line_end = static_cast<std::uint32_t>(end);
-                            fallback_slice.slice_start = fragment_start;
-                            fallback_slice.slice_end = fragment_end;
-                            fallback_slice.slice_x = first_fragment.x;
-                            fallback_slice.full_line_width = full_line_width;
-                            fallback_slice.shaped = shaped;
-                            fallback_slice.cluster_stops = BuildTextClusterStops(
-                                shaped.glyphs,
-                                shaped.width,
-                                local_fragment_end - local_fragment_start);
-                            cached_slice = std::move(fallback_slice);
-                        }
-                    } else if (cached_visual_line != nullptr) {
-                        shaped.font_id = node->font_id;
-                        shaped.width = cached_visual_line->width;
-                        shaped.height = cached_visual_line->height;
-                        shaped.baseline = cached_visual_line->baseline;
-                        shaped.ascent = cached_visual_line->ascent;
-                        shaped.descent = cached_visual_line->descent;
-                        shaped.glyphs = cached_visual_line->glyphs;
-                    } else if (!ShapeTextStyledRange(
-                                   *node,
-                                   static_cast<std::uint32_t>(paragraph.break_offsets[line_index]),
-                                   static_cast<std::uint32_t>(paragraph.break_offsets[line_index + 1U]),
-                                   shaped)) {
-                        continue;
-                    }
-
-                    if (cached_slice.has_value()) {
-                        StoreCachedNonWrapGeometrySlice(*node, line_index, *cached_slice);
-                    }
-
-                    const float viewport_offset_x =
-                        use_nonwrap_fragment_culling
-                        ? 0.0f
-                        : (cached_visual_line != nullptr
-                               ? 0.0f
-                               : GetTextboxViewportOffsetX(
-                                     *node,
-                                     shaped,
-                                     static_cast<std::uint32_t>(paragraph.break_offsets[line_index]),
-                                     static_cast<std::uint32_t>(paragraph.break_offsets[line_index + 1U])));
-                    AppendResolvedGlyphPlacements(
-                        *node,
-                        shaped,
-                        x_offset - viewport_offset_x + fragment_x_offset,
-                        line_y + line_ascent,
-                        glyphs);
-                }
-                node->text_render_window_valid = text_render_window_visible;
-                node->text_render_line_start = text_render_line_start;
-                node->text_render_line_end = text_render_line_end;
-                node->nonwrap_render_fragment_window_valid = nonwrap_fragment_window_visible;
-                node->nonwrap_render_fragment_start = nonwrap_fragment_window.start;
-                node->nonwrap_render_fragment_end = nonwrap_fragment_window.end;
-                EmitTextGlyphRun(builder, handle, *node, glyphs);
-            }
-            builder.SetCaret(handle, scene_x, scene_y, 0.0f, 0U, 0U);
-            const std::vector<ColoredRect> background_rects = BuildStyleInlineRects(*node);
-            const bool has_find_highlight =
-                text_find_handle_ == handle &&
-                text_find_start_ < text_find_end_;
-            std::vector<ColoredRect> find_highlights{};
-            if (has_find_highlight) {
-                for (const Rect& highlight : BuildSelectionRects(*node, text_find_start_, text_find_end_)) {
-                    find_highlights.push_back(ColoredRect{highlight, text_find_color_});
-                }
-            }
-            for (const TextFindHighlight& highlight : text_find_highlights_) {
-                if (highlight.handle != handle || highlight.start >= highlight.end) {
-                    continue;
-                }
-                for (const Rect& rect : BuildSelectionRects(*node, highlight.start, highlight.end)) {
-                    find_highlights.push_back(ColoredRect{rect, highlight.color});
-                }
-            }
-            auto emit_highlights =
-                [&](const std::vector<Rect>& selection_rects) {
-                    if (background_rects.empty() &&
-                        selection_rects.empty() &&
-                        !find_highlights.empty()) {
-                        builder.SetHighlightsColored(handle, find_highlights);
-                    } else if (!background_rects.empty() || !find_highlights.empty()) {
-                        std::vector<ColoredRect> combined_highlights{};
-                        combined_highlights.reserve(
-                            background_rects.size() +
-                            selection_rects.size() +
-                            find_highlights.size());
-                        combined_highlights.insert(combined_highlights.end(), background_rects.begin(), background_rects.end());
-                        for (const Rect& highlight : selection_rects) {
-                            combined_highlights.push_back(ColoredRect{highlight, node->selection_color});
-                        }
-                        combined_highlights.insert(combined_highlights.end(), find_highlights.begin(), find_highlights.end());
-                        builder.SetHighlightsColored(handle, combined_highlights);
-                    } else {
-                        builder.SetHighlights(handle, node->selection_color, selection_rects);
-                    }
-                };
-            if (node->is_selectable || node->is_editable || has_find_highlight) {
-                const std::uint32_t caret_index =
-                    std::min<std::uint32_t>(node->selection_end, static_cast<std::uint32_t>(node->text_content.size()));
-                std::uint32_t highlight_start = node->selection_start;
-                std::uint32_t highlight_end = node->selection_end;
-                const bool can_emit_selection_highlights = node->is_selectable || node->is_editable;
-                const bool has_cross_highlight =
-                    can_emit_selection_highlights &&
-                    GetCrossSelectionHighlight(handle, highlight_start, highlight_end);
-                const std::vector<Rect> highlights =
-                    (can_emit_selection_highlights &&
-                     (has_cross_highlight || node->selection_start != node->selection_end))
-                    ? BuildSelectionRects(*node, highlight_start, highlight_end)
-                    : std::vector<Rect>{};
-                for (const Rect& highlight : highlights) {
-                    Rect hit_rect{
-                        scene_x + highlight.x,
-                        scene_y + highlight.y,
-                        highlight.width,
-                        highlight.height,
-                    };
-                    if (IntersectRect(hit_rect, visible_bounds)) {
-                        current_selection_hit_rects_.push_back(hit_rect);
-                    }
-                }
-                emit_highlights(highlights);
-                if (
-                    can_emit_selection_highlights &&
-                    highlights.empty() &&
-                    focused_handle_ == handle &&
-                    !has_cross_highlight &&
-                    (node->is_editable || IsEditorTextNode(*node))) {
-                    const bool caret_trailing_edge =
-                        node->selection_start == node->selection_end && node->caret_trailing_edge;
-                    const auto [local_x, line_index] =
-                        GetLocalPositionFromIndex(*node, caret_index, caret_trailing_edge);
-                    const std::size_t caret_line_index = static_cast<std::size_t>(line_index);
-                    const bool uses_fragment_geometry =
-                        !node->text_wrap &&
-                        !(IsSingleLineEditorTextNode(*node)) &&
-                        node->nonwrap_fragment_cache_valid;
-                    float caret_height = GetLineHeightForIndex(*node, caret_line_index);
-                    if (!uses_fragment_geometry) {
-                        if (node->visual_line_shape_cache_valid &&
-                            caret_line_index < node->visual_line_shapes.size()) {
-                            const CachedVisualLineShape* caret_visual_line =
-                                EnsureWrappedVisualLineShape(*node, caret_line_index);
-                            caret_height = caret_visual_line != nullptr
-                                ? caret_visual_line->height
-                                : node->visual_line_shapes[caret_line_index].height;
-                        } else {
-                            ShapedTextRun caret_line{};
-                            if (caret_line_index < paragraph.break_offsets.size() - 1U) {
-                                const std::int32_t start = paragraph.break_offsets[caret_line_index];
-                                const std::int32_t end = paragraph.break_offsets[caret_line_index + 1U];
-                                std::string_view line_text(
-                                    node->text_content.data() + start,
-                                    static_cast<std::size_t>(end - start));
-                                while (!line_text.empty() && (line_text.front() == '\n' || line_text.front() == '\r')) {
-                                    line_text.remove_prefix(1U);
-                                }
-                                (void)ShapeText(line_text, node->font_id, node->font_size, caret_line, node->is_obscured);
-                            }
-                            caret_height = std::max(caret_line.height, GetLineHeightForIndex(*node, caret_line_index));
-                        }
-                    }
-                    const float caret_line_height = GetLineHeightForIndex(*node, caret_line_index);
-                    const float caret_line_ascent = GetLineAscentForIndex(*node, caret_line_index);
-                    const float caret_line_top = GetLineTopForIndex(*node, caret_line_index);
-                    float caret_ascent = caret_line_ascent;
-                    if (!uses_fragment_geometry) {
-                        if (node->visual_line_shape_cache_valid &&
-                            caret_line_index < node->visual_line_shapes.size()) {
-                            const CachedVisualLineShape* caret_visual_line =
-                                EnsureWrappedVisualLineShape(*node, caret_line_index);
-                            caret_ascent = caret_visual_line != nullptr
-                                ? caret_visual_line->ascent
-                                : node->visual_line_shapes[caret_line_index].ascent;
-                        } else {
-                            ShapedTextRun caret_line{};
-                            if (caret_line_index < paragraph.break_offsets.size() - 1U) {
-                                const std::int32_t start = paragraph.break_offsets[caret_line_index];
-                                const std::int32_t end = paragraph.break_offsets[caret_line_index + 1U];
-                                std::string_view line_text(
-                                    node->text_content.data() + start,
-                                    static_cast<std::size_t>(end - start));
-                                while (!line_text.empty() && (line_text.front() == '\n' || line_text.front() == '\r')) {
-                                    line_text.remove_prefix(1U);
-                                }
-                                (void)ShapeText(line_text, node->font_id, node->font_size, caret_line, node->is_obscured);
-                            }
-                            if (caret_line.height >= caret_line_height) {
-                                caret_ascent = caret_line.ascent;
-                            }
-                        }
-                    }
-                    builder.SetCaret(
-                        handle,
-                        scene_x + local_x,
-                        scene_y + text_offset_y + caret_line_top + (caret_line_ascent - caret_ascent),
-                        std::max(caret_height, 1.0f),
-                        node->caret_color,
-                        static_cast<std::uint32_t>(std::min<std::uint64_t>(node->last_interaction_time, 0xFFFFFFFFULL)));
-                }
-            } else {
-                emit_highlights(std::vector<Rect>{});
-            }
-            if (!selection_visuals_only_update) {
-                builder.SetTextFade(handle, ResolveTextFadeMask(*node, paragraph));
-            }
-            node->text_glyphs_dirty = false;
-            node->text_selection_visuals_dirty = false;
-        }
-        node->is_dirty = false;
-    }
-
-    paint_order.push_back(handle);
-    if (node->is_custom_drawable) {
-        if (node->has_layer_effect) {
-            scene.push_back(SceneInstruction{OP_PUSH_LAYER, handle});
-        }
-        scene.push_back(SceneInstruction{OP_PUSH_TRANSLATE, handle, scene_x, scene_y});
-        scene.push_back(SceneInstruction{OP_DRAW_CUSTOM, handle});
-        scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
-        if (node->has_layer_effect) {
-            scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
-        }
-    } else {
-        scene.push_back(SceneInstruction{OP_DRAW_NODE, handle});
-    }
-    const bool clip_children = node->clip_to_bounds || node->is_scroll_view;
-
-    if (node->is_portal) {
-        deferred_portal_roots.push_back(handle);
-        return;
-    }
-
-    if (node->is_grid) {
-        if (clip_children) {
-            scene.push_back(SceneInstruction{OP_PUSH_CLIP, handle});
-        }
-        LayoutGrid(
-            handle,
-            *node,
-            abs_x,
-            abs_y,
-            scene_x,
-            scene_y,
-            scroll_dirty,
-            builder,
-            paint_order,
-            scene,
-            deferred_portal_roots);
-        if (clip_children) {
-            scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
-        }
-        node->scroll_offset_dirty = false;
-        return;
-    }
-
-    const float child_origin_x = abs_x - (node->is_scroll_view ? node->scroll_offset_x : 0.0f);
-    const float child_origin_y = abs_y - (node->is_scroll_view ? node->scroll_offset_y : 0.0f);
-    const float child_scene_x = scene_x;
-    const float child_scene_y = scene_y;
-    if (clip_children) {
-        scene.push_back(SceneInstruction{OP_PUSH_CLIP, handle});
-    }
-    if (node->is_scroll_view &&
-        (std::abs(node->scroll_offset_x) >= 0.001f || std::abs(node->scroll_offset_y) >= 0.001f)) {
-        scene.push_back(SceneInstruction{
-            OP_PUSH_TRANSLATE,
-            handle,
-            -node->scroll_offset_x,
-            -node->scroll_offset_y,
-        });
-    }
-    for (const std::uint64_t child_handle : node->children) {
-        WalkTree(
-            child_handle,
-            child_origin_x,
-            child_origin_y,
-            child_scene_x,
-            child_scene_y,
-            scroll_dirty,
-            builder,
-            paint_order,
-            scene,
-            deferred_portal_roots);
-    }
-    if (node->is_scroll_view &&
-        (std::abs(node->scroll_offset_x) >= 0.001f || std::abs(node->scroll_offset_y) >= 0.001f)) {
-        scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
-    }
-    if (clip_children) {
-        scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
-    }
-    node->scroll_offset_dirty = false;
-}
-
-void UiRuntime::ClearCulledSubtree(
-    std::uint64_t handle,
-    float parent_abs_x,
-    float parent_abs_y,
-    float parent_scene_x,
-    float parent_scene_y,
-    CommandBuilder& builder,
-    std::vector<std::uint64_t>& paint_order) {
-    UINode* node = ResolveMutable(handle);
-    if (node == nullptr || node->yg_node == nullptr) {
-        return;
-    }
-
-    const float abs_x = parent_abs_x + YGNodeLayoutGetLeft(node->yg_node);
-    const float abs_y = parent_abs_y + YGNodeLayoutGetTop(node->yg_node);
-    const float scene_x = parent_scene_x + YGNodeLayoutGetLeft(node->yg_node);
-    const float scene_y = parent_scene_y + YGNodeLayoutGetTop(node->yg_node);
-    const float width = YGNodeLayoutGetWidth(node->yg_node);
-    const float height = YGNodeLayoutGetHeight(node->yg_node);
-    node->abs_x = abs_x;
-    node->abs_y = abs_y;
-    node->scene_x = scene_x;
-    node->scene_y = scene_y;
-    node->layout_width = width;
-    node->layout_height = height;
-    if (node->visibility != UI_VISIBILITY_NORMAL) {
-        node->scroll_offset_dirty = false;
-        return;
-    }
-    paint_order.push_back(handle);
-
-    if (node->is_interactive) {
-        const Rect clip_bounds = (node->clip_to_bounds || node->is_scroll_view)
-            ? ComputeClipBounds(*node, scene_x, scene_y)
-            : Rect{scene_x, scene_y, width, height};
-        builder.SetBounds(
-            handle,
-            scene_x,
-            scene_y,
-            width,
-            height,
-            abs_x,
-            abs_y,
-            0.0f,
-            0.0f,
-            clip_bounds.x,
-            clip_bounds.y,
-            clip_bounds.width,
-            clip_bounds.height,
-            true);
-    }
-
-    if (node->is_portal) {
-        node->scroll_offset_dirty = false;
-        return;
-    }
-
-    const float child_origin_x = abs_x - (node->is_scroll_view ? node->scroll_offset_x : 0.0f);
-    const float child_origin_y = abs_y - (node->is_scroll_view ? node->scroll_offset_y : 0.0f);
-    for (const std::uint64_t child_handle : node->children) {
-        ClearCulledSubtree(child_handle, child_origin_x, child_origin_y, scene_x, scene_y, builder, paint_order);
-    }
-    node->scroll_offset_dirty = false;
-}
-
 UINode* UiRuntime::ResolveMutable(std::uint64_t handle) {
-    const HandleParts parts = DecodeHandle(handle);
-    if (parts.index == 0 || parts.index >= node_pool_.size()) {
-        return nullptr;
-    }
-    UINode& node = node_pool_[parts.index];
-    return (!node.is_active || node.generation != parts.generation) ? nullptr : &node;
+    return node_store_.Writer().Resolve(handle);
 }
 
 UiRuntime& GetRuntime() {

@@ -187,11 +187,9 @@ bool BuildClipboardRichJson(const std::vector<ClipboardRichTextPart>& parts, std
 } // namespace
 
 void UiRuntime::EmitClipboardWrite(std::string_view plain_text, const std::string* rich_json) const {
-    as_on_clipboard_write(
-        plain_text.empty() ? nullptr : reinterpret_cast<const std::uint8_t*>(plain_text.data()),
-        static_cast<std::uint32_t>(plain_text.size()),
-        (rich_json == nullptr || rich_json->empty()) ? nullptr : reinterpret_cast<const std::uint8_t*>(rich_json->data()),
-        (rich_json == nullptr || rich_json->empty()) ? 0U : static_cast<std::uint32_t>(rich_json->size()));
+    platform_host_.WriteClipboard(
+        plain_text,
+        rich_json == nullptr ? std::string_view{} : std::string_view(*rich_json));
 }
 
 bool UiRuntime::BuildSelectionClipboardRichPayload(
@@ -229,28 +227,28 @@ bool UiRuntime::BuildSelectionClipboardRichPayload(
 bool UiRuntime::BuildCrossSelectionRichPayload(std::string& out_plain_text, std::string& out_rich_json) const {
     out_plain_text.clear();
     out_rich_json.clear();
-    if (!cross_selection_active_ || selection_area_handle_ == UI_INVALID_HANDLE || selection_area_nodes_.empty()) {
+    if (!Selection().state().cross_active || Selection().state().area_handle == UI_INVALID_HANDLE || Selection().state().area_nodes.empty()) {
         return false;
     }
 
-    const int start_position = FindSelectionAreaNodeIndex(start_node_handle_);
-    const int end_position = FindSelectionAreaNodeIndex(end_node_handle_);
+    const int start_position = FindSelectionAreaNodeIndex(Selection().state().start_node_handle);
+    const int end_position = FindSelectionAreaNodeIndex(Selection().state().end_node_handle);
     if (start_position < 0 || end_position < 0) {
         return false;
     }
 
     const bool forward =
         start_position < end_position ||
-        (start_position == end_position && start_index_ <= end_index_);
+        (start_position == end_position && Selection().state().start_index <= Selection().state().end_index);
     const int first_index = forward ? start_position : end_position;
     const int last_index = forward ? end_position : start_position;
-    const std::uint32_t first_offset = forward ? start_index_ : end_index_;
-    const std::uint32_t last_offset = forward ? end_index_ : start_index_;
+    const std::uint32_t first_offset = forward ? Selection().state().start_index : Selection().state().end_index;
+    const std::uint32_t last_offset = forward ? Selection().state().end_index : Selection().state().start_index;
 
     bool has_styled_parts = false;
     std::vector<ClipboardRichTextPart> parts{};
     for (int index = first_index; index <= last_index; index += 1) {
-        const UINode* node = Resolve(selection_area_nodes_[static_cast<std::size_t>(index)]);
+        const UINode* node = Resolve(Selection().state().area_nodes[static_cast<std::size_t>(index)]);
         if (node == nullptr || node->is_obscured) {
             continue;
         }
@@ -271,7 +269,7 @@ bool UiRuntime::BuildCrossSelectionRichPayload(std::string& out_plain_text, std:
         }
 
         if (!out_plain_text.empty()) {
-            const UINode* previous = Resolve(selection_area_nodes_[static_cast<std::size_t>(index - 1)]);
+            const UINode* previous = Resolve(Selection().state().area_nodes[static_cast<std::size_t>(index - 1)]);
             const char separator = IsHorizontalContainer(previous == nullptr ? nullptr : Resolve(previous->parent_handle))
                 ? ' '
                 : '\n';

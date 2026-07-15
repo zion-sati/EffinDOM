@@ -215,6 +215,7 @@ void UiRuntime::MeasureText(
 
 
 void UiRuntime::DestroyRegisteredFont(RegisteredFont& font) {
+    DestroySizedFonts(font);
     if (font.font != nullptr) {
         hb_font_destroy(font.font);
         font.font = nullptr;
@@ -233,6 +234,71 @@ void UiRuntime::DestroyRegisteredFont(RegisteredFont& font) {
     font.extents = hb_font_extents_t{};
     font.has_extents = false;
     font.bullet_glyph_id.reset();
+}
+
+void UiRuntime::DestroySizedFonts(RegisteredFont& font) {
+    for (SizedFontEntry& entry : font.sized_fonts) {
+        if (entry.font != nullptr) {
+            hb_font_destroy(entry.font);
+            shaping_resource_profile_.sized_font_destructions += 1U;
+            entry.font = nullptr;
+        }
+    }
+    font.sized_fonts.clear();
+}
+
+hb_font_t* UiRuntime::AcquireSizedFont(const RegisteredFont& font, float font_size) const {
+    static constexpr std::size_t kSizedFontCacheLimit = 8U;
+    const float clamped_size = std::max(font_size, 1.0f);
+    const SizedFontKey key{
+        std::max(64, static_cast<int>(std::lround(clamped_size * 64.0f))),
+        std::max(1U, static_cast<unsigned int>(std::lround(clamped_size))),
+    };
+    const std::uint64_t access_sequence = ++shaping_font_access_sequence_;
+    for (SizedFontEntry& entry : font.sized_fonts) {
+        if (entry.key == key && entry.font != nullptr) {
+            entry.access_sequence = access_sequence;
+            shaping_resource_profile_.sized_font_cache_hits += 1U;
+            if (text_commit_profile_active_) {
+                current_text_commit_profile_.shaping_sized_font_cache_hits += 1U;
+            }
+            return entry.font;
+        }
+    }
+
+    hb_font_t* sized_font = hb_font_create_sub_font(font.font);
+    if (sized_font == nullptr) {
+        return nullptr;
+    }
+    shaping_resource_profile_.sized_font_creations += 1U;
+    if (text_commit_profile_active_) {
+        current_text_commit_profile_.shaping_sized_font_creations += 1U;
+    }
+    hb_font_set_scale(sized_font, key.scale, key.scale);
+    hb_font_set_ppem(sized_font, key.ppem, key.ppem);
+
+    if (font.sized_fonts.size() >= kSizedFontCacheLimit) {
+        const auto eviction = std::min_element(
+            font.sized_fonts.begin(),
+            font.sized_fonts.end(),
+            [](const SizedFontEntry& lhs, const SizedFontEntry& rhs) {
+                return lhs.access_sequence < rhs.access_sequence ||
+                    (lhs.access_sequence == rhs.access_sequence && lhs.key < rhs.key);
+            });
+        if (eviction != font.sized_fonts.end()) {
+            if (eviction->font != nullptr) {
+                hb_font_destroy(eviction->font);
+                shaping_resource_profile_.sized_font_destructions += 1U;
+            }
+            font.sized_fonts.erase(eviction);
+            shaping_resource_profile_.sized_font_evictions += 1U;
+            if (text_commit_profile_active_) {
+                current_text_commit_profile_.shaping_sized_font_evictions += 1U;
+            }
+        }
+    }
+    font.sized_fonts.push_back(SizedFontEntry{key, sized_font, access_sequence});
+    return sized_font;
 }
 
 
@@ -370,23 +436,23 @@ bool UiRuntime::ShapeTextWithFont(
         return true;
     }
 
-    hb_font_t* sized_font = hb_font_create_sub_font(font.font);
+    hb_font_t* sized_font = AcquireSizedFont(font, font_size);
     if (sized_font == nullptr) {
         return false;
     }
 
-    const unsigned int ppem = std::max(1U, static_cast<unsigned int>(std::lround(std::max(font_size, 1.0f))));
-    const int scaled_size = std::max(64, static_cast<int>(std::lround(std::max(font_size, 1.0f) * 64.0f)));
-    hb_font_set_scale(sized_font, scaled_size, scaled_size);
-    hb_font_set_ppem(sized_font, ppem, ppem);
-
-    hb_buffer_t* buffer = hb_buffer_create();
+    ShapingBufferLease buffer_lease = AcquireShapingBuffer();
+    hb_buffer_t* buffer = buffer_lease.get();
     if (buffer == nullptr) {
-        hb_font_destroy(sized_font);
         return false;
     }
 
     const ShapeInputText shaped_input = BuildShapeInputText(text);
+    if (!shaped_input.expanded_text.empty()) {
+        shaping_resource_profile_.tab_expansion_calls += 1U;
+        shaping_resource_profile_.tab_expanded_bytes += shaped_input.expanded_text.size();
+        shaping_resource_profile_.tab_cluster_map_entries += shaped_input.cluster_map.size();
+    }
     const std::string_view harfbuzz_text =
         shaped_input.expanded_text.empty()
             ? text
@@ -398,6 +464,10 @@ bool UiRuntime::ShapeTextWithFont(
         0,
         static_cast<int>(harfbuzz_text.size()));
     hb_buffer_guess_segment_properties(buffer);
+    if (text_commit_profile_active_) {
+        current_text_commit_profile_.harfbuzz_shape_calls += 1U;
+        current_text_commit_profile_.harfbuzz_shape_bytes += harfbuzz_text.size();
+    }
     hb_shape(sized_font, buffer, nullptr, 0);
 
     unsigned int glyph_count = 0U;
@@ -436,8 +506,134 @@ bool UiRuntime::ShapeTextWithFont(
         glyph.x -= min_x;
     }
 
-    hb_buffer_destroy(buffer);
-    hb_font_destroy(sized_font);
+    return true;
+}
+
+bool UiRuntime::TryShapeFixedPitchTabbedText(
+    std::string_view text,
+    const RegisteredFont& font,
+    std::uint32_t font_id,
+    float font_size,
+    ShapedTextRun& out) const {
+    shaping_resource_profile_.fixed_pitch_tab_attempts += 1U;
+    const auto reject = [&]() {
+        shaping_resource_profile_.fixed_pitch_tab_rejections += 1U;
+        return false;
+    };
+
+    const FixedPitchFontKey cache_key =
+        FixedPitchFontKey::Normalize(font_id, font.generation, font_size);
+    std::optional<float> cached_cell_width = fixed_pitch_metrics_cache_.Find(cache_key);
+    if (!cached_cell_width.has_value()) {
+        if (!font.is_ascii_fixed_pitch) {
+            return reject();
+        }
+        static constexpr std::string_view kVerificationProbe =
+            " !\"#$%&'()*+,-./0123456789:;<=>?@ABCDEFGHIJKLMNOPQRSTUVWXYZ[\\]^_`abcdefghijklmnopqrstuvwxyz{|}~"
+            " office affinity != === ->";
+        ShapedTextRun probe{};
+        if (!ShapeTextWithFont(kVerificationProbe, font, font_id, font_size, probe) ||
+            probe.glyphs.size() != kVerificationProbe.size()) {
+            return reject();
+        }
+        const float cell_width = probe.width / static_cast<float>(kVerificationProbe.size());
+        if (!std::isfinite(cell_width) || cell_width <= 0.0f) {
+            return reject();
+        }
+        for (std::size_t index = 0U; index < probe.glyphs.size(); index += 1U) {
+            if (probe.glyphs[index].cluster != index ||
+                std::fabs(probe.glyphs[index].x - static_cast<float>(index) * cell_width) > 0.01f) {
+                return reject();
+            }
+        }
+        if (!fixed_pitch_metrics_cache_.Store(cache_key, cell_width)) {
+            return reject();
+        }
+        cached_cell_width = cell_width;
+    }
+
+    const float cell_width = *cached_cell_width;
+    bool all_glyphs_present = true;
+    for (const char value : text) {
+        const unsigned char byte = static_cast<unsigned char>(value);
+        if (byte != '\t' && (byte >= 0x80U || !FontHasGlyph(font, byte))) {
+            all_glyphs_present = false;
+            break;
+        }
+    }
+    const FixedPitchTabEligibility eligibility{
+        text,
+        false,
+        false,
+        true,
+        all_glyphs_present,
+        false,
+        true,
+        cell_width,
+    };
+    if (FixedPitchTabModel::CheckEligibility(eligibility) != FixedPitchTabRejection::None) {
+        return reject();
+    }
+
+    ShapedTextRun tab_glyph{};
+    if (!ShapeTextWithFont(" ", font, font_id, font_size, tab_glyph) ||
+        tab_glyph.glyphs.size() != 1U) {
+        return reject();
+    }
+
+    ShapedTextRun candidate{};
+    const FontMetrics metrics = GetFontMetrics(font, font_size);
+    candidate.font_id = font_id;
+    candidate.ascent = metrics.ascent;
+    candidate.descent = metrics.descent;
+    candidate.height = metrics.height;
+    candidate.baseline = metrics.ascent;
+    candidate.glyphs.reserve(text.size());
+
+    std::uint32_t column = 0U;
+    std::size_t cursor = 0U;
+    while (cursor < text.size()) {
+        if (text[cursor] == '\t') {
+            GlyphPlacement carrier = tab_glyph.glyphs.front();
+            carrier.x = static_cast<float>(column) * cell_width;
+            carrier.cluster = static_cast<std::uint32_t>(cursor);
+            carrier.font_id = font_id;
+            carrier.color = 0U;
+            carrier.font_size = font_size;
+            candidate.glyphs.push_back(carrier);
+            column = FixedPitchTabModel::NextTabColumn(column);
+            cursor += 1U;
+            continue;
+        }
+
+        const std::size_t span_start = cursor;
+        while (cursor < text.size() && text[cursor] != '\t') {
+            cursor += 1U;
+        }
+        const std::string_view span = text.substr(span_start, cursor - span_start);
+        ShapedTextRun shaped_span{};
+        if (!ShapeTextWithFont(span, font, font_id, font_size, shaped_span) ||
+            shaped_span.glyphs.size() != span.size() ||
+            std::fabs(shaped_span.width - static_cast<float>(span.size()) * cell_width) > 0.01f) {
+            return reject();
+        }
+        const float span_x = static_cast<float>(column) * cell_width;
+        for (std::size_t index = 0U; index < shaped_span.glyphs.size(); index += 1U) {
+            GlyphPlacement glyph = shaped_span.glyphs[index];
+            if (glyph.cluster != index ||
+                std::fabs(glyph.x - static_cast<float>(index) * cell_width) > 0.01f) {
+                return reject();
+            }
+            glyph.x += span_x;
+            glyph.cluster += static_cast<std::uint32_t>(span_start);
+            candidate.glyphs.push_back(glyph);
+        }
+        column += static_cast<std::uint32_t>(span.size());
+    }
+
+    candidate.width = static_cast<float>(column) * cell_width;
+    out = std::move(candidate);
+    shaping_resource_profile_.fixed_pitch_tab_successes += 1U;
     return true;
 }
 
@@ -462,15 +658,10 @@ bool UiRuntime::ShapeMissingTextWithFont(
         return true;
     }
 
-    hb_font_t* sized_font = hb_font_create_sub_font(font.font);
+    hb_font_t* sized_font = AcquireSizedFont(font, font_size);
     if (sized_font == nullptr) {
         return false;
     }
-
-    const unsigned int ppem = std::max(1U, static_cast<unsigned int>(std::lround(std::max(font_size, 1.0f))));
-    const int scaled_size = std::max(64, static_cast<int>(std::lround(std::max(font_size, 1.0f) * 64.0f)));
-    hb_font_set_scale(sized_font, scaled_size, scaled_size);
-    hb_font_set_ppem(sized_font, ppem, ppem);
 
     const std::uint32_t placeholder_glyph_id =
         font.tofu_glyph_id.has_value()
@@ -499,7 +690,6 @@ bool UiRuntime::ShapeMissingTextWithFont(
         offset = next;
     }
     out.width = cursor_x;
-    hb_font_destroy(sized_font);
     return true;
 }
 
@@ -528,7 +718,10 @@ std::vector<std::uint32_t> UiRuntime::ResolveFontChain(std::uint32_t font_id) co
 }
 
 std::uint32_t UiRuntime::ClassifyMissingFontCoverage(std::uint32_t codepoint) {
-    if ((codepoint >= 0x0590U && codepoint <= 0x05FFU) ||
+    if ((codepoint >= 0x1F000U && codepoint <= 0x1FAFFU) ||
+        (codepoint >= 0x2600U && codepoint <= 0x27BFU) ||
+        (codepoint >= 0x2300U && codepoint <= 0x23FFU) ||
+        (codepoint >= 0x0590U && codepoint <= 0x05FFU) ||
         (codepoint >= 0x0530U && codepoint <= 0x058FU) ||
         (codepoint >= 0x10A0U && codepoint <= 0x10FFU) ||
         (codepoint >= 0x2D00U && codepoint <= 0x2D2FU) ||
@@ -593,11 +786,10 @@ void UiRuntime::ReportMissingFontCoverage(
     if (!reported_missing_font_coverage_keys_.insert(key).second) {
         return;
     }
-    as_on_missing_font_coverage(
+    platform_host_.ReportMissingFontCoverage(
         primary_font_id,
         coverage_kind,
-        reinterpret_cast<const std::uint8_t*>(sample_text.data()),
-        static_cast<std::uint32_t>(sample_text.size()));
+        sample_text);
 }
 
 
@@ -688,7 +880,17 @@ bool UiRuntime::ShapeObscuredText(std::string_view text, std::uint32_t font_id, 
 
 
 
-bool UiRuntime::ShapeText(std::string_view text, std::uint32_t font_id, float font_size, ShapedTextRun& out, bool obscured) const {
+bool UiRuntime::ShapeText(
+    std::string_view text,
+    std::uint32_t font_id,
+    float font_size,
+    ShapedTextRun& out,
+    bool obscured,
+    bool allow_fixed_pitch_tabs) const {
+    if (text_geometry_profile_active_) {
+        text_geometry_profile_.shaping_calls += 1U;
+        text_geometry_profile_.shaping_bytes += text.size();
+    }
     const bool profile_active = text_commit_profile_active_;
     const ProfileClock::time_point shape_start = profile_active ? ProfileClock::now() : ProfileClock::time_point{};
     if (obscured) {
@@ -722,6 +924,25 @@ bool UiRuntime::ShapeText(std::string_view text, std::uint32_t font_id, float fo
                 ElapsedMilliseconds(shape_start, ProfileClock::now());
         }
         return true;
+    }
+
+    if (allow_fixed_pitch_tabs && text.find('\t') != std::string_view::npos) {
+        ShapedTextRun fixed_pitch_tabs{};
+        if (TryShapeFixedPitchTabbedText(
+                text,
+                *primary_font,
+                font_id,
+                font_size,
+                fixed_pitch_tabs)) {
+            out = std::move(fixed_pitch_tabs);
+            if (profile_active) {
+                current_text_commit_profile_.shape_text_calls += 1U;
+                current_text_commit_profile_.shape_text_bytes += text.size();
+                current_text_commit_profile_.shape_text_ms +=
+                    ElapsedMilliseconds(shape_start, ProfileClock::now());
+            }
+            return true;
+        }
     }
 
     const std::vector<std::uint32_t> font_chain = ResolveFontChain(font_id);
@@ -1031,7 +1252,8 @@ bool UiRuntime::ShapeTextStyledRange(const UINode& node, std::uint32_t start, st
                 segment.font_id,
                 segment.font_size,
                 shaped_segment,
-                node.is_obscured)) {
+                node.is_obscured,
+                false)) {
             if (segment.font_id == node.font_id) {
                 return false;
             }
@@ -1042,7 +1264,8 @@ bool UiRuntime::ShapeTextStyledRange(const UINode& node, std::uint32_t start, st
                     node.font_id,
                     segment.font_size,
                     shaped_segment,
-                    node.is_obscured)) {
+                    node.is_obscured,
+                    false)) {
                 return false;
             }
         }
@@ -1075,9 +1298,9 @@ bool UiRuntime::ShapeTextStyledRange(const UINode& node, std::uint32_t start, st
 
 void UiRuntime::RebuildLiveFallbackFontBuffer() const {
     live_fallback_font_buffer_.clear();
-    for (const UINode& node : node_pool_) {
-        if (!node.is_active || !node.is_text_node || node.text_content.empty()) {
-            continue;
+    node_store_.Traversal().ForEachActive([&](std::uint64_t, const UINode& node) {
+        if (!node.is_text_node || node.text_content.empty()) {
+            return;
         }
         ShapedTextRun shaped{};
         if (!ShapeTextStyledRange(
@@ -1085,7 +1308,7 @@ void UiRuntime::RebuildLiveFallbackFontBuffer() const {
                 0U,
                 static_cast<std::uint32_t>(node.text_content.size()),
                 shaped)) {
-            continue;
+            return;
         }
         for (const GlyphPlacement& glyph : shaped.glyphs) {
             if (glyph.font_id == 0U || glyph.font_id == node.font_id) {
@@ -1098,7 +1321,7 @@ void UiRuntime::RebuildLiveFallbackFontBuffer() const {
                 live_fallback_font_buffer_.push_back(glyph.font_id);
             }
         }
-    }
+    });
 }
 
 

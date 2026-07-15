@@ -89,14 +89,11 @@ float UiRuntime::GetScrollViewportHeight(const UINode& node) const {
 }
 
 Rect UiRuntime::ComputeClipBounds(const UINode& node) const {
-    return ComputeClipBounds(node, node.abs_x, node.abs_y);
+    return VisibilityResolver(node_store_.Reader()).ComputeClipBounds(node);
 }
 
 Rect UiRuntime::ComputeClipBounds(const UINode& node, float origin_x, float origin_y) const {
-    if (node.is_scroll_view || node.clip_to_bounds) {
-        return ComputeContentBounds(node, origin_x, origin_y);
-    }
-    return ComputeBorderBounds(node, origin_x, origin_y);
+    return VisibilityResolver(node_store_.Reader()).ComputeClipBounds(node, origin_x, origin_y);
 }
 
 std::uint32_t UiRuntime::ComputeClipMode(const UINode& node) const {

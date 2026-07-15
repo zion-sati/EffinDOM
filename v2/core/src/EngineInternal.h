@@ -208,6 +208,7 @@ struct Engine::Impl {
     std::size_t cached_glyph_blob_bytes = 0;
     std::uint32_t glyph_blob_lru_head = detail::kInvalidGlyphBlobCacheIndex;
     std::uint32_t glyph_blob_lru_tail = detail::kInvalidGlyphBlobCacheIndex;
+    mutable GlyphRenderStats glyph_render_stats{};
     std::unordered_map<std::uint32_t, sk_sp<SkTypeface>> fonts{};
     std::unordered_map<std::uint32_t, detail::SvgRecord> svgs{};
     std::unordered_map<std::uint32_t, detail::TextureRecord> textures{};

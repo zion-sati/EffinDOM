@@ -64,15 +64,7 @@ bool ApplyYogaAlign(YGNodeRef yg_node, std::uint32_t align_enum, bool self) {
 }
 
 void UiRuntime::CapturePendingFocusId(std::uint64_t subtree_root) {
-    if (!SubtreeContains(subtree_root, focused_handle_)) {
-        return;
-    }
-    const UINode* focused_node = Resolve(focused_handle_);
-    if (focused_node == nullptr || focused_node->node_id.empty()) {
-        pending_focus_node_id_.clear();
-        return;
-    }
-    pending_focus_node_id_ = focused_node->node_id;
+    Focus().CapturePendingNodeId(subtree_root);
 }
 
 void UiRuntime::RemoveTextFindHighlightsInSubtree(std::uint64_t subtree_root) {
@@ -87,54 +79,18 @@ void UiRuntime::RemoveTextFindHighlightsInSubtree(std::uint64_t subtree_root) {
 }
 
 void UiRuntime::RestorePendingFocusIfPossible() {
-    if (pending_focus_node_id_.empty() || focused_handle_ != UI_INVALID_HANDLE) {
-        return;
-    }
-    const auto it = node_id_map_.find(pending_focus_node_id_);
-    if (it == node_id_map_.end()) {
-        return;
-    }
-    const std::uint64_t handle = it->second;
-    const UINode* node = Resolve(handle);
-    if (node == nullptr || !node->is_focusable) {
-        return;
-    }
-    pending_focus_node_id_.clear();
+    const std::uint64_t handle = Focus().PendingRestoreCandidate(node_id_map_);
+    if (handle == UI_INVALID_HANDLE) return;
+    Focus().ClearPendingNodeId();
     SetFocus(handle);
 }
 
 std::uint64_t UiRuntime::CreateNode(std::uint32_t type) {
-    for (std::uint32_t index = 1; index < static_cast<std::uint32_t>(node_pool_.size()); index += 1U) {
-        UINode& node = node_pool_[index];
-        if (node.is_active) {
-            continue;
-        }
-
-        const std::uint32_t next_generation = node.generation + 1U;
-        node = UINode{};
-        node.generation = next_generation;
-        node.node_type = type;
-        node.is_active = true;
-        node.needs_creation = true;
-        node.is_dirty = true;
-        node.is_text_node = type == UI_NODE_TEXT;
-        node.is_svg_node = type == UI_NODE_SVG;
-        node.is_scroll_view = type == UI_NODE_SCROLLVIEW;
-        node.is_grid = type == UI_NODE_GRID;
-        node.yg_node = YGNodeNew();
-        if (node.yg_node == nullptr) { node = UINode{}; return UI_INVALID_HANDLE; }
-        ApplyEffectivePadding(node.yg_node, 0.0f, 0.0f, 0.0f, 0.0f);
-        ApplyEffectiveMargin(node.yg_node, 0.0f, 0.0f, 0.0f, 0.0f);
-        if (node.is_text_node) {
-            YGNodeSetContext(node.yg_node, &node);
-            YGNodeSetMeasureFunc(node.yg_node, &UiRuntime::MeasureTextCallback);
-        }
-        const std::uint64_t handle = PackHandle(index, next_generation);
-        pending_creations_.push_back(handle);
+    const std::uint64_t handle = node_store_.Create(type, &UiRuntime::MeasureTextCallback);
+    if (handle != UI_INVALID_HANDLE) {
         layout_dirty_ = true;
-        return handle;
     }
-    return UI_INVALID_HANDLE;
+    return handle;
 }
 
 bool UiRuntime::DeleteNode(std::uint64_t handle) {
@@ -147,70 +103,27 @@ bool UiRuntime::DeleteNode(std::uint64_t handle) {
         node_id_map_.erase(node->node_id);
     }
     CapturePendingFocusId(handle);
-    if (SubtreeContains(handle, focused_handle_)) {
+    if (SubtreeContains(handle, Focus().FocusedHandle())) {
         SetFocus(UI_INVALID_HANDLE);
     }
-    if (SubtreeContains(handle, last_hovered_handle_)) {
-        ClearHover(last_hovered_handle_);
+    if (SubtreeContains(handle, Input().state().last_hovered_handle)) {
+        ClearHover(Input().state().last_hovered_handle);
     }
-    if (SubtreeContains(handle, active_selection_handle_)) {
-        active_selection_handle_ = UI_INVALID_HANDLE;
-    }
+    Selection().InvalidateSubtree(*this, node_store_.Reader(), handle);
     if (SubtreeContains(handle, text_find_handle_)) {
         text_find_handle_ = UI_INVALID_HANDLE;
         text_find_start_ = 0U;
         text_find_end_ = 0U;
     }
     RemoveTextFindHighlightsInSubtree(handle);
-    if (selection_area_handle_ != UI_INVALID_HANDLE) {
-        selection_area_nodes_dirty_ = true;
-        if (cross_selection_active_ &&
-            (SubtreeContains(handle, selection_area_handle_) ||
-             SubtreeContains(handle, start_node_handle_) ||
-             SubtreeContains(handle, end_node_handle_))) {
-            ClearCrossSelection(false);
-        }
-    }
 
     if (node->parent_handle != UI_INVALID_HANDLE) {
         (void)RemoveChild(node->parent_handle, handle);
     }
 
-    for (const std::uint64_t child_handle : node->children) {
-        if (UINode* child = ResolveMutable(child_handle); child != nullptr) {
-            child->parent_handle = UI_INVALID_HANDLE;
-        }
-        const HandleParts child_parts = DecodeHandle(child_handle);
-        if (node->yg_node != nullptr && child_parts.index < node_pool_.size()) {
-            UINode& child_node = node_pool_[child_parts.index];
-            if (child_node.yg_node != nullptr) {
-                YGNodeRemoveChild(node->yg_node, child_node.yg_node);
-            }
-        }
+    if (!node_store_.Destroy(handle)) {
+        return false;
     }
-    node->children.clear();
-    node->children.shrink_to_fit();
-
-    if (node->yg_node != nullptr) {
-        YGNodeFree(node->yg_node);
-        node->yg_node = nullptr;
-    }
-
-    if (root_handle_ == handle) {
-        root_handle_ = UI_INVALID_HANDLE;
-    }
-
-    const auto create_it = std::find(pending_creations_.begin(), pending_creations_.end(), handle);
-    if (create_it != pending_creations_.end()) {
-        pending_creations_.erase(create_it);
-    } else {
-        pending_deletions_.push_back(handle);
-    }
-
-    node->is_active = false;
-    node->needs_creation = false;
-    node->is_dirty = false;
-    node->parent_handle = UI_INVALID_HANDLE;
     InvalidateFocusOrder();
     layout_dirty_ = true;
     return true;
@@ -228,14 +141,11 @@ bool UiRuntime::AddChild(std::uint64_t parent_handle, std::uint64_t child_handle
     if (child->parent_handle != UI_INVALID_HANDLE) {
         (void)RemoveChild(child->parent_handle, child_handle);
     }
-
-    YGNodeInsertChild(parent->yg_node, child->yg_node, static_cast<std::uint32_t>(parent->children.size()));
-    child->parent_handle = parent_handle;
-    parent->children.push_back(child_handle);
-    InvalidateFocusOrder();
-    if (selection_area_handle_ != UI_INVALID_HANDLE) {
-        selection_area_nodes_dirty_ = true;
+    if (!node_store_.AddChild(parent_handle, child_handle)) {
+        return false;
     }
+    InvalidateFocusOrder();
+    Selection().MarkAreaTopologyDirty();
     layout_dirty_ = true;
     return true;
 }
@@ -247,39 +157,23 @@ bool UiRuntime::RemoveChild(std::uint64_t parent_handle, std::uint64_t child_han
         return false;
     }
 
-    const auto it = std::find(parent->children.begin(), parent->children.end(), child_handle);
-    if (it == parent->children.end()) {
+    if (!node_store_.RemoveChild(parent_handle, child_handle)) {
         return false;
     }
-
-    YGNodeRemoveChild(parent->yg_node, child->yg_node);
-    parent->children.erase(it);
-    child->parent_handle = UI_INVALID_HANDLE;
     CapturePendingFocusId(child_handle);
-    if (SubtreeContains(child_handle, focused_handle_)) {
+    if (SubtreeContains(child_handle, Focus().FocusedHandle())) {
         SetFocus(UI_INVALID_HANDLE);
     }
-    if (SubtreeContains(child_handle, last_hovered_handle_)) {
-        ClearHover(last_hovered_handle_);
+    if (SubtreeContains(child_handle, Input().state().last_hovered_handle)) {
+        ClearHover(Input().state().last_hovered_handle);
     }
-    if (SubtreeContains(child_handle, active_selection_handle_)) {
-        active_selection_handle_ = UI_INVALID_HANDLE;
-    }
+    Selection().InvalidateSubtree(*this, node_store_.Reader(), child_handle);
     if (SubtreeContains(child_handle, text_find_handle_)) {
         text_find_handle_ = UI_INVALID_HANDLE;
         text_find_start_ = 0U;
         text_find_end_ = 0U;
     }
     RemoveTextFindHighlightsInSubtree(child_handle);
-    if (selection_area_handle_ != UI_INVALID_HANDLE) {
-        selection_area_nodes_dirty_ = true;
-        if (cross_selection_active_ &&
-            (SubtreeContains(child_handle, selection_area_handle_) ||
-             SubtreeContains(child_handle, start_node_handle_) ||
-             SubtreeContains(child_handle, end_node_handle_))) {
-            ClearCrossSelection(false);
-        }
-    }
     InvalidateFocusOrder();
     layout_dirty_ = true;
     return true;
@@ -288,15 +182,13 @@ bool UiRuntime::RemoveChild(std::uint64_t parent_handle, std::uint64_t child_han
 bool UiRuntime::SetRoot(std::uint64_t handle) {
     if (handle == UI_INVALID_HANDLE) {
         SetFocus(UI_INVALID_HANDLE);
-        ClearHover(last_hovered_handle_);
-        active_selection_handle_ = UI_INVALID_HANDLE;
+        ClearHover(Input().state().last_hovered_handle);
         text_find_handle_ = UI_INVALID_HANDLE;
         text_find_start_ = 0U;
         text_find_end_ = 0U;
         text_find_highlights_.clear();
-        ClearCrossSelection(false);
-        selection_area_nodes_dirty_ = true;
-        root_handle_ = UI_INVALID_HANDLE;
+        Selection().ReconcileRoot(*this, node_store_.Reader(), UI_INVALID_HANDLE);
+        (void)node_store_.SetRoot(UI_INVALID_HANDLE);
         InvalidateFocusOrder();
         layout_dirty_ = true;
         return true;
@@ -304,14 +196,14 @@ bool UiRuntime::SetRoot(std::uint64_t handle) {
     if (ResolveMutable(handle) == nullptr) {
         return false;
     }
-    root_handle_ = handle;
-    if (!SubtreeContains(root_handle_, focused_handle_)) {
+    (void)node_store_.SetRoot(handle);
+    if (!SubtreeContains(node_store_.RootHandle(), Focus().FocusedHandle())) {
         SetFocus(UI_INVALID_HANDLE);
     }
-    if (!SubtreeContains(root_handle_, last_hovered_handle_)) {
-        ClearHover(last_hovered_handle_);
+    if (!SubtreeContains(node_store_.RootHandle(), Input().state().last_hovered_handle)) {
+        ClearHover(Input().state().last_hovered_handle);
     }
-    if (!SubtreeContains(root_handle_, text_find_handle_)) {
+    if (!SubtreeContains(node_store_.RootHandle(), text_find_handle_)) {
         text_find_handle_ = UI_INVALID_HANDLE;
         text_find_start_ = 0U;
         text_find_end_ = 0U;
@@ -321,16 +213,10 @@ bool UiRuntime::SetRoot(std::uint64_t handle) {
             text_find_highlights_.begin(),
             text_find_highlights_.end(),
             [&](const TextFindHighlight& highlight) {
-                return !SubtreeContains(root_handle_, highlight.handle);
+                return !SubtreeContains(node_store_.RootHandle(), highlight.handle);
             }),
         text_find_highlights_.end());
-    if (!SubtreeContains(root_handle_, active_selection_handle_)) {
-        active_selection_handle_ = UI_INVALID_HANDLE;
-    }
-    if (selection_area_handle_ != UI_INVALID_HANDLE && !SubtreeContains(root_handle_, selection_area_handle_)) {
-        ClearCrossSelection(false);
-    }
-    selection_area_nodes_dirty_ = true;
+    Selection().ReconcileRoot(*this, node_store_.Reader(), node_store_.RootHandle());
     InvalidateFocusOrder();
     layout_dirty_ = true;
     RestorePendingFocusIfPossible();
@@ -508,7 +394,7 @@ bool UiRuntime::RequestSemanticAnnouncement(std::uint64_t handle) {
     if (node == nullptr) {
         return false;
     }
-    as_on_request_semantic_announcement(handle);
+    platform_host_.RequestSemanticAnnouncement(handle);
     return true;
 }
 
@@ -546,24 +432,13 @@ bool UiRuntime::SetVisibility(std::uint64_t handle, std::uint32_t visibility_enu
     }
 
     if (next_visibility != UI_VISIBILITY_NORMAL) {
-        if (SubtreeContains(handle, focused_handle_)) {
+        if (SubtreeContains(handle, Focus().FocusedHandle())) {
             SetFocus(UI_INVALID_HANDLE);
         }
-        if (SubtreeContains(handle, last_hovered_handle_)) {
-            ClearHover(last_hovered_handle_);
+        if (SubtreeContains(handle, Input().state().last_hovered_handle)) {
+            ClearHover(Input().state().last_hovered_handle);
         }
-        if (SubtreeContains(handle, active_selection_handle_)) {
-            active_selection_handle_ = UI_INVALID_HANDLE;
-        }
-        if (selection_area_handle_ != UI_INVALID_HANDLE) {
-            selection_area_nodes_dirty_ = true;
-            if (cross_selection_active_ &&
-                (SubtreeContains(handle, selection_area_handle_) ||
-                 SubtreeContains(handle, start_node_handle_) ||
-                 SubtreeContains(handle, end_node_handle_))) {
-                ClearCrossSelection(false);
-            }
-        }
+        Selection().InvalidateSubtree(*this, node_store_.Reader(), handle);
     }
 
     return true;
@@ -576,11 +451,10 @@ bool UiRuntime::SetSelectionArea(std::uint64_t handle, bool is_selection_area) {
     }
     node->is_selection_area = is_selection_area;
     node->is_dirty = true;
-    if (selection_area_handle_ == handle) {
-        selection_area_nodes_dirty_ = true;
-        if (!is_selection_area) {
-            ClearCrossSelection(false);
-        }
+    if (!is_selection_area) {
+        Selection().RemoveArea(handle, *this);
+    } else {
+        Selection().MarkAreaTopologyDirty();
     }
     return true;
 }
@@ -591,9 +465,7 @@ bool UiRuntime::SetSelectionAreaBarrier(std::uint64_t handle, bool is_barrier) {
         return false;
     }
     node->is_selection_area_barrier = is_barrier;
-    if (selection_area_handle_ != UI_INVALID_HANDLE) {
-        selection_area_nodes_dirty_ = true;
-    }
+    Selection().MarkAreaTopologyDirty();
     return true;
 }
 
@@ -884,17 +756,7 @@ bool UiRuntime::SetScrollEnabled(std::uint64_t handle, bool enabled_x, bool enab
         node->scroll_velocity_y = 0.0f;
         node->smooth_scroll_target_y = 0.0f;
     }
-    (void)ApplyScrollOffset(handle, *node, node->scroll_offset_x, node->scroll_offset_y, true);
-    return true;
-}
-
-bool UiRuntime::SetShowScrollbars(std::uint64_t handle, bool show_scrollbars) {
-    UINode* node = ResolveMutable(handle);
-    if (node == nullptr || !node->is_scroll_view) {
-        return false;
-    }
-    node->show_scrollbars = show_scrollbars;
-    node->is_dirty = true;
+    (void)(*scroll_coordinator_).ApplyOffset(handle, *node, node->scroll_offset_x, node->scroll_offset_y, true);
     return true;
 }
 
@@ -1518,7 +1380,7 @@ std::uint32_t UiRuntime::PushSemanticScope(std::uint64_t handle) {
     const std::uint32_t token = next_semantic_scope_token_;
     next_semantic_scope_token_ += 1U;
     semantic_scope_stack_.push_back(SemanticScopeEntry{token, handle});
-    focus_order_dirty_ = true;
+    InvalidateFocusOrder();
     return token;
 }
 
@@ -1536,7 +1398,7 @@ bool UiRuntime::RemoveSemanticScope(std::uint32_t token) {
         return false;
     }
     semantic_scope_stack_.erase(it);
-    focus_order_dirty_ = true;
+    InvalidateFocusOrder();
     return true;
 }
 
@@ -1584,12 +1446,7 @@ bool UiRuntime::SetNodeColor(std::uint64_t handle, std::uint32_t color) {
 }
 
 const UINode* UiRuntime::Resolve(std::uint64_t handle) const {
-    const HandleParts parts = DecodeHandle(handle);
-    if (parts.index == 0 || parts.index >= node_pool_.size()) {
-        return nullptr;
-    }
-    const UINode& node = node_pool_[parts.index];
-    return (!node.is_active || node.generation != parts.generation) ? nullptr : &node;
+    return node_store_.Reader().Resolve(handle);
 }
 
 } // namespace effindom::v2::ui

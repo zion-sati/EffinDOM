@@ -12,6 +12,7 @@ set(_EFFINDOM_V2_SKIA_NATIVE_SKSHAPER "${EFFINDOM_V2_SKIA_NATIVE_DIR}/modules/sk
 set(_EFFINDOM_V2_SKIA_NATIVE_SVG "${EFFINDOM_V2_SKIA_NATIVE_DIR}/modules/svg/include/SkSVGDOM.h")
 set(_EFFINDOM_V2_SKIA_NATIVE_SRC_CORE "${EFFINDOM_V2_SKIA_NATIVE_DIR}/src/core/SkTHash.h")
 set(_EFFINDOM_V2_SKIA_NATIVE_SRC_BASE "${EFFINDOM_V2_SKIA_NATIVE_DIR}/src/base/SkMathPriv.h")
+set(_EFFINDOM_V2_SKIA_NATIVE_BACKEND_STAMP "${EFFINDOM_V2_SKIA_NATIVE_DIR}/.effindom-skia-backend")
 
 add_custom_command(
     OUTPUT
@@ -25,6 +26,7 @@ add_custom_command(
         "${_EFFINDOM_V2_SKIA_NATIVE_SVG}"
         "${_EFFINDOM_V2_SKIA_NATIVE_SRC_CORE}"
         "${_EFFINDOM_V2_SKIA_NATIVE_SRC_BASE}"
+        "${_EFFINDOM_V2_SKIA_NATIVE_BACKEND_STAMP}"
     COMMAND "${CMAKE_COMMAND}" -E env
         "SKIA_NATIVE_DIR=${EFFINDOM_V2_SKIA_NATIVE_DIR}"
         "${CMAKE_SOURCE_DIR}/scripts/build_skia_native.sh"
@@ -46,6 +48,7 @@ add_custom_target(effindom_v2_skia_native_build
         "${_EFFINDOM_V2_SKIA_NATIVE_SVG}"
         "${_EFFINDOM_V2_SKIA_NATIVE_SRC_CORE}"
         "${_EFFINDOM_V2_SKIA_NATIVE_SRC_BASE}"
+        "${_EFFINDOM_V2_SKIA_NATIVE_BACKEND_STAMP}"
 )
 
 add_library(effindom_v2_skia_native INTERFACE)

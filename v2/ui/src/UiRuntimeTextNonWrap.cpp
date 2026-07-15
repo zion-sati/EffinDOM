@@ -119,6 +119,16 @@ bool ContainsLineBreakInRange(std::string_view text, std::uint32_t start, std::u
     return text.find_first_of("\r\n", static_cast<std::size_t>(start)) < clamped_end;
 }
 
+bool ContainsLineBreakInRange(const PreviousTextView& text, std::uint32_t start, std::uint32_t end) {
+    const std::size_t clamped_end = std::min<std::size_t>(end, text.size());
+    for (std::size_t index = std::min<std::size_t>(start, text.size()); index < clamped_end; index += 1U) {
+        if (text[index] == '\r' || text[index] == '\n') {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::size_t LineIndexForBreakOffsets(const std::vector<std::int32_t>& break_offsets, std::uint32_t byte_index) {
     if (break_offsets.size() < 2U) {
         return 0U;
@@ -155,6 +165,15 @@ std::uint32_t SkipLeadingLineBreaks(std::string_view text, std::uint32_t start, 
     return clamped_start;
 }
 
+std::uint32_t SkipLeadingLineBreaks(const PreviousTextView& text, std::uint32_t start, std::uint32_t end) {
+    const std::uint32_t clamped_end = std::min<std::uint32_t>(end, static_cast<std::uint32_t>(text.size()));
+    std::uint32_t visible_start = std::min(start, clamped_end);
+    while (visible_start < clamped_end && (text[visible_start] == '\r' || text[visible_start] == '\n')) {
+        visible_start += 1U;
+    }
+    return visible_start;
+}
+
 } // namespace
 
 // See docs/v2/ui/TEXT_RUNTIME_OPTIMIZATIONS.md#non-wrap-fragment-cache. Render
@@ -177,15 +196,19 @@ std::vector<NonWrappingTextFragment> UiRuntime::BuildNonWrappingFragmentsForLine
             kNonWrappingFragmentMaxCodepoints);
         for (std::size_t fragment_start = 0U; fragment_start < line_text.size(); fragment_start += columns_per_fragment) {
             const std::size_t fragment_end = std::min(fragment_start + columns_per_fragment, line_text.size());
-            const float fragment_x = static_cast<float>(fragment_start) * monospace_cell_width;
-            const float fragment_width =
-                static_cast<float>(fragment_end - fragment_start) * monospace_cell_width;
+            const std::optional<float> fragment_x =
+                FixedPitchTabModel::XForByteOffset(line_text, fragment_start, monospace_cell_width);
+            const std::optional<float> fragment_end_x =
+                FixedPitchTabModel::XForByteOffset(line_text, fragment_end, monospace_cell_width);
+            if (!fragment_x.has_value() || !fragment_end_x.has_value()) {
+                return {};
+            }
             fragments.push_back(NonWrappingTextFragment{
                 line_index,
                 static_cast<std::uint32_t>(fragment_start),
                 static_cast<std::uint32_t>(fragment_end),
-                fragment_x,
-                fragment_width,
+                *fragment_x,
+                std::max(*fragment_end_x - *fragment_x, 0.0f),
             });
         }
         return fragments;
@@ -367,6 +390,20 @@ bool UiRuntime::TryBuildFragmentGeometrySliceFromLogicalLineShapeImpl(
 // We only restitch the touched fragment band plus overscan, then shift the tail
 // metadata forward instead of throwing away the whole paragraph cache.
 bool UiRuntime::TryApplyIncrementalNonWrapLayoutCacheImpl(UINode& node, std::string_view previous_text) const {
+    const std::string_view next_text = node.text_content;
+    IncrementalTextDiff diff{};
+    if (!ComputeIncrementalTextDiff(previous_text, next_text, diff)) {
+        return false;
+    }
+    const auto edit = TextEdit::Create(
+        previous_text,
+        diff.changed_start,
+        diff.old_changed_end,
+        next_text.substr(diff.changed_start, diff.new_changed_end - diff.changed_start));
+    return edit.has_value() && TryApplyIncrementalNonWrapLayoutCacheImpl(node, *edit);
+}
+
+bool UiRuntime::TryApplyIncrementalNonWrapLayoutCacheImpl(UINode& node, const TextEdit& edit) const {
     const bool disable_soft_wrap =
         !node.text_wrap || (IsSingleLineEditorTextNode(node));
     const std::size_t line_count = node.break_offsets.size() > 1U ? (node.break_offsets.size() - 1U) : 0U;
@@ -381,10 +418,13 @@ bool UiRuntime::TryApplyIncrementalNonWrapLayoutCacheImpl(UINode& node, std::str
     }
 
     const std::string_view next_text = node.text_content;
-    IncrementalTextDiff diff{};
-    if (!ComputeIncrementalTextDiff(previous_text, next_text, diff)) {
-        return false;
-    }
+    const PreviousTextView previous_text(next_text, edit);
+    const IncrementalTextDiff diff{
+        edit.start,
+        edit.removed_end,
+        edit.inserted_end(),
+        edit.byte_delta(),
+    };
 
     const auto clear_logical_line_shapes = [&]() {
         node.logical_line_shape_cache_valid = false;
@@ -400,7 +440,7 @@ bool UiRuntime::TryApplyIncrementalNonWrapLayoutCacheImpl(UINode& node, std::str
     };
 
     const auto touched_line_start = [](
-                                        std::string_view text,
+                                        const auto& text,
                                         const std::vector<std::int32_t>& break_offsets,
                                         std::uint32_t changed_start) -> std::size_t {
         if (break_offsets.size() < 2U) {
@@ -416,7 +456,7 @@ bool UiRuntime::TryApplyIncrementalNonWrapLayoutCacheImpl(UINode& node, std::str
     };
 
     const auto touched_line_end = [](
-                                      std::string_view text,
+                                      const auto& text,
                                       const std::vector<std::int32_t>& break_offsets,
                                       std::uint32_t changed_start,
                                       std::uint32_t changed_end) -> std::size_t {

@@ -228,11 +228,16 @@ void Engine::ClearViewportPanMomentum() {
     impl_->has_last_viewport_pan_timestamp = false;
 }
 
-void Engine::RegisterFont(std::uint32_t font_id, const std::uint8_t* bytes, std::uint32_t length) {
+void Engine::RegisterFont(
+    std::uint32_t font_id,
+    const std::uint8_t* bytes,
+    std::uint32_t length,
+    std::uint32_t face_index) {
 #ifdef EFFINDOM_V2_CORE_NO_FONT_LOADING
     (void)font_id;
     (void)bytes;
     (void)length;
+    (void)face_index;
     return;
 #else
     if (font_id == 0 || bytes == nullptr || length == 0) {
@@ -241,7 +246,9 @@ void Engine::RegisterFont(std::uint32_t font_id, const std::uint8_t* bytes, std:
     sk_sp<SkData> data = SkData::MakeWithCopy(bytes, length);
     std::array<sk_sp<SkData>, 1> font_data = {data};
     sk_sp<SkFontMgr> font_mgr = SkFontMgr_New_Custom_Data(SkSpan<sk_sp<SkData>>(font_data.data(), font_data.size()));
-    sk_sp<SkTypeface> typeface = font_mgr ? font_mgr->makeFromData(data) : nullptr;
+    sk_sp<SkTypeface> typeface = font_mgr
+        ? font_mgr->makeFromData(data, static_cast<int>(face_index))
+        : nullptr;
     if (typeface) {
         impl_->fonts[font_id] = std::move(typeface);
         for (detail::DisplayNode& node : impl_->nodes) {
@@ -300,6 +307,10 @@ void Engine::RegisterSvg(std::uint32_t svg_id, const std::uint8_t* bytes, std::u
     svg.intrinsic_width = intrinsic_width;
     svg.intrinsic_height = intrinsic_height;
     svg.raster_variants.clear();
+}
+
+void Engine::UnregisterSvg(std::uint32_t svg_id) {
+    if (svg_id != 0U) impl_->svgs.erase(svg_id);
 }
 
 void Engine::RegisterTextureRgba(
@@ -384,6 +395,31 @@ void Engine::UnregisterTexture(std::uint32_t texture_id) {
     }
     impl_->textures.erase(texture_id);
 }
+
+bool Engine::HasFontForTesting(std::uint32_t font_id) const {
+    return impl_->fonts.find(font_id) != impl_->fonts.end();
+}
+
+bool Engine::FontHasGlyphForTesting(std::uint32_t font_id, std::uint32_t codepoint) const {
+    const auto found = impl_->fonts.find(font_id);
+    return found != impl_->fonts.end() && found->second != nullptr &&
+        found->second->unicharToGlyph(static_cast<SkUnichar>(codepoint)) != 0U;
+}
+
+std::optional<std::pair<float, float>> Engine::GetSvgSizeForTesting(std::uint32_t svg_id) const {
+    const auto found = impl_->svgs.find(svg_id);
+    if (found == impl_->svgs.end()) return std::nullopt;
+    return std::pair<float, float>{found->second.intrinsic_width, found->second.intrinsic_height};
+}
+
+std::optional<std::pair<std::uint32_t, std::uint32_t>> Engine::GetTextureSizeForTesting(
+    std::uint32_t texture_id) const {
+    const auto found = impl_->textures.find(texture_id);
+    if (found == impl_->textures.end()) return std::nullopt;
+    return std::pair<std::uint32_t, std::uint32_t>{found->second.width, found->second.height};
+}
+
+std::size_t Engine::TextureCountForTesting() const { return impl_->textures.size(); }
 
 std::optional<NodeDebugView> Engine::GetNodeForTesting(std::uint64_t handle) const {
     const detail::DisplayNode* node = impl_->Resolve(handle);
@@ -478,6 +514,14 @@ std::vector<SceneInstructionDebugView> Engine::GetSceneInstructionsForTesting() 
 
 std::vector<std::uint64_t> Engine::GetPaintOrderForTesting() const {
     return impl_->paint_order;
+}
+
+GlyphRenderStats Engine::GetGlyphRenderStatsForTesting() const {
+    return impl_->glyph_render_stats;
+}
+
+void Engine::ClearGlyphRenderStatsForTesting() {
+    impl_->glyph_render_stats = GlyphRenderStats{};
 }
 
 std::uint32_t Engine::physical_width() const {

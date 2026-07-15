@@ -5,6 +5,23 @@ set(EFFINDOM_V2_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeClipboard.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntime.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeCrossSelection.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiDebugTreeProjector.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiScrollCoordinator.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiEventSink.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiPlatformHost.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiFocusCoordinator.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiFixedPitchTabs.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiFrameCommitCoordinator.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiInputRouter.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiSelectionCoordinator.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiTextEditingCoordinator.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiLayoutCoordinator.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiNodeVisualEncoder.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiNodeStore.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiSceneTraversal.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiSceneGeometryResolver.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiTextPaintEncoder.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiTreePainter.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeEditing.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeEditingTextState.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeEditingGeometry.cpp"
@@ -15,10 +32,19 @@ set(EFFINDOM_V2_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeTextLayout.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeTextNonWrap.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeTextShaping.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiSemanticProjector.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeViewport.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiVisibilityResolver.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeWrappedText.cpp"
 )
 
-add_library(effindom_v2_ui STATIC ${EFFINDOM_V2_UI_SOURCES})
+if(EMSCRIPTEN)
+    set(EFFINDOM_V2_UI_LIBRARY_TYPE STATIC)
+else()
+    set(EFFINDOM_V2_UI_LIBRARY_TYPE SHARED)
+endif()
+add_library(effindom_v2_ui ${EFFINDOM_V2_UI_LIBRARY_TYPE} ${EFFINDOM_V2_UI_SOURCES})
+set_target_properties(effindom_v2_ui PROPERTIES OUTPUT_NAME "effindom_ui")
 target_include_directories(effindom_v2_ui
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -86,6 +112,11 @@ else()
     add_executable(effindom_v2_ui_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUiSupport.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_command_builder.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_commit_frame.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_focus_coordinator.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_platform_host.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_fixed_pitch_tabs.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_node_store_access.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_layout_text.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_portals.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_input.cpp"
@@ -97,6 +128,8 @@ else()
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_editing.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_semantic.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_text_layout.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_text_edit_descriptor.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_shaping_resources.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_text_selection.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_text_wrapped.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_text_input.cpp"

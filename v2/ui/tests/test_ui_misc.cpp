@@ -703,7 +703,7 @@ TEST_CASE("v2 ui restores focus across root replacement for matching node ids", 
     REQUIRE(GetRuntime().SetRoot(first_root));
 
     GetRuntime().SetFocus(first_target);
-    REQUIRE(GetRuntime().focused_handle_ == first_target);
+    REQUIRE(GetRuntime().Focus().FocusedHandle() == first_target);
 
     ResetInteractionLogs();
     REQUIRE(GetRuntime().DeleteNode(first_target));
@@ -720,7 +720,7 @@ TEST_CASE("v2 ui restores focus across root replacement for matching node ids", 
 
     REQUIRE(GetRuntime().SetRoot(second_root));
 
-    CHECK(GetRuntime().focused_handle_ == second_target);
+    CHECK(GetRuntime().Focus().FocusedHandle() == second_target);
     REQUIRE(g_focus_events.size() == 2U);
     CHECK(g_focus_events[0].handle == first_target);
     CHECK_FALSE(g_focus_events[0].is_focused);
@@ -840,7 +840,7 @@ TEST_CASE("v2 ui current-selection helpers cover cross-selection hit testing, co
         0,
         UI_KEY_MOD_SHIFT);
 
-    REQUIRE(GetRuntime().cross_selection_active_);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
     const auto [probe_local_x, probe_line] = GetRuntime().GetLocalPositionFromIndex(*second_node, 2U);
     REQUIRE(probe_line == 0);
     const float probe_x = second_node->abs_x + probe_local_x;
@@ -853,7 +853,7 @@ TEST_CASE("v2 ui current-selection helpers cover cross-selection hit testing, co
     CHECK(g_clipboard_writes[0].text == "Alpha\nBeta");
 
     ui_clear_current_selection();
-    CHECK_FALSE(GetRuntime().cross_selection_active_);
+    CHECK_FALSE(GetRuntime().Selection().state().cross_active);
     CHECK_FALSE(ui_is_point_in_selection(probe_x, probe_y));
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
@@ -936,7 +936,7 @@ TEST_CASE("v2 ui cross-selection copy emits rich clipboard payloads when styled 
         0,
         UI_KEY_MOD_SHIFT);
 
-    REQUIRE(GetRuntime().cross_selection_active_);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
     ResetInteractionLogs();
     ui_copy_current_selection();
     REQUIRE(g_clipboard_writes.size() == 1U);
@@ -990,29 +990,29 @@ TEST_CASE("v2 ui cross-node keyboard extension traverses adjacent nodes", "[v2][
     GetRuntime().SetFocus(first);
 
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowRight"), 10U, UI_KEY_MOD_SHIFT);
-    CHECK_FALSE(GetRuntime().cross_selection_active_);
+    CHECK_FALSE(GetRuntime().Selection().state().cross_active);
 
-    GetRuntime().cross_selection_active_ = true;
-    GetRuntime().selection_area_handle_ = root;
-    GetRuntime().selection_area_nodes_dirty_ = true;
-    GetRuntime().start_node_handle_ = first;
-    GetRuntime().start_index_ = 4U;
-    GetRuntime().end_node_handle_ = first;
-    GetRuntime().end_index_ = 5U;
+    GetRuntime().Selection().state().cross_active = true;
+    GetRuntime().Selection().state().area_handle = root;
+    GetRuntime().Selection().state().area_nodes_dirty = true;
+    GetRuntime().Selection().state().start_node_handle = first;
+    GetRuntime().Selection().state().start_index = 4U;
+    GetRuntime().Selection().state().end_node_handle = first;
+    GetRuntime().Selection().state().end_index = 5U;
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowRight"), 10U, UI_KEY_MOD_SHIFT);
-    CHECK(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().end_node_handle_ == second);
-    CHECK(GetRuntime().end_index_ == 0U);
+    CHECK(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Selection().state().end_node_handle == second);
+    CHECK(GetRuntime().Selection().state().end_index == 0U);
 
     UiTestPointerEvent(UI_EVENT_POINTER_DOWN, root, 2.0f, 2.0f);
     second_mut->selection_start = 3U;
     second_mut->selection_end = 3U;
     GetRuntime().SetFocus(second);
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("Home"), 4U, UI_KEY_MOD_SHIFT);
-    CHECK(GetRuntime().start_node_handle_ == second);
-    CHECK(GetRuntime().start_index_ == 3U);
-    CHECK(GetRuntime().end_node_handle_ == first);
-    CHECK(GetRuntime().end_index_ == 0U);
+    CHECK(GetRuntime().Selection().state().start_node_handle == second);
+    CHECK(GetRuntime().Selection().state().start_index == 3U);
+    CHECK(GetRuntime().Selection().state().end_node_handle == first);
+    CHECK(GetRuntime().Selection().state().end_index == 0U);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().text == "Hello\nAga");
 }
@@ -1056,21 +1056,21 @@ TEST_CASE("v2 ui cross-selection helpers cover invalid state and direct endpoint
     runtime.CollectSelectionAreaNodes(stale, collected);
     CHECK(collected.empty());
 
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first};
-    runtime.selection_area_nodes_dirty_ = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first};
+    runtime.Selection().state().area_nodes_dirty = true;
     runtime.EnsureSelectionAreaNodes(UI_INVALID_HANDLE);
-    CHECK(runtime.selection_area_handle_ == UI_INVALID_HANDLE);
-    CHECK(runtime.selection_area_nodes_.empty());
+    CHECK(runtime.Selection().state().area_handle == UI_INVALID_HANDLE);
+    CHECK(runtime.Selection().state().area_nodes.empty());
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first, second};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.start_node_handle_ = first;
-    runtime.start_index_ = 1U;
-    runtime.end_node_handle_ = second;
-    runtime.end_index_ = 2U;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first, second};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().start_node_handle = first;
+    runtime.Selection().state().start_index = 1U;
+    runtime.Selection().state().end_node_handle = second;
+    runtime.Selection().state().end_index = 2U;
     CHECK(runtime.FindSelectionAreaNodeIndex(area) == -1);
     CHECK(runtime.BuildCrossSelectionText() == "lpha Be");
 
@@ -1082,84 +1082,84 @@ TEST_CASE("v2 ui cross-selection helpers cover invalid state and direct endpoint
 
     std::uint32_t highlight_start = 0U;
     std::uint32_t highlight_end = 0U;
-    runtime.start_node_handle_ = first;
-    runtime.start_index_ = 1U;
-    runtime.end_node_handle_ = first;
-    runtime.end_index_ = 4U;
+    runtime.Selection().state().start_node_handle = first;
+    runtime.Selection().state().start_index = 1U;
+    runtime.Selection().state().end_node_handle = first;
+    runtime.Selection().state().end_index = 4U;
     REQUIRE(runtime.GetCrossSelectionHighlight(first, highlight_start, highlight_end));
     CHECK(highlight_start == 1U);
     CHECK(highlight_end == 4U);
     CHECK_FALSE(runtime.GetCrossSelectionHighlight(second, highlight_start, highlight_end));
 
-    runtime.start_index_ = 2U;
-    runtime.end_index_ = 2U;
+    runtime.Selection().state().start_index = 2U;
+    runtime.Selection().state().end_index = 2U;
     CHECK_FALSE(runtime.GetCrossSelectionHighlight(first, highlight_start, highlight_end));
 
-    runtime.start_node_handle_ = stale;
+    runtime.Selection().state().start_node_handle = stale;
     CHECK(runtime.BuildCrossSelectionText().empty());
     CHECK_FALSE(runtime.GetCrossSelectionHighlight(first, highlight_start, highlight_end));
 
-    runtime.cross_selection_active_ = false;
+    runtime.Selection().state().cross_active = false;
     CHECK_FALSE(runtime.UpdateCrossSelectionEndpoint(first, 0.0f, 0.0f));
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = empty_area;
-    runtime.selection_area_nodes_.clear();
-    runtime.selection_area_nodes_dirty_ = true;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = empty_area;
+    runtime.Selection().state().area_nodes.clear();
+    runtime.Selection().state().area_nodes_dirty = true;
     CHECK_FALSE(runtime.UpdateCrossSelectionEndpoint(UI_INVALID_HANDLE, 4.0f, 4.0f));
 
     const auto* second_node = runtime.Resolve(second);
     REQUIRE(second_node != nullptr);
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first, second};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.start_node_handle_ = first;
-    runtime.start_index_ = 0U;
-    runtime.end_node_handle_ = first;
-    runtime.end_index_ = 0U;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first, second};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().start_node_handle = first;
+    runtime.Selection().state().start_index = 0U;
+    runtime.Selection().state().end_node_handle = first;
+    runtime.Selection().state().end_index = 0U;
     REQUIRE(runtime.UpdateCrossSelectionEndpoint(
         UI_INVALID_HANDLE,
         second_node->abs_x + 2.0f,
         second_node->abs_y + (second_node->line_height * 0.5f)));
-    CHECK(runtime.end_node_handle_ == second);
+    CHECK(runtime.Selection().state().end_node_handle == second);
     CHECK_FALSE(runtime.UpdateCrossSelectionEndpoint(
         UI_INVALID_HANDLE,
         second_node->abs_x + 2.0f,
         second_node->abs_y + (second_node->line_height * 0.5f)));
     CHECK_FALSE(runtime.UpdateCrossSelectionEndpoint(UI_INVALID_HANDLE, -50.0f, -50.0f));
 
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.start_node_handle_ = first;
-    runtime.start_index_ = 1U;
-    runtime.end_node_handle_ = first;
-    runtime.end_index_ = 1U;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().start_node_handle = first;
+    runtime.Selection().state().start_index = 1U;
+    runtime.Selection().state().end_node_handle = first;
+    runtime.Selection().state().end_index = 1U;
     runtime.NotifyCrossSelectionChanged();
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().text.empty());
 
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.cross_selection_active_ = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().cross_active = true;
     runtime.ClearCrossSelection(true);
     CHECK(g_cross_selection_changes.back().handle == area);
     CHECK(g_cross_selection_changes.back().text.empty());
 
-    runtime.cross_selection_active_ = false;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_.clear();
+    runtime.Selection().state().cross_active = false;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes.clear();
     CHECK(runtime.BuildCrossSelectionText().empty());
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first, stale, second};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.start_node_handle_ = first;
-    runtime.start_index_ = 0U;
-    runtime.end_node_handle_ = second;
-    runtime.end_index_ = 4U;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first, stale, second};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().start_node_handle = first;
+    runtime.Selection().state().start_index = 0U;
+    runtime.Selection().state().end_node_handle = second;
+    runtime.Selection().state().end_index = 4U;
     CHECK(runtime.BuildCrossSelectionText() == "Alpha\nBeta");
 
     CHECK_FALSE(runtime.GetCrossSelectionHighlight(stale, highlight_start, highlight_end));
@@ -1174,17 +1174,17 @@ TEST_CASE("v2 ui cross-selection helpers cover invalid state and direct endpoint
     ui_node_add_child(other_area, other_text);
     CHECK_FALSE(runtime.GetCrossSelectionHighlight(other_text, highlight_start, highlight_end));
 
-    runtime.selection_area_nodes_ = {stale, second};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.start_node_handle_ = first;
-    runtime.start_index_ = 0U;
-    runtime.end_node_handle_ = first;
-    runtime.end_index_ = 0U;
+    runtime.Selection().state().area_nodes = {stale, second};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().start_node_handle = first;
+    runtime.Selection().state().start_index = 0U;
+    runtime.Selection().state().end_node_handle = first;
+    runtime.Selection().state().end_index = 0U;
     REQUIRE(runtime.UpdateCrossSelectionEndpoint(
         UI_INVALID_HANDLE,
         second_node->abs_x + 2.0f,
         second_node->abs_y + (second_node->line_height * 0.5f)));
-    CHECK(runtime.end_node_handle_ == second);
+    CHECK(runtime.Selection().state().end_node_handle == second);
 }
 
 
@@ -1230,59 +1230,59 @@ TEST_CASE("v2 ui cross-selection navigation helpers cover word, horizontal, vert
     REQUIRE(second_node != nullptr);
     REQUIRE(wrapped_node != nullptr);
 
-    runtime.focused_handle_ = first;
+    runtime.SetFocus(first);
     CHECK_FALSE(runtime.HandleCrossSelectionNavigation(empty_area, *first_node, "Home", UI_KEY_MOD_SHIFT));
     CHECK_FALSE(runtime.HandleCrossSelectionNavigation(area, *first_node, "A", UI_KEY_MOD_SHIFT));
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first, second};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.start_node_handle_ = first;
-    runtime.start_index_ = 0U;
-    runtime.end_node_handle_ = UI_INVALID_HANDLE;
-    runtime.end_index_ = 0U;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first, second};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().start_node_handle = first;
+    runtime.Selection().state().start_index = 0U;
+    runtime.Selection().state().end_node_handle = UI_INVALID_HANDLE;
+    runtime.Selection().state().end_index = 0U;
     first_node->selection_end = 1U;
     REQUIRE(runtime.HandleCrossSelectionNavigation(area, *first_node, "ArrowRight", UI_KEY_MOD_SHIFT));
-    CHECK(runtime.end_node_handle_ == first);
-    CHECK(runtime.end_index_ == 2U);
+    CHECK(runtime.Selection().state().end_node_handle == first);
+    CHECK(runtime.Selection().state().end_index == 2U);
 
-    runtime.cross_selection_active_ = false;
-    runtime.selection_area_nodes_.clear();
-    runtime.selection_area_nodes_dirty_ = true;
+    runtime.Selection().state().cross_active = false;
+    runtime.Selection().state().area_nodes.clear();
+    runtime.Selection().state().area_nodes_dirty = true;
     first_node->selection_end = 0U;
-    runtime.focused_handle_ = first;
+    runtime.SetFocus(first);
     REQUIRE(runtime.HandleCrossSelectionNavigation(area, *first_node, "End", UI_KEY_MOD_SHIFT));
-    CHECK(runtime.end_node_handle_ == wrapped);
-    CHECK(runtime.end_index_ == wrapped_node->text_content.size());
+    CHECK(runtime.Selection().state().end_node_handle == wrapped);
+    CHECK(runtime.Selection().state().end_index == wrapped_node->text_content.size());
 
-    runtime.cross_selection_active_ = false;
-    runtime.focused_handle_ = second;
+    runtime.Selection().state().cross_active = false;
+    runtime.SetFocus(second);
     second_node->selection_end = 0U;
     CHECK_FALSE(runtime.HandleCrossSelectionNavigation(area, *second_node, "ArrowLeft", UI_KEY_MOD_SHIFT));
 
-    runtime.cross_selection_active_ = false;
-    runtime.focused_handle_ = first;
+    runtime.Selection().state().cross_active = false;
+    runtime.SetFocus(first);
     first_node->selection_end = 0U;
     CHECK_FALSE(runtime.HandleCrossSelectionNavigation(area, *first_node, "ArrowRight", UI_KEY_MOD_SHIFT | UI_KEY_MOD_CTRL));
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first, second};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.start_node_handle_ = second;
-    runtime.start_index_ = 1U;
-    runtime.end_node_handle_ = second;
-    runtime.end_index_ = 0U;
-    runtime.focused_handle_ = second;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first, second};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().start_node_handle = second;
+    runtime.Selection().state().start_index = 1U;
+    runtime.Selection().state().end_node_handle = second;
+    runtime.Selection().state().end_index = 0U;
+    runtime.SetFocus(second);
     REQUIRE(runtime.HandleCrossSelectionNavigation(area, *second_node, "ArrowLeft", UI_KEY_MOD_SHIFT));
-    CHECK(runtime.end_node_handle_ == first);
-    CHECK(runtime.end_index_ == first_node->text_content.size());
+    CHECK(runtime.Selection().state().end_node_handle == first);
+    CHECK(runtime.Selection().state().end_index == first_node->text_content.size());
 
-    runtime.cross_selection_active_ = false;
-    runtime.selection_area_nodes_.clear();
-    runtime.selection_area_nodes_dirty_ = true;
-    runtime.focused_handle_ = wrapped;
+    runtime.Selection().state().cross_active = false;
+    runtime.Selection().state().area_nodes.clear();
+    runtime.Selection().state().area_nodes_dirty = true;
+    runtime.SetFocus(wrapped);
     wrapped_node->selection_start = 0U;
     wrapped_node->selection_end = 1U;
     const auto [wrapped_down_x, wrapped_line] = runtime.GetLocalPositionFromIndex(*wrapped_node, wrapped_node->selection_end);
@@ -1290,57 +1290,57 @@ TEST_CASE("v2 ui cross-selection navigation helpers cover word, horizontal, vert
     const std::uint32_t expected_wrapped_down =
         runtime.GetStringIndexFromPoint(*wrapped_node, wrapped_down_x, wrapped_node->line_height * 1.5f);
     REQUIRE(runtime.HandleCrossSelectionNavigation(area, *wrapped_node, "ArrowDown", UI_KEY_MOD_SHIFT));
-    CHECK(runtime.end_node_handle_ == wrapped);
-    CHECK(runtime.end_index_ == expected_wrapped_down);
+    CHECK(runtime.Selection().state().end_node_handle == wrapped);
+    CHECK(runtime.Selection().state().end_index == expected_wrapped_down);
 
-    runtime.cross_selection_active_ = false;
-    runtime.focused_handle_ = first;
+    runtime.Selection().state().cross_active = false;
+    runtime.SetFocus(first);
     first_node->selection_start = 0U;
     first_node->selection_end = 0U;
     CHECK_FALSE(runtime.HandleCrossSelectionNavigation(area, *first_node, "ArrowDown", UI_KEY_MOD_SHIFT));
 
-    runtime.cross_selection_active_ = false;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first, second};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.focused_handle_ = second;
-    runtime.end_node_handle_ = second;
-    runtime.end_index_ = 0U;
+    runtime.Selection().state().cross_active = false;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first, second};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.SetFocus(second);
+    runtime.Selection().state().end_node_handle = second;
+    runtime.Selection().state().end_index = 0U;
     second_node->selection_end = 0U;
     CHECK_FALSE(runtime.HandleCrossSelectionNavigation(area, *second_node, "ArrowDown", UI_KEY_MOD_SHIFT));
-    CHECK(runtime.end_node_handle_ == second);
+    CHECK(runtime.Selection().state().end_node_handle == second);
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first, second};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.start_node_handle_ = first;
-    runtime.start_index_ = 0U;
-    runtime.end_node_handle_ = first;
-    runtime.end_index_ = 0U;
-    runtime.focused_handle_ = first;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first, second};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().start_node_handle = first;
+    runtime.Selection().state().start_index = 0U;
+    runtime.Selection().state().end_node_handle = first;
+    runtime.Selection().state().end_index = 0U;
+    runtime.SetFocus(first);
     CHECK(runtime.HandleCrossSelectionNavigation(area, *first_node, "Home", UI_KEY_MOD_SHIFT));
-    CHECK(runtime.end_node_handle_ == first);
-    CHECK(runtime.end_index_ == 0U);
+    CHECK(runtime.Selection().state().end_node_handle == first);
+    CHECK(runtime.Selection().state().end_index == 0U);
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {second};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.end_node_handle_ = UI_INVALID_HANDLE;
-    runtime.end_index_ = 0U;
-    runtime.focused_handle_ = UI_INVALID_HANDLE;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {second};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().end_node_handle = UI_INVALID_HANDLE;
+    runtime.Selection().state().end_index = 0U;
+    runtime.SetFocus(UI_INVALID_HANDLE);
     CHECK_FALSE(runtime.HandleCrossSelectionNavigation(area, *second_node, "Home", UI_KEY_MOD_SHIFT));
 
     const std::uint64_t stale = first;
     REQUIRE(runtime.DeleteNode(first));
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {stale, second};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.end_node_handle_ = stale;
-    runtime.end_index_ = 0U;
-    runtime.focused_handle_ = second;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {stale, second};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().end_node_handle = stale;
+    runtime.Selection().state().end_index = 0U;
+    runtime.SetFocus(second);
     second_node = runtime.ResolveMutable(second);
     REQUIRE(second_node != nullptr);
     CHECK_FALSE(runtime.HandleCrossSelectionNavigation(area, *second_node, "Home", UI_KEY_MOD_SHIFT));
@@ -1369,28 +1369,28 @@ TEST_CASE("v2 ui cross-selection navigation helpers cover word, horizontal, vert
     const auto [wrapped_last_x, wrapped_last_line_index] =
         runtime.GetLocalPositionFromIndex(*wrapped_node, wrapped_last_selection_end);
     REQUIRE(static_cast<std::size_t>(wrapped_last_line_index) == wrapped_last_line);
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {first, second, wrapped, lower};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.start_node_handle_ = wrapped;
-    runtime.start_index_ = wrapped_last_line_start;
-    runtime.end_node_handle_ = wrapped;
-    runtime.end_index_ = wrapped_last_selection_end;
-    runtime.focused_handle_ = wrapped;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {first, second, wrapped, lower};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.Selection().state().start_node_handle = wrapped;
+    runtime.Selection().state().start_index = wrapped_last_line_start;
+    runtime.Selection().state().end_node_handle = wrapped;
+    runtime.Selection().state().end_index = wrapped_last_selection_end;
+    runtime.SetFocus(wrapped);
     const std::uint32_t expected_lower_down = runtime.GetStringIndexFromPoint(
         *lower_node,
         (wrapped_node->abs_x + wrapped_last_x) - lower_node->abs_x,
         lower_node->line_height * 0.5f);
     REQUIRE(runtime.HandleCrossSelectionNavigation(area, *wrapped_node, "ArrowDown", UI_KEY_MOD_SHIFT));
-    CHECK(runtime.end_node_handle_ == lower);
-    CHECK(runtime.end_index_ == expected_lower_down);
+    CHECK(runtime.Selection().state().end_node_handle == lower);
+    CHECK(runtime.Selection().state().end_index == expected_lower_down);
 
-    runtime.cross_selection_active_ = false;
-    runtime.selection_area_handle_ = area;
-    runtime.selection_area_nodes_ = {stale, second, lower};
-    runtime.selection_area_nodes_dirty_ = false;
-    runtime.focused_handle_ = second;
+    runtime.Selection().state().cross_active = false;
+    runtime.Selection().state().area_handle = area;
+    runtime.Selection().state().area_nodes = {stale, second, lower};
+    runtime.Selection().state().area_nodes_dirty = false;
+    runtime.SetFocus(second);
     second_node->selection_end = 0U;
     CHECK_FALSE(runtime.HandleCrossSelectionNavigation(area, *second_node, "ArrowDown", UI_KEY_MOD_SHIFT));
 }
@@ -1422,33 +1422,33 @@ TEST_CASE("v2 ui selection-area invalidation clears cross-selection on tree muta
     ui_node_add_child(root, text);
     ui_commit_frame();
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = root;
-    runtime.selection_area_nodes_ = {text};
-    runtime.start_node_handle_ = text;
-    runtime.end_node_handle_ = text;
-    runtime.selection_area_nodes_dirty_ = false;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = root;
+    runtime.Selection().state().area_nodes = {text};
+    runtime.Selection().state().start_node_handle = text;
+    runtime.Selection().state().end_node_handle = text;
+    runtime.Selection().state().area_nodes_dirty = false;
     REQUIRE(runtime.AddChild(root, extra));
-    CHECK(runtime.selection_area_nodes_dirty_);
+    CHECK(runtime.Selection().state().area_nodes_dirty);
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = root;
-    runtime.selection_area_nodes_ = {text};
-    runtime.start_node_handle_ = text;
-    runtime.end_node_handle_ = text;
-    runtime.selection_area_nodes_dirty_ = false;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = root;
+    runtime.Selection().state().area_nodes = {text};
+    runtime.Selection().state().start_node_handle = text;
+    runtime.Selection().state().end_node_handle = text;
+    runtime.Selection().state().area_nodes_dirty = false;
     REQUIRE(runtime.RemoveChild(root, text));
-    CHECK_FALSE(runtime.cross_selection_active_);
+    CHECK_FALSE(runtime.Selection().state().cross_active);
 
     REQUIRE(runtime.AddChild(root, text));
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = root;
-    runtime.selection_area_nodes_ = {text};
-    runtime.start_node_handle_ = text;
-    runtime.end_node_handle_ = text;
-    runtime.selection_area_nodes_dirty_ = false;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = root;
+    runtime.Selection().state().area_nodes = {text};
+    runtime.Selection().state().start_node_handle = text;
+    runtime.Selection().state().end_node_handle = text;
+    runtime.Selection().state().area_nodes_dirty = false;
     REQUIRE(runtime.DeleteNode(text));
-    CHECK_FALSE(runtime.cross_selection_active_);
+    CHECK_FALSE(runtime.Selection().state().cross_active);
 
     const std::uint64_t replacement_text = ui_create_node(UI_NODE_TEXT);
     REQUIRE(replacement_text != UI_INVALID_HANDLE);
@@ -1457,24 +1457,24 @@ TEST_CASE("v2 ui selection-area invalidation clears cross-selection on tree muta
     ui_set_text(replacement_text, reinterpret_cast<const std::uint8_t*>("Beta"), 4U);
     ui_node_add_child(root, replacement_text);
 
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = root;
-    runtime.selection_area_nodes_ = {replacement_text};
-    runtime.start_node_handle_ = replacement_text;
-    runtime.end_node_handle_ = replacement_text;
-    runtime.selection_area_nodes_dirty_ = false;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = root;
+    runtime.Selection().state().area_nodes = {replacement_text};
+    runtime.Selection().state().start_node_handle = replacement_text;
+    runtime.Selection().state().end_node_handle = replacement_text;
+    runtime.Selection().state().area_nodes_dirty = false;
     REQUIRE(runtime.SetRoot(replacement_root));
-    CHECK_FALSE(runtime.cross_selection_active_);
+    CHECK_FALSE(runtime.Selection().state().cross_active);
 
     ui_set_root(root);
-    runtime.cross_selection_active_ = true;
-    runtime.selection_area_handle_ = root;
-    runtime.selection_area_nodes_ = {replacement_text};
-    runtime.start_node_handle_ = replacement_text;
-    runtime.end_node_handle_ = replacement_text;
-    runtime.selection_area_nodes_dirty_ = false;
+    runtime.Selection().state().cross_active = true;
+    runtime.Selection().state().area_handle = root;
+    runtime.Selection().state().area_nodes = {replacement_text};
+    runtime.Selection().state().start_node_handle = replacement_text;
+    runtime.Selection().state().end_node_handle = replacement_text;
+    runtime.Selection().state().area_nodes_dirty = false;
     REQUIRE(runtime.SetSelectionArea(root, false));
-    CHECK_FALSE(runtime.cross_selection_active_);
+    CHECK_FALSE(runtime.Selection().state().cross_active);
 
     CHECK_FALSE(runtime.SetSelectionArea(UI_INVALID_HANDLE, true));
 }

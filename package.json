@@ -1,7 +1,7 @@
 {
   "name": "effindom-runtime-repo",
   "private": true,
-  "version": "0.1.23",
+  "version": "0.1.24",
   "description": "Standalone runtime repository for @effindomv2/runtime",
   "engines": {
     "node": ">=18"
@@ -17,6 +17,7 @@
     "test": "npm --workspace v2/browser-bridge run test",
     "publish:local": "bash scripts/publish/local/runtime.sh",
     "publish:npm": "bash scripts/publish/npm/runtime.sh",
+    "publish:runtime-assets": "node scripts/publish/runtime-assets.mjs",
     "prepublishOnly": "npm run lint:v2 && npm --workspace v2/browser-bridge run typecheck"
   },
   "devDependencies": {

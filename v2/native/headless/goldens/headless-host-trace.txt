@@ -1,0 +1,3 @@
+clipboard-read handle=4294967301
+semantic-announcement handle=4294967301
+clipboard-write plain="Native" rich=""

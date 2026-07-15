@@ -81,6 +81,16 @@ bool ContainsLineBreakInRange(std::string_view text, std::uint32_t start, std::u
     return text.find_first_of("\r\n", static_cast<std::size_t>(start)) < clamped_end;
 }
 
+bool ContainsLineBreakInRange(const PreviousTextView& text, std::uint32_t start, std::uint32_t end) {
+    const std::size_t clamped_end = std::min<std::size_t>(end, text.size());
+    for (std::size_t index = std::min<std::size_t>(start, text.size()); index < clamped_end; index += 1U) {
+        if (text[index] == '\r' || text[index] == '\n') {
+            return true;
+        }
+    }
+    return false;
+}
+
 std::vector<std::int32_t> BuildUtf8CharacterCandidates(std::string_view text) {
     std::vector<std::int32_t> candidates{0};
     for (std::size_t index = 0; index < text.size(); index += 1U) {
@@ -111,7 +121,9 @@ float CachedLogicalLineXForLocalIndex(const CachedLogicalLineShape& shape, std::
     if (local_index >= line_text_length) {
         return shape.width;
     }
-    if (shape.monospace_wrapped_metrics_eligible && shape.monospace_cell_width > 0.0f) {
+    if (shape.monospace_wrapped_metrics_eligible &&
+        !shape.has_tabs &&
+        shape.monospace_cell_width > 0.0f) {
         return std::min(static_cast<float>(local_index) * shape.monospace_cell_width, shape.width);
     }
     float x = shape.width;
@@ -149,7 +161,9 @@ float MeasureCachedLogicalLineRangeWidth(
 
     const std::uint32_t clamped_start = static_cast<std::uint32_t>(std::max(start, 0));
     const std::uint32_t clamped_end = static_cast<std::uint32_t>(std::max(end, 0));
-    if (shape.monospace_wrapped_metrics_eligible && shape.monospace_cell_width > 0.0f) {
+    if (shape.monospace_wrapped_metrics_eligible &&
+        !shape.has_tabs &&
+        shape.monospace_cell_width > 0.0f) {
         return std::max(
             static_cast<float>(clamped_end - clamped_start) * shape.monospace_cell_width,
             0.0f);
@@ -252,7 +266,8 @@ void UiRuntime::EnsureCachedLogicalLineBreakCandidates(
 
     shape.break_candidate_x_offsets.assign(shape.break_candidates.size(), kUnknownBreakCandidateX);
     shape.monospace_wrapped_metrics_eligible =
-        shape.monospace_fast_path_eligible && shape.monospace_cell_width > 0.0f;
+        shape.monospace_fast_path_eligible &&
+        shape.monospace_cell_width > 0.0f;
     for (std::size_t candidate_index = 0U; candidate_index < shape.break_candidates.size(); candidate_index += 1U) {
         const std::uint32_t local_index = static_cast<std::uint32_t>(std::max(shape.break_candidates[candidate_index], 0));
         if (local_index == 0U) {
@@ -264,8 +279,14 @@ void UiRuntime::EnsureCachedLogicalLineBreakCandidates(
             continue;
         }
         if (shape.monospace_wrapped_metrics_eligible) {
-            shape.break_candidate_x_offsets[candidate_index] =
-                std::min(static_cast<float>(local_index) * shape.monospace_cell_width, shape.width);
+            const auto candidate_x = FixedPitchTabModel::XForByteOffset(
+                line_text,
+                local_index,
+                shape.monospace_cell_width);
+            if (candidate_x.has_value()) {
+                shape.break_candidate_x_offsets[candidate_index] =
+                    std::min(*candidate_x, shape.width);
+            }
             continue;
         }
         if (HasClusterBoundaryAt(shape.cluster_stops, local_index)) {
@@ -290,10 +311,12 @@ bool UiRuntime::TryBuildWrappedVisualLineShapeFromLogicalLineShape(
     if (clamped_slice_end <= clamped_slice_start) {
         return false;
     }
+    // Soft-wrapped rows establish a new tab origin. A slice of the logical-line
+    // shape retains the original row's tab positions, so tabbed rows must be
+    // shaped independently from their visual-row start.
     if (line_shape.has_tabs) {
         return false;
     }
-
     const std::uint32_t local_slice_start = clamped_slice_start - line_shape.visible_start;
     const std::uint32_t local_slice_end = clamped_slice_end - line_shape.visible_start;
     const auto is_safe_boundary = [&](std::uint32_t local_index) {
@@ -376,10 +399,26 @@ std::vector<std::int32_t> UiRuntime::ComputeWrappedSegmentBreaks(
             if (end <= start) {
                 return 0.0f;
             }
+            if (cached_shape != nullptr &&
+                cached_shape->monospace_wrapped_metrics_eligible &&
+                cached_shape->has_tabs) {
+                const std::string_view range(
+                    segment.data() + static_cast<std::size_t>(start),
+                    static_cast<std::size_t>(end - start));
+                const auto width = FixedPitchTabModel::XForByteOffset(
+                    range,
+                    range.size(),
+                    cached_shape->monospace_cell_width);
+                if (width.has_value()) {
+                    return *width;
+                }
+            }
             if (cached_shape != nullptr && cached_shape->monospace_wrapped_metrics_eligible) {
                 return MeasureCachedLogicalLineRangeWidth(*cached_shape, start, end);
             }
-            if (cached_shape != nullptr && cached_shape->break_candidate_cache_valid) {
+            if (cached_shape != nullptr &&
+                !cached_shape->has_tabs &&
+                cached_shape->break_candidate_cache_valid) {
                 const std::size_t start_candidate_index = FindBreakCandidateIndex(
                     *cached_shape,
                     static_cast<std::uint32_t>(std::max(start, 0)));
@@ -526,6 +565,18 @@ std::vector<std::int32_t> UiRuntime::ComputeIncrementalWrappedSegmentBreaks(
         if (end <= start) {
             return 0.0f;
         }
+        if (cached_shape.monospace_wrapped_metrics_eligible && cached_shape.has_tabs) {
+            const std::string_view range(
+                segment.data() + static_cast<std::size_t>(start),
+                static_cast<std::size_t>(end - start));
+            const auto width = FixedPitchTabModel::XForByteOffset(
+                range,
+                range.size(),
+                cached_shape.monospace_cell_width);
+            if (width.has_value()) {
+                return *width;
+            }
+        }
         if (cached_shape.monospace_wrapped_metrics_eligible) {
             return MeasureCachedLogicalLineRangeWidth(cached_shape, start, end);
         }
@@ -555,7 +606,8 @@ std::vector<std::int32_t> UiRuntime::ComputeIncrementalWrappedSegmentBreaks(
         if (end_candidate <= start_candidate || end_candidate >= candidates.size()) {
             return 0.0f;
         }
-        if (HasSafeBreakCandidateX(cached_shape, start_candidate) &&
+        if (!cached_shape.has_tabs &&
+            HasSafeBreakCandidateX(cached_shape, start_candidate) &&
             HasSafeBreakCandidateX(cached_shape, end_candidate)) {
             return std::max(
                 cached_shape.break_candidate_x_offsets[end_candidate] -
@@ -734,6 +786,20 @@ const CachedVisualLineShape* UiRuntime::EnsureWrappedVisualLineShape(const UINod
 // rebuild the affected logical-line neighborhood when the reused metadata is
 // still aligned with the edit span.
 bool UiRuntime::TryApplyIncrementalWrappedLayoutCache(UINode& node, std::string_view previous_text) const {
+    const std::string_view next_text = node.text_content;
+    IncrementalTextDiff diff{};
+    if (!ComputeIncrementalTextDiff(previous_text, next_text, diff)) {
+        return false;
+    }
+    const auto edit = TextEdit::Create(
+        previous_text,
+        diff.changed_start,
+        diff.old_changed_end,
+        next_text.substr(diff.changed_start, diff.new_changed_end - diff.changed_start));
+    return edit.has_value() && TryApplyIncrementalWrappedLayoutCache(node, *edit);
+}
+
+bool UiRuntime::TryApplyIncrementalWrappedLayoutCache(UINode& node, const TextEdit& edit) const {
     const bool disable_soft_wrap =
         !node.text_wrap || (IsSingleLineEditorTextNode(node));
     const std::size_t line_count = node.break_offsets.size() > 1U ? (node.break_offsets.size() - 1U) : 0U;
@@ -751,10 +817,13 @@ bool UiRuntime::TryApplyIncrementalWrappedLayoutCache(UINode& node, std::string_
     }
 
     const std::string_view next_text = node.text_content;
-    IncrementalTextDiff diff{};
-    if (!ComputeIncrementalTextDiff(previous_text, next_text, diff)) {
-        return false;
-    }
+    const PreviousTextView previous_text(next_text, edit);
+    const IncrementalTextDiff diff{
+        edit.start,
+        edit.removed_end,
+        edit.inserted_end(),
+        edit.byte_delta(),
+    };
 
     const auto logical_line_index_for_position = [](
                                                      const std::vector<CachedLogicalLineShape>& shapes,
@@ -878,10 +947,14 @@ bool UiRuntime::TryApplyIncrementalWrappedLayoutCache(UINode& node, std::string_
             return false;
         }
         CachedLogicalLineShape& old_shape = node.logical_line_shapes[old_line_index];
+        // The descriptor intentionally does not materialize the complete old
+        // document. If this optional append cache is cold, use the regular
+        // affected-line rebuild below rather than reconstructing old text.
         if (!old_shape.break_candidate_cache_valid) {
-            EnsureCachedLogicalLineBreakCandidates(previous_text, old_shape);
+            return false;
         }
         if (!old_shape.ascii_only ||
+            old_shape.has_tabs ||
             !old_shape.break_candidate_cache_valid ||
             diff.changed_start != old_shape.end ||
             diff.old_changed_end != old_shape.end ||

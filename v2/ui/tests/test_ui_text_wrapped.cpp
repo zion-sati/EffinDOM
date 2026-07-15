@@ -39,6 +39,82 @@ TEST_CASE("v2 ui focused editable text emits caret", "[v2][ui][text-edit]") {
     CHECK(GetRuntime().Resolve(text)->selection_end == 0U);
 }
 
+TEST_CASE("v2 ui wrapped typing does not scroll an already-visible caret to the viewport top", "[v2][ui][text-edit][caret-reveal]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    std::string content{};
+    for (std::uint32_t line = 0U; line < 30U; line += 1U) {
+        if (line != 0U) {
+            content += '\n';
+        }
+        content += "Stable wrapped line " + std::to_string(line) +
+            " carries enough repeated content to wrap across the editor viewport.";
+    }
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(240.0f, 140.0f);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 140.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_enabled(scroll, false, true);
+    ui_set_width(text, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 18.0f);
+    ui_set_text_wrapping(text, true);
+    ui_set_text_limits(text, -1, 0);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_editable(text, true);
+    ui_set_focusable(text, true, 0);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(content.data()), static_cast<std::uint32_t>(content.size()));
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, text);
+    ui_commit_frame();
+    GetRuntime().SetFocus(text);
+
+    auto* text_node = GetRuntime().ResolveMutable(text);
+    REQUIRE(text_node != nullptr);
+    REQUIRE(text_node->break_offsets.size() > 20U);
+    const std::size_t target_line = 16U;
+    const std::uint32_t caret = static_cast<std::uint32_t>(text_node->break_offsets[target_line]);
+    const float line_top = GetRuntime().GetLineTopForIndex(*text_node, target_line);
+    // Keep the full line visible by one pixel. The former editable overscan
+    // incorrectly scrolled it toward the top even though no reveal was needed.
+    const float target_offset = std::max(0.0f, line_top - 1.0f);
+    ui_set_scroll_offset(scroll, 0.0f, target_offset);
+    ui_set_text_selection_range(text, caret, caret);
+    ui_commit_frame();
+
+    const auto* before = GetRuntime().Resolve(scroll);
+    REQUIRE(before != nullptr);
+    const float stable_offset = before->scroll_offset_y;
+    REQUIRE(stable_offset > 0.0f);
+
+    static constexpr std::string_view kInserted = "x";
+    ui_replace_text_range(
+        text,
+        caret,
+        caret,
+        reinterpret_cast<const std::uint8_t*>(kInserted.data()),
+        static_cast<std::uint32_t>(kInserted.size()),
+        caret + 1U);
+    ui_commit_frame();
+
+    const auto* after = GetRuntime().Resolve(scroll);
+    REQUIRE(after != nullptr);
+    CHECK(after->scroll_offset_y == Approx(stable_offset).margin(0.01f));
+}
+
 TEST_CASE("v2 ui focused empty editable text emits a full-height caret", "[v2][ui][text-edit]") {
     using effindom::v2::ui::GetRuntime;
 
@@ -734,8 +810,8 @@ TEST_CASE("v2 ui shift right only adjusts an existing selection", "[v2][ui][text
 
     node->selection_start = 2U;
     node->selection_end = 3U;
-    GetRuntime().selection_anchor_handle_ = text;
-    GetRuntime().selection_anchor_index_ = 2U;
+    GetRuntime().Selection().state().anchor_handle = text;
+    GetRuntime().Selection().state().anchor_index = 2U;
     ResetInteractionLogs();
     ui_set_interaction_time(125U);
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowRight"), 10U, UI_KEY_MOD_SHIFT);
@@ -796,15 +872,15 @@ TEST_CASE("v2 ui mouse drag selection keeps its anchor for shift horizontal keys
     REQUIRE(mutable_node != nullptr);
     CHECK(mutable_node->selection_start == 2U);
     CHECK(mutable_node->selection_end == 5U);
-    CHECK(GetRuntime().selection_anchor_handle_ == text);
-    CHECK(GetRuntime().selection_anchor_index_ == 2U);
+    CHECK(GetRuntime().Selection().state().anchor_handle == text);
+    CHECK(GetRuntime().Selection().state().anchor_index == 2U);
     ResetInteractionLogs();
 
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowRight"), 10U, UI_KEY_MOD_SHIFT);
 
     CHECK(mutable_node->selection_start == 2U);
     CHECK(mutable_node->selection_end == 6U);
-    CHECK(GetRuntime().selection_anchor_index_ == 2U);
+    CHECK(GetRuntime().Selection().state().anchor_index == 2U);
     REQUIRE(g_selection_changes.size() == 1U);
     CHECK(g_selection_changes[0].start == 2U);
     CHECK(g_selection_changes[0].end == 6U);
@@ -854,15 +930,15 @@ TEST_CASE("v2 ui backward mouse drag selection keeps its anchor for shift horizo
     REQUIRE(mutable_node != nullptr);
     CHECK(mutable_node->selection_start == 5U);
     CHECK(mutable_node->selection_end == 2U);
-    CHECK(GetRuntime().selection_anchor_handle_ == text);
-    CHECK(GetRuntime().selection_anchor_index_ == 5U);
+    CHECK(GetRuntime().Selection().state().anchor_handle == text);
+    CHECK(GetRuntime().Selection().state().anchor_index == 5U);
     ResetInteractionLogs();
 
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowLeft"), 9U, UI_KEY_MOD_SHIFT);
 
     CHECK(mutable_node->selection_start == 5U);
     CHECK(mutable_node->selection_end == 1U);
-    CHECK(GetRuntime().selection_anchor_index_ == 5U);
+    CHECK(GetRuntime().Selection().state().anchor_index == 5U);
     REQUIRE(g_selection_changes.size() == 1U);
     CHECK(g_selection_changes[0].start == 5U);
     CHECK(g_selection_changes[0].end == 1U);
@@ -1305,6 +1381,7 @@ TEST_CASE("v2 ui wrapped deleting a single comment line emits the same glyph run
         static_cast<std::uint32_t>(comment_start_pos),
         static_cast<std::uint32_t>(comment_start_pos));
     ui_set_scroll_offset(fresh_scene.scroll, edited_scroll_offset_x, edited_scroll_offset_y);
+    ui_set_text_color(fresh_scene.text, 0x010101FFU);
     ui_commit_frame();
     const auto fresh_words = ReadCommandBuffer();
     const auto fresh_runs = ReadGlyphRuns(fresh_words);
@@ -1744,7 +1821,7 @@ TEST_CASE("v2 ui pointer up without drag keeps a collapsed selection at the poin
     REQUIRE(mutable_node != nullptr);
     CHECK(mutable_node->selection_start == 2U);
     CHECK(mutable_node->selection_end == 2U);
-    CHECK_FALSE(GetRuntime().active_selection_dragged_);
+    CHECK_FALSE(GetRuntime().Selection().state().active_dragged);
     REQUIRE(g_selection_changes.size() == 1U);
     CHECK(g_selection_changes[0].start == 2U);
     CHECK(g_selection_changes[0].end == 2U);

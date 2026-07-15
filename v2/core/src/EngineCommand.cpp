@@ -495,8 +495,13 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
             node->font_size = std::max(reader_.ReadFloatWord(), 1.0f);
             node->glyph_color = reader_.ReadWord();
             const std::uint32_t decoded_glyph_count = reader_.ReadWord();
+            const std::size_t previous_capacity = node->glyphs.capacity();
             node->glyphs.clear();
             node->glyphs.reserve(decoded_glyph_count);
+            if (node->glyphs.capacity() > previous_capacity) {
+                stats_.glyph_vector_capacity_growths += 1U;
+                stats_.glyph_vector_capacity_added += node->glyphs.capacity() - previous_capacity;
+            }
             for (std::uint32_t index = 0; index < decoded_glyph_count; index += 1) {
                 node->glyphs.push_back(GlyphPlacement{
                     reader_.ReadWord(),
@@ -508,6 +513,8 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
             }
             impl_.ReleaseGlyphBlobCache(*node);
             node->glyph_blob_version += 1U;
+            stats_.glyph_run_commands += 1U;
+            stats_.glyphs_decoded += decoded_glyph_count;
             stats_.parsed_commands += 1;
             return true;
         }
@@ -536,8 +543,13 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
             node->font_id = reader_.ReadWord();
             node->font_size = std::max(reader_.ReadFloatWord(), 1.0f);
             const std::uint32_t decoded_glyph_count = reader_.ReadWord();
+            const std::size_t previous_capacity = node->glyphs.capacity();
             node->glyphs.clear();
             node->glyphs.reserve(decoded_glyph_count);
+            if (node->glyphs.capacity() > previous_capacity) {
+                stats_.glyph_vector_capacity_growths += 1U;
+                stats_.glyph_vector_capacity_added += node->glyphs.capacity() - previous_capacity;
+            }
             for (std::uint32_t index = 0; index < decoded_glyph_count; index += 1U) {
                 node->glyphs.push_back(GlyphPlacement{
                     reader_.ReadWord(),
@@ -549,6 +561,8 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
             }
             impl_.ReleaseGlyphBlobCache(*node);
             node->glyph_blob_version += 1U;
+            stats_.glyph_run_commands += 1U;
+            stats_.glyphs_decoded += decoded_glyph_count;
             stats_.parsed_commands += 1;
             return true;
         }
@@ -578,8 +592,13 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
             node->font_size = std::max(reader_.ReadFloatWord(), 1.0f);
             node->glyph_color = 0U;
             const std::uint32_t decoded_glyph_count = reader_.ReadWord();
+            const std::size_t previous_capacity = node->glyphs.capacity();
             node->glyphs.clear();
             node->glyphs.reserve(decoded_glyph_count);
+            if (node->glyphs.capacity() > previous_capacity) {
+                stats_.glyph_vector_capacity_growths += 1U;
+                stats_.glyph_vector_capacity_added += node->glyphs.capacity() - previous_capacity;
+            }
             for (std::uint32_t index = 0; index < decoded_glyph_count; index += 1U) {
                 const std::uint32_t glyph_id = reader_.ReadWord();
                 const float x = reader_.ReadFloatWord();
@@ -598,6 +617,8 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
             }
             impl_.ReleaseGlyphBlobCache(*node);
             node->glyph_blob_version += 1U;
+            stats_.glyph_run_commands += 1U;
+            stats_.glyphs_decoded += decoded_glyph_count;
             stats_.parsed_commands += 1;
             return true;
         }

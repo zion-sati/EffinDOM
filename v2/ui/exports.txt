@@ -86,7 +86,6 @@ _ui_set_editor_command_keys
 _ui_set_editor_accepts_tab
 _ui_set_scroll_proxy_target
 _ui_set_scroll_enabled
-_ui_set_show_scrollbars
 _ui_set_scroll_friction
 _ui_set_smooth_scrolling
 _ui_set_focusable

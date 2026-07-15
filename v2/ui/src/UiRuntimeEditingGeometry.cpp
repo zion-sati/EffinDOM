@@ -104,6 +104,18 @@ bool IsLineBreakByte(char ch) {
     return ch == '\n' || ch == '\r';
 }
 
+bool IntersectGeometryRect(Rect& rect, const Rect& clip) {
+    const float left = std::max(rect.x, clip.x);
+    const float top = std::max(rect.y, clip.y);
+    const float right = std::min(rect.x + rect.width, clip.x + clip.width);
+    const float bottom = std::min(rect.y + rect.height, clip.y + clip.height);
+    if (right <= left || bottom <= top) {
+        return false;
+    }
+    rect = Rect{left, top, right - left, bottom - top};
+    return true;
+}
+
 LineByteRange GetLineByteRange(const UINode& node, std::size_t line_index) {
     if (node.break_offsets.size() < 2U) {
         return {};
@@ -190,7 +202,13 @@ bool IsSoftWrappedLineBoundary(const UINode& node, std::uint32_t pos) {
 
 std::size_t LineIndexForBoundaryNavigation(const UINode& node, std::uint32_t pos) {
     std::size_t line_index = LineIndexForPosition(node, pos);
-    if (line_index > 0U && IsSoftWrappedLineBoundary(node, pos)) {
+    const std::uint32_t clamped = std::min<std::uint32_t>(
+        pos,
+        static_cast<std::uint32_t>(node.text_content.size()));
+    const bool hard_line_end =
+        clamped < node.text_content.size() &&
+        IsLineBreakByte(node.text_content[clamped]);
+    if (line_index > 0U && (IsSoftWrappedLineBoundary(node, pos) || hard_line_end)) {
         line_index -= 1U;
     }
     return line_index;
@@ -404,13 +422,15 @@ std::uint32_t UiRuntime::GetStringIndexFromPoint(const UINode& node, float local
         const CachedLogicalLineShape* monospace_line =
             TryGetNonWrapMonospaceLogicalLine(node, static_cast<std::size_t>(line_index));
         if (monospace_line != nullptr) {
-            const std::uint32_t local_length = end - start;
             const float cell_width = monospace_line->monospace_cell_width;
-            const std::uint32_t snapped_index = static_cast<std::uint32_t>(std::clamp<std::int64_t>(
-                static_cast<std::int64_t>(std::floor((aligned_x + (cell_width * 0.5f)) / cell_width)),
-                0,
-                static_cast<std::int64_t>(local_length)));
-            return start + snapped_index;
+            const std::string_view line_text(
+                node.text_content.data() + start,
+                static_cast<std::size_t>(end - start));
+            const std::optional<std::size_t> snapped_index =
+                FixedPitchTabModel::ByteOffsetForX(line_text, aligned_x, cell_width);
+            return snapped_index.has_value()
+                ? start + static_cast<std::uint32_t>(*snapped_index)
+                : start;
         }
         if (!TryShapeFragmentGeometrySliceForX(node, static_cast<std::size_t>(line_index), aligned_x, fragment_slice)) {
             return start;
@@ -528,9 +548,14 @@ std::pair<float, int> UiRuntime::GetLocalPositionFromIndex(
         const CachedLogicalLineShape* monospace_line =
             TryGetNonWrapMonospaceLogicalLine(node, line_index);
         if (monospace_line != nullptr) {
-            const float x = std::min(
-                static_cast<float>(local_index) * monospace_line->monospace_cell_width,
-                full_line_width);
+            const std::string_view line_text(
+                node.text_content.data() + start,
+                static_cast<std::size_t>(end - start));
+            const std::optional<float> resolved_x = FixedPitchTabModel::XForByteOffset(
+                line_text,
+                local_index,
+                monospace_line->monospace_cell_width);
+            const float x = std::min(resolved_x.value_or(0.0f), full_line_width);
             return {GetAlignedLineXOffset(node, full_line_width) + x, static_cast<int>(line_index)};
         }
         FragmentGeometrySlice fragment_slice{};
@@ -885,7 +910,11 @@ void UiRuntime::EnsureTextCaretVisible(std::uint64_t handle, UINode& node) {
     const float line_top =
         content_offset_y + GetLineTopForIndex(node, static_cast<std::size_t>(std::max(line_index, 0)));
     const float margin_x = std::max(4.0f, std::min(node.font_size * 0.5f, 12.0f));
-    const float margin_y = std::max(2.0f, std::min(line_height * 0.25f, 8.0f));
+    // Editable controls should not drift while typing on a line that is already
+    // fully visible. Non-editable selection reveal keeps its visual overscan.
+    const float margin_y = node.is_editable
+        ? 0.0f
+        : std::max(2.0f, std::min(line_height * 0.25f, 8.0f));
     const float caret_width = CaretWidthForNode(node);
 
     float target_left = std::max(0.0f, caret_x - margin_x);
@@ -936,7 +965,24 @@ void UiRuntime::EnsureTextCaretVisible(std::uint64_t handle, UINode& node) {
 
 
 
-std::vector<Rect> UiRuntime::BuildSelectionRects(const UINode& node, std::uint32_t start, std::uint32_t end) const {
+std::vector<Rect> UiRuntime::BuildSelectionRects(
+    const UINode& node,
+    std::uint32_t start,
+    std::uint32_t end,
+    std::optional<VisualGeometryWindow> window,
+    bool clip_to_window) const {
+    struct GeometryProfileScope {
+        bool& active;
+        bool previous;
+        explicit GeometryProfileScope(bool& value) : active(value), previous(value) { active = true; }
+        ~GeometryProfileScope() { active = previous; }
+    } profile_scope(text_geometry_profile_active_);
+
+    if (window.has_value()) {
+        text_geometry_profile_.bounded_calls += 1U;
+    } else {
+        text_geometry_profile_.unrestricted_calls += 1U;
+    }
     std::vector<Rect> rects{};
     if (!node.is_text_node || node.break_offsets.size() < 2U) {
         return rects;
@@ -951,20 +997,43 @@ std::vector<Rect> UiRuntime::BuildSelectionRects(const UINode& node, std::uint32
             return rects;
         }
         const std::size_t line_index = static_cast<std::size_t>(caret_line);
-        rects.push_back(Rect{
+        if (window.has_value() &&
+            (line_index < window->line_start || line_index >= window->line_end)) {
+            return rects;
+        }
+        text_geometry_profile_.lines_visited += 1U;
+        Rect caret_rect{
             caret_x,
             content_offset_y + GetLineTopForIndex(node, line_index),
             0.5f,
             GetLineHeightForIndex(node, line_index),
-        });
+        };
+        if (window.has_value() && clip_to_window && !IntersectGeometryRect(caret_rect, window->local_clip)) {
+            return rects;
+        }
+        rects.push_back(caret_rect);
+        text_geometry_profile_.rectangles_emitted += 1U;
         return rects;
     }
 
     const std::uint32_t selection_start = std::min(start, end);
     const std::uint32_t selection_end = std::max(start, end);
 
-    rects.reserve(line_count);
-    for (std::size_t line_index = 0; line_index < line_count; line_index += 1U) {
+    const std::size_t selected_line_start = LineIndexForPosition(node, selection_start);
+    const std::size_t selected_line_end = LineIndexForPosition(node, selection_end - 1U) + 1U;
+    std::size_t iteration_start = selected_line_start;
+    std::size_t iteration_end = std::min(selected_line_end, line_count);
+    if (window.has_value()) {
+        iteration_start = std::max(iteration_start, std::min(window->line_start, line_count));
+        iteration_end = std::min(iteration_end, std::min(window->line_end, line_count));
+    }
+    if (iteration_start >= iteration_end) {
+        return rects;
+    }
+
+    rects.reserve(iteration_end - iteration_start);
+    for (std::size_t line_index = iteration_start; line_index < iteration_end; line_index += 1U) {
+        text_geometry_profile_.lines_visited += 1U;
         const LineByteRange range = GetLineByteRange(node, line_index);
         const std::uint32_t line_start = range.visible_start;
         const std::uint32_t line_end = range.end;
@@ -998,12 +1067,17 @@ std::vector<Rect> UiRuntime::BuildSelectionRects(const UINode& node, std::uint32
                                  : GetLocalPositionFromIndex(node, rect_end, true);
         if (left_line != static_cast<int>(line_index) || right_line != static_cast<int>(line_index)) continue;
 
-        rects.push_back(Rect{
+        Rect rect{
             left_x,
             content_offset_y + GetLineTopForIndex(node, line_index),
             std::max(0.5f, right_x - left_x),
             GetLineHeightForIndex(node, line_index),
-        });
+        };
+        if (window.has_value() && clip_to_window && !IntersectGeometryRect(rect, window->local_clip)) {
+            continue;
+        }
+        rects.push_back(rect);
+        text_geometry_profile_.rectangles_emitted += 1U;
     }
     return rects;
 }
@@ -1018,7 +1092,11 @@ std::vector<Rect> UiRuntime::GetTextRangeSceneRects(std::uint64_t handle, std::u
     const std::uint32_t text_length = static_cast<std::uint32_t>(node->text_content.size());
     const std::uint32_t clamped_start = std::min(start, text_length);
     const std::uint32_t clamped_end = std::min(end, text_length);
-    const std::vector<Rect> local_rects = BuildSelectionRects(*node, clamped_start, clamped_end);
+    const std::vector<Rect> local_rects = BuildSelectionRects(
+        *node,
+        clamped_start,
+        clamped_end,
+        std::nullopt);
     scene_rects.reserve(local_rects.size());
     for (const Rect& rect : local_rects) {
         scene_rects.push_back(Rect{
@@ -1067,7 +1145,9 @@ std::optional<Rect> UiRuntime::GetTextVisibleBounds(std::uint64_t handle) const 
     };
 }
 
-std::vector<ColoredRect> UiRuntime::BuildStyleInlineRects(const UINode& node) const {
+std::vector<ColoredRect> UiRuntime::BuildStyleInlineRects(
+    const UINode& node,
+    std::optional<VisualGeometryWindow> window) const {
     std::vector<ColoredRect> rects{};
     if (!node.is_text_node || !node.has_text_style_runs || node.text_style_runs.empty()) {
         return rects;
@@ -1076,26 +1156,29 @@ std::vector<ColoredRect> UiRuntime::BuildStyleInlineRects(const UINode& node) co
         if (run.start >= run.end) {
             continue;
         }
-        const std::vector<Rect> run_rects = BuildSelectionRects(node, run.start, run.end);
+        const std::vector<Rect> run_rects = BuildSelectionRects(node, run.start, run.end, window, false);
         rects.reserve(rects.size() + run_rects.size());
         for (const Rect& rect : run_rects) {
+            const auto append_rect = [&](Rect candidate, std::uint32_t color) {
+                if (window.has_value() && !IntersectGeometryRect(candidate, window->local_clip)) {
+                    return;
+                }
+                rects.push_back(ColoredRect{candidate, color});
+                text_geometry_profile_.style_rectangles_emitted += 1U;
+            };
             if (run.bg_color != 0U) {
-                rects.push_back(ColoredRect{rect, run.bg_color});
+                append_rect(rect, run.bg_color);
             }
             if ((run.decoration_flags & 1U) != 0U) {
                 const float thickness = std::max(1.0f, rect.height * 0.08f);
-                rects.push_back(ColoredRect{
+                append_rect(
                     Rect{rect.x, rect.y + rect.height - thickness, rect.width, thickness},
-                    run.color,
-                });
+                    run.color);
             }
             if ((run.decoration_flags & 2U) != 0U) {
                 const float thickness = std::max(1.0f, rect.height * 0.08f);
                 const float y = rect.y + (rect.height * 0.55f) - (thickness * 0.5f);
-                rects.push_back(ColoredRect{
-                    Rect{rect.x, y, rect.width, thickness},
-                    run.color,
-                });
+                append_rect(Rect{rect.x, y, rect.width, thickness}, run.color);
             }
         }
     }

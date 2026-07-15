@@ -208,7 +208,7 @@ bool UiRuntime::TryResolveMonospaceFastPathMetrics(
     const ShapedTextRun& shaped,
     float& out_cell_width) const {
     out_cell_width = 0.0f;
-    if (text.empty() || !IsAsciiOnly(text) || text.find('\t') != std::string_view::npos) {
+    if (text.empty() || !IsAsciiOnly(text)) {
         return false;
     }
 
@@ -227,8 +227,34 @@ bool UiRuntime::TryResolveMonospaceFastPathMetrics(
         !(font->is_ascii_fixed_pitch || bundled_mono_font)) {
         return false;
     }
-    out_cell_width = shaped.width / static_cast<float>(text.size());
-    return out_cell_width > 0.0f;
+    const std::optional<std::uint32_t> columns =
+        FixedPitchTabModel::ColumnForByteOffset(text, text.size());
+    if (!columns.has_value() || *columns == 0U) {
+        return false;
+    }
+    out_cell_width = shaped.width / static_cast<float>(*columns);
+    if (!std::isfinite(out_cell_width) || out_cell_width <= 0.0f) {
+        return false;
+    }
+    if (text.find('\t') == std::string_view::npos) {
+        return true;
+    }
+    const std::vector<TextClusterStop> stops =
+        BuildTextClusterStops(shaped.glyphs, shaped.width, text.size());
+    for (std::size_t offset = 0U; offset <= text.size(); offset += 1U) {
+        const std::optional<float> expected_x =
+            FixedPitchTabModel::XForByteOffset(text, offset, out_cell_width);
+        if (!expected_x.has_value()) {
+            return false;
+        }
+        const auto stop = std::find_if(stops.begin(), stops.end(), [&](const TextClusterStop& candidate) {
+            return candidate.index == offset;
+        });
+        if (stop == stops.end() || std::fabs(stop->x - *expected_x) > 0.01f) {
+            return false;
+        }
+    }
+    return true;
 }
 
 UiRuntime::ParagraphLayout UiRuntime::LayoutParagraphImpl(const UINode& node, std::optional<float> max_width) const {

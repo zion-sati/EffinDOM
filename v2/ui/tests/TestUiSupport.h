@@ -36,7 +36,6 @@ inline constexpr std::uint32_t kDefaultTextColor = EF_RGB(0x00U, 0x00U, 0x00U);
 inline constexpr std::uint32_t kDefaultSelectionColor = EF_RGBA(0x00U, 0x7AU, 0xFFU, 0x40U);
 inline constexpr std::size_t kTextboxHardClampMaxCodepoints = effindom::v2::ui::kTextboxHardClampMaxCodepoints;
 inline constexpr std::size_t kTextboxHardClampOverflowCodepoints = kTextboxHardClampMaxCodepoints + 1U;
-
 inline std::uint32_t HandleIndex(std::uint64_t handle) {
     return static_cast<std::uint32_t>(handle & 0xFFFFFFFFULL);
 }
@@ -218,7 +217,6 @@ inline constexpr std::uint32_t kDebugTreeBehaviorFocusable = 1U << 1U;
 inline constexpr std::uint32_t kDebugTreeBehaviorScrollView = 1U << 5U;
 inline constexpr std::uint32_t kDebugTreeBehaviorScrollEnabledX = 1U << 10U;
 inline constexpr std::uint32_t kDebugTreeBehaviorScrollEnabledY = 1U << 11U;
-inline constexpr std::uint32_t kDebugTreeBehaviorShowScrollbars = 1U << 12U;
 inline constexpr std::uint32_t kDebugTreeBehaviorText = 1U << 13U;
 
 struct DebugTreeRecord {

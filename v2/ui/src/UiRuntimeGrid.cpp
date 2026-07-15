@@ -1,4 +1,6 @@
 #include "UiRuntime.h"
+#include "UiSceneTraversal.h"
+#include "UiSceneGeometryResolver.h"
 
 #include "CommandBuilder.h"
 
@@ -448,7 +450,8 @@ std::vector<float> ResolveSharedColumnWidths(
 
 } // namespace
 
-void UiRuntime::LayoutGrid(
+
+void SceneTraversal::LayoutGrid(
     std::uint64_t handle,
     UINode& node,
     float abs_x,
@@ -462,8 +465,8 @@ void UiRuntime::LayoutGrid(
     std::vector<std::uint64_t>& deferred_portal_roots) {
     const std::size_t column_count = ResolveGridTrackCount(node, true);
     const std::size_t row_count = ResolveGridTrackCount(node, false);
-    const Rect content_abs_bounds = ComputeContentBounds(node, abs_x, abs_y);
-    const Rect content_scene_bounds = ComputeContentBounds(node, scene_x, scene_y);
+    const Rect content_abs_bounds = grid_layout_.ComputeContentBounds(node, abs_x, abs_y);
+    const Rect content_scene_bounds = grid_layout_.ComputeContentBounds(node, scene_x, scene_y);
     const float content_width = content_abs_bounds.width;
     const float content_height = content_abs_bounds.height;
 
@@ -475,7 +478,7 @@ void UiRuntime::LayoutGrid(
     BuildTrackDefinitions(node.row_values, node.row_types, row_count, row_values, row_types);
     const SharedSizeScopeRef scope_ref = ResolveSharedSizeScope(node, handle);
     std::vector<std::string> row_shared_groups{};
-    BuildSharedSizeGroupDefinitions(GridRowSharedSizeGroups(handle), row_count, row_shared_groups);
+    BuildSharedSizeGroupDefinitions(grid_layout_.GridRowSharedSizeGroups(handle), row_count, row_shared_groups);
     const std::vector<std::uint8_t> effective_row_types = ResolveEffectiveTrackTypes(row_types, row_shared_groups);
 
     std::vector<float> column_widths = ResolveSharedColumnWidths(handle, node, content_width, scope_ref);
@@ -506,7 +509,7 @@ void UiRuntime::LayoutGrid(
 
     for (std::size_t child_index = 0; child_index < node.children.size(); child_index += 1U) {
         const std::uint64_t child_handle = node.children[child_index];
-        UINode* child = ResolveMutable(child_handle);
+        UINode* child = writer_.Resolve(child_handle);
         if (child == nullptr || child->yg_node == nullptr) {
             continue;
         }
@@ -528,7 +531,7 @@ void UiRuntime::LayoutGrid(
         const float origin_y = child_abs_y - YGNodeLayoutGetTop(child->yg_node);
         const float scene_origin_x = child_scene_x - YGNodeLayoutGetLeft(child->yg_node);
         const float scene_origin_y = child_scene_y - YGNodeLayoutGetTop(child->yg_node);
-        WalkTree(
+        Walk(
             child_handle,
             origin_x,
             origin_y,
@@ -539,6 +542,90 @@ void UiRuntime::LayoutGrid(
             paint_order,
             scene,
             deferred_portal_roots);
+        RestoreGridStyle(child->yg_node, snapshot);
+        MarkGridChildDirty(*child);
+    }
+}
+
+
+
+
+void SceneGeometryResolver::ResolveGrid(
+    std::uint64_t handle,
+    UINode& node,
+    float abs_x,
+    float abs_y,
+    float scene_x,
+    float scene_y) {
+    const std::size_t column_count = ResolveGridTrackCount(node, true);
+    const std::size_t row_count = ResolveGridTrackCount(node, false);
+    const Rect content_abs_bounds = grid_layout_.ComputeContentBounds(node, abs_x, abs_y);
+    const Rect content_scene_bounds = grid_layout_.ComputeContentBounds(node, scene_x, scene_y);
+    const float content_width = content_abs_bounds.width;
+    const float content_height = content_abs_bounds.height;
+
+    std::vector<float> column_values{};
+    std::vector<std::uint8_t> column_types{};
+    std::vector<float> row_values{};
+    std::vector<std::uint8_t> row_types{};
+    BuildTrackDefinitions(node.column_values, node.column_types, column_count, column_values, column_types);
+    BuildTrackDefinitions(node.row_values, node.row_types, row_count, row_values, row_types);
+    const SharedSizeScopeRef scope_ref = ResolveSharedSizeScope(node, handle);
+    std::vector<std::string> row_shared_groups{};
+    BuildSharedSizeGroupDefinitions(grid_layout_.GridRowSharedSizeGroups(handle), row_count, row_shared_groups);
+    const std::vector<std::uint8_t> effective_row_types = ResolveEffectiveTrackTypes(row_types, row_shared_groups);
+
+    std::vector<float> column_widths = ResolveSharedColumnWidths(handle, node, content_width, scope_ref);
+    EnsureGridMeasuredSizesForColumns(node, column_widths);
+
+    std::vector<float> row_heights{};
+    SetTrackBaseSizes(row_heights, effective_row_types, row_values);
+    MarkAutoTracksFromMeasures(row_heights, effective_row_types, node, false, true);
+    if (scope_ref.node != nullptr && HasSharedSizeGroups(row_shared_groups)) {
+        std::unordered_map<std::string, float> shared_sizes{};
+        CollectSharedTrackSizes(scope_ref, false, shared_sizes);
+        for (std::size_t index = 0; index < row_heights.size() && index < row_shared_groups.size(); index += 1U) {
+            const std::string& group = row_shared_groups[index];
+            if (group.empty()) {
+                continue;
+            }
+            const auto it = shared_sizes.find(group);
+            if (it != shared_sizes.end()) {
+                row_heights[index] = std::max(row_heights[index], it->second);
+            }
+        }
+    }
+    DistributeStarTracks(
+        row_heights,
+        effective_row_types,
+        row_values,
+        std::max(0.0f, content_height - SumTracks(row_heights, 0U, row_heights.size())));
+
+    for (std::size_t child_index = 0; child_index < node.children.size(); child_index += 1U) {
+        const std::uint64_t child_handle = node.children[child_index];
+        UINode* child = nodes_.Resolve(child_handle);
+        if (child == nullptr || child->yg_node == nullptr) {
+            continue;
+        }
+
+        const auto [column_start, column_span] = ResolvePlacement(*child, column_widths.size(), true);
+        const auto [row_start, row_span] = ResolvePlacement(*child, row_heights.size(), false);
+        const float child_abs_x = content_abs_bounds.x + SumTracks(column_widths, 0U, column_start);
+        const float child_abs_y = content_abs_bounds.y + SumTracks(row_heights, 0U, row_start);
+        const float child_scene_x = content_scene_bounds.x + SumTracks(column_widths, 0U, column_start);
+        const float child_scene_y = content_scene_bounds.y + SumTracks(row_heights, 0U, row_start);
+        const float alloc_width = SumTracks(column_widths, column_start, column_span);
+        const float alloc_height = SumTracks(row_heights, row_start, row_span);
+
+        const GridStyleSnapshot snapshot = ApplyGridMeasurementStyle(*child, alloc_width, alloc_height);
+        YGNodeCalculateLayout(child->yg_node, alloc_width, alloc_height, YGDirectionLTR);
+        child->layout_width = YGNodeLayoutGetWidth(child->yg_node);
+        child->layout_height = YGNodeLayoutGetHeight(child->yg_node);
+        const float origin_x = child_abs_x - YGNodeLayoutGetLeft(child->yg_node);
+        const float origin_y = child_abs_y - YGNodeLayoutGetTop(child->yg_node);
+        const float scene_origin_x = child_scene_x - YGNodeLayoutGetLeft(child->yg_node);
+        const float scene_origin_y = child_scene_y - YGNodeLayoutGetTop(child->yg_node);
+        ResolveNode(child_handle, origin_x, origin_y, scene_origin_x, scene_origin_y);
         RestoreGridStyle(child->yg_node, snapshot);
         MarkGridChildDirty(*child);
     }

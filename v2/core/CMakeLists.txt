@@ -7,7 +7,13 @@ set(EFFINDOM_V2_CORE_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/SvgIntrinsicSize.cpp"
 )
 
-add_library(effindom_v2_core STATIC ${EFFINDOM_V2_CORE_SOURCES})
+if(EMSCRIPTEN)
+    set(EFFINDOM_V2_CORE_LIBRARY_TYPE STATIC)
+else()
+    set(EFFINDOM_V2_CORE_LIBRARY_TYPE SHARED)
+endif()
+add_library(effindom_v2_core ${EFFINDOM_V2_CORE_LIBRARY_TYPE} ${EFFINDOM_V2_CORE_SOURCES})
+set_target_properties(effindom_v2_core PROPERTIES OUTPUT_NAME "effindom_core")
 target_include_directories(effindom_v2_core
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/include"

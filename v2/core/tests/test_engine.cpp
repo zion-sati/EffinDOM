@@ -6,6 +6,7 @@
 #include "EngineInternal.h"
 
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -936,6 +937,147 @@ TEST_CASE("v2 core reuses cached glyph blobs until glyph payload changes", "[v2]
     REQUIRE(node.has_value());
     CHECK(node->glyph_blob_build_count == 2U);
     CHECK(node->glyph_blob_cached);
+}
+
+TEST_CASE("v2 core measures Tier 1 glyph decode allocation and render reuse", "[v2][unit][text][text-traffic]") {
+    Engine engine;
+    engine.Init(640, 160, 1.0f);
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    engine.RegisterFont(7U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t text = Handle(4105);
+    CommandBuilder initial;
+    initial.CreateNode(text);
+    initial.SetBounds(text, 0.0f, 0.0f, 640.0f, 160.0f, false);
+    initial.SetGlyphRun(text, 7U, 16.0f, 0xff112233U, MakeGlyphPlacements(512U));
+    initial.CommitScene({SceneInstructionDebugView{OP_DRAW_NODE, text}});
+    const auto initial_stats = engine.ExecuteCommandBuffer(
+        initial.words().data(), static_cast<std::uint32_t>(initial.words().size()));
+    CHECK(initial_stats.glyph_run_commands == 1U);
+    CHECK(initial_stats.glyphs_decoded == 512U);
+    CHECK(initial_stats.glyph_vector_capacity_growths == 1U);
+    CHECK(initial_stats.glyph_vector_capacity_added >= 512U);
+
+    const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(640, 160));
+    REQUIRE(surface);
+    engine.ClearGlyphRenderStatsForTesting();
+    engine.RenderToCanvas(surface->getCanvas());
+    engine.RenderToCanvas(surface->getCanvas());
+    const auto reused_render = engine.GetGlyphRenderStatsForTesting();
+    CHECK(reused_render.glyph_blob_builds == 1U);
+    CHECK(reused_render.glyph_blob_cache_hits == 1U);
+    CHECK(reused_render.uncached_glyph_blob_builds == 0U);
+
+    CommandBuilder smaller;
+    smaller.SetGlyphRun(text, 7U, 16.0f, 0xff112233U, MakeGlyphPlacements(128U));
+    smaller.CommitScene({SceneInstructionDebugView{OP_DRAW_NODE, text}});
+    const auto smaller_stats = engine.ExecuteCommandBuffer(
+        smaller.words().data(), static_cast<std::uint32_t>(smaller.words().size()));
+    CHECK(smaller_stats.glyphs_decoded == 128U);
+    CHECK(smaller_stats.glyph_vector_capacity_growths == 0U);
+    CHECK(smaller_stats.glyph_vector_capacity_added == 0U);
+
+    CommandBuilder identical;
+    identical.SetGlyphRun(text, 7U, 16.0f, 0xff112233U, MakeGlyphPlacements(128U));
+    identical.CommitScene({SceneInstructionDebugView{OP_DRAW_NODE, text}});
+    const auto identical_stats = engine.ExecuteCommandBuffer(
+        identical.words().data(), static_cast<std::uint32_t>(identical.words().size()));
+    CHECK(identical_stats.glyphs_decoded == 128U);
+    CHECK(identical_stats.glyph_vector_capacity_growths == 0U);
+    engine.ClearGlyphRenderStatsForTesting();
+    engine.RenderToCanvas(surface->getCanvas());
+    const auto identical_render = engine.GetGlyphRenderStatsForTesting();
+    CHECK(identical_render.glyph_blob_builds == 1U);
+    CHECK(identical_render.glyph_blob_cache_hits == 0U);
+
+    CommandBuilder styled;
+    styled.SetGlyphRunStyled(text, 7U, 16.0f, {
+        GlyphPlacement{36U, 0.0f, 14.0f, 7U, 0xff0000ffU, 16.0f},
+        GlyphPlacement{37U, 10.0f, 14.0f, 7U, 0xff0000ffU, 16.0f},
+        GlyphPlacement{38U, 20.0f, 14.0f, 7U, 0x00ff00ffU, 20.0f},
+        GlyphPlacement{39U, 32.0f, 14.0f, 7U, 0x00ff00ffU, 20.0f},
+    });
+    styled.CommitScene({SceneInstructionDebugView{OP_DRAW_NODE, text}});
+    const auto styled_stats = engine.ExecuteCommandBuffer(
+        styled.words().data(), static_cast<std::uint32_t>(styled.words().size()));
+    CHECK(styled_stats.glyph_run_commands == 1U);
+    CHECK(styled_stats.glyphs_decoded == 4U);
+    CHECK(styled_stats.glyph_vector_capacity_growths == 0U);
+    engine.ClearGlyphRenderStatsForTesting();
+    engine.RenderToCanvas(surface->getCanvas());
+    engine.RenderToCanvas(surface->getCanvas());
+    const auto styled_render = engine.GetGlyphRenderStatsForTesting();
+    CHECK(styled_render.glyph_blob_builds == 4U);
+    CHECK(styled_render.uncached_glyph_blob_builds == 4U);
+    CHECK(styled_render.glyph_blob_cache_hits == 0U);
+    CHECK(styled_render.styled_run_glyph_copies == 8U);
+
+    const auto measured_plain_glyphs = MakeGlyphPlacements(210U);
+    CommandBuilder measured_plain;
+    measured_plain.SetGlyphRun(text, 7U, 16.0f, 0xff112233U, measured_plain_glyphs);
+    const auto decode_start = std::chrono::steady_clock::now();
+    bool decoded_all_glyphs = true;
+    for (std::uint32_t iteration = 0U; iteration < 10000U; iteration += 1U) {
+        const auto stats = engine.ExecuteCommandBuffer(
+            measured_plain.words().data(), static_cast<std::uint32_t>(measured_plain.words().size()));
+        decoded_all_glyphs = decoded_all_glyphs && stats.glyphs_decoded == measured_plain_glyphs.size();
+    }
+    const double decode_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - decode_start).count();
+    CHECK(decoded_all_glyphs);
+
+    engine.ExecuteCommandBuffer(
+        measured_plain.words().data(), static_cast<std::uint32_t>(measured_plain.words().size()));
+    engine.RenderToCanvas(surface->getCanvas());
+    engine.ClearGlyphRenderStatsForTesting();
+    const auto plain_render_start = std::chrono::steady_clock::now();
+    for (std::uint32_t iteration = 0U; iteration < 1000U; iteration += 1U) {
+        engine.RenderToCanvas(surface->getCanvas());
+    }
+    const double plain_render_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - plain_render_start).count();
+    const auto measured_plain_render = engine.GetGlyphRenderStatsForTesting();
+    CHECK(measured_plain_render.glyph_blob_builds == 0U);
+    CHECK(measured_plain_render.glyph_blob_cache_hits == 1000U);
+
+    std::vector<GlyphPlacement> measured_styled_glyphs = measured_plain_glyphs;
+    for (std::size_t index = 0U; index < measured_styled_glyphs.size(); index += 1U) {
+        auto& glyph = measured_styled_glyphs[index];
+        glyph.font_id = 7U;
+        glyph.color = index < measured_styled_glyphs.size() / 2U ? 0xff0000ffU : 0x00ff00ffU;
+        glyph.font_size = index < measured_styled_glyphs.size() / 2U ? 16.0f : 18.0f;
+    }
+    CommandBuilder measured_styled;
+    measured_styled.SetGlyphRunStyled(text, 7U, 16.0f, measured_styled_glyphs);
+    engine.ExecuteCommandBuffer(
+        measured_styled.words().data(), static_cast<std::uint32_t>(measured_styled.words().size()));
+    engine.ClearGlyphRenderStatsForTesting();
+    const auto styled_render_start = std::chrono::steady_clock::now();
+    for (std::uint32_t iteration = 0U; iteration < 1000U; iteration += 1U) {
+        engine.RenderToCanvas(surface->getCanvas());
+    }
+    const double styled_render_ms = std::chrono::duration<double, std::milli>(
+        std::chrono::steady_clock::now() - styled_render_start).count();
+    const auto measured_styled_render = engine.GetGlyphRenderStatsForTesting();
+    CHECK(measured_styled_render.glyph_blob_builds == 2000U);
+    CHECK(measured_styled_render.uncached_glyph_blob_builds == 2000U);
+    CHECK(measured_styled_render.styled_run_glyph_copies == 210000U);
+
+    INFO("10k x 210-glyph decode ms=" << decode_ms);
+    CHECK(decode_ms >= 0.0);
+    INFO("1k x 210-glyph cached plain render ms=" << plain_render_ms);
+    CHECK(plain_render_ms >= 0.0);
+    INFO("1k x 210-glyph two-style render ms=" << styled_render_ms);
+    CHECK(styled_render_ms >= 0.0);
+
+    INFO("initial decoded=" << initial_stats.glyphs_decoded
+        << " capacity added=" << initial_stats.glyph_vector_capacity_added);
+    INFO("plain builds=" << reused_render.glyph_blob_builds
+        << " cache hits=" << reused_render.glyph_blob_cache_hits);
+    INFO("identical builds=" << identical_render.glyph_blob_builds);
+    INFO("styled builds=" << styled_render.glyph_blob_builds
+        << " copied glyphs=" << styled_render.styled_run_glyph_copies);
 }
 
 TEST_CASE("v2 core parses and renders colored glyph runs without glyph-blob caching", "[v2][unit][text]") {

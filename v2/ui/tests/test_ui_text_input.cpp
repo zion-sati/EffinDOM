@@ -303,6 +303,124 @@ TEST_CASE("v2 ui apple line-boundary keys stay on the current wrapped textbox li
     CHECK(g_selection_changes[0].end == first_line_start);
 }
 
+TEST_CASE("v2 ui apple shift line-boundary selection stays on the current non-wrapped hard line", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+    using effindom::v2::ui::PlatformFamily;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample = "first hard line\nsecond hard line";
+    ui_set_root(root);
+    ui_resize_window(320.0f, 180.0f);
+    ui_set_width(root, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 280.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text_wrapping(text, false);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_text_limits(text, std::numeric_limits<std::int32_t>::max(), 0);
+    ui_set_semantic_role(text, UI_SEMANTIC_TEXTBOX);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_editable(text, true);
+    ui_set_interactive(text, true);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    auto* node = GetRuntime().ResolveMutable(text);
+    REQUIRE(node != nullptr);
+    REQUIRE(node->break_offsets.size() == 3U);
+    const std::uint32_t first_line_end = static_cast<std::uint32_t>(node->break_offsets[1]);
+    REQUIRE(first_line_end > 0U);
+    REQUIRE(first_line_end < node->text_content.size());
+    REQUIRE(node->text_content[first_line_end] == '\n');
+
+    GetRuntime().SetPlatformFamily(static_cast<std::uint32_t>(PlatformFamily::Apple));
+    GetRuntime().SetFocus(text);
+    node->selection_start = first_line_end;
+    node->selection_end = first_line_end;
+    ResetInteractionLogs();
+
+    ui_on_key_event(
+        UI_KEY_EVENT_DOWN,
+        reinterpret_cast<const std::uint8_t*>("ArrowLeft"),
+        9U,
+        UI_KEY_MOD_META | UI_KEY_MOD_SHIFT);
+
+    CHECK(node->selection_start == first_line_end);
+    CHECK(node->selection_end == 0U);
+    REQUIRE(g_selection_changes.size() == 1U);
+    CHECK(g_selection_changes[0].start == first_line_end);
+    CHECK(g_selection_changes[0].end == 0U);
+}
+
+TEST_CASE("v2 ui non-wrapped keyboard caret navigation reveals the line end", "[v2][ui][text-edit][scroll]") {
+    using effindom::v2::ui::GetRuntime;
+    using effindom::v2::ui::PlatformFamily;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    const std::string long_line(160U, 'W');
+    ui_set_root(root);
+    ui_resize_window(240.0f, 100.0f);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 60.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_enabled(scroll, true, false);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(text, 60.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 16.0f);
+    ui_set_text_wrapping(text, false);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(long_line.data()), static_cast<std::uint32_t>(long_line.size()));
+    ui_set_text_limits(text, std::numeric_limits<std::int32_t>::max(), 0);
+    ui_set_semantic_role(text, UI_SEMANTIC_TEXTBOX);
+    ui_set_selectable(text, true, kDefaultSelectionColor);
+    ui_set_editable(text, true);
+    ui_set_focusable(text, true, 0);
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, text);
+    ui_commit_frame();
+
+    auto* text_node = GetRuntime().ResolveMutable(text);
+    auto* scroll_node = GetRuntime().ResolveMutable(scroll);
+    REQUIRE(text_node != nullptr);
+    REQUIRE(scroll_node != nullptr);
+    REQUIRE(scroll_node->scroll_content_width > scroll_node->layout_width);
+    text_node->selection_start = 0U;
+    text_node->selection_end = 0U;
+    GetRuntime().SetPlatformFamily(static_cast<std::uint32_t>(PlatformFamily::Apple));
+    GetRuntime().SetFocus(text);
+
+    ui_on_key_event(
+        UI_KEY_EVENT_DOWN,
+        reinterpret_cast<const std::uint8_t*>("ArrowRight"),
+        10U,
+        UI_KEY_MOD_META);
+
+    CHECK(text_node->selection_start == long_line.size());
+    CHECK(text_node->selection_end == long_line.size());
+    CHECK(scroll_node->scroll_offset_x > 0.0f);
+}
+
 TEST_CASE("v2 ui multiline textbox vertical arrows move immediately from an active selection", "[v2][ui][text-edit]") {
     using effindom::v2::ui::GetRuntime;
 
@@ -377,6 +495,57 @@ TEST_CASE("v2 ui multiline textbox vertical arrows move immediately from an acti
     CHECK(g_selection_changes[0].end == expected_up);
 }
 
+TEST_CASE("v2 ui multiline textbox vertical arrows follow visual wrapped lines", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    constexpr const char* kSample =
+        "The quick brown fox jumps over the lazy dog while editors track wrapped caret movement";
+    ui_set_root(root);
+    ui_resize_window(200.0f, 220.0f);
+    ui_set_width(root, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kSample), static_cast<std::uint32_t>(std::strlen(kSample)));
+    ui_set_text_limits(text, std::numeric_limits<std::int32_t>::max(), 0);
+    ui_set_semantic_role(text, UI_SEMANTIC_TEXTBOX);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_editable(text, true);
+    ui_set_interactive(text, true);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    auto* node = GetRuntime().ResolveMutable(text);
+    REQUIRE(node != nullptr);
+    REQUIRE(node->visible_line_count >= 3U);
+
+    const std::uint32_t initial = static_cast<std::uint32_t>(node->break_offsets[0] + 2);
+    const auto [initial_x, initial_line] = GetRuntime().GetLocalPositionFromIndex(*node, initial);
+    REQUIRE(initial_line == 0);
+    const std::uint32_t expected = GetRuntime().GetStringIndexFromPoint(*node, initial_x, node->line_height * 1.5f);
+
+    GetRuntime().SetFocus(text);
+    node->selection_start = initial;
+    node->selection_end = initial;
+    ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowDown"), 9U, 0U);
+
+    CHECK(node->selection_start == expected);
+    CHECK(node->selection_end == expected);
+    CHECK(GetRuntime().GetLocalPositionFromIndex(*node, node->selection_end).second == 1);
+}
+
 TEST_CASE("v2 ui multiline textbox shift vertical arrows fully include the edge line", "[v2][ui][text-edit]") {
     using effindom::v2::ui::GetRuntime;
 
@@ -430,8 +599,8 @@ TEST_CASE("v2 ui multiline textbox shift vertical arrows fully include the edge 
 
     node->selection_start = 0U;
     node->selection_end = 0U;
-    GetRuntime().selection_anchor_handle_ = text;
-    GetRuntime().selection_anchor_index_ = 0U;
+    GetRuntime().Selection().state().anchor_handle = text;
+    GetRuntime().Selection().state().anchor_index = 0U;
     ResetInteractionLogs();
     for (std::size_t step = 0; step < node->visible_line_count; step += 1U) {
         ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("ArrowDown"), 9U, UI_KEY_MOD_SHIFT);
@@ -636,8 +805,8 @@ TEST_CASE("v2 ui multiline textbox shift page keys fully include the edge line",
 
     text_node->selection_start = 0U;
     text_node->selection_end = 0U;
-    GetRuntime().selection_anchor_handle_ = text;
-    GetRuntime().selection_anchor_index_ = 0U;
+    GetRuntime().Selection().state().anchor_handle = text;
+    GetRuntime().Selection().state().anchor_index = 0U;
     ResetInteractionLogs();
     for (std::size_t step = 0; step < steps_to_edge_line; step += 1U) {
         ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("PageDown"), 8U, UI_KEY_MOD_SHIFT);

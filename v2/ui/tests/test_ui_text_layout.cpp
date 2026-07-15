@@ -1,5 +1,173 @@
 #include "TestUiSupport.h"
 
+TEST_CASE("v2 visual geometry window preserves retained line-window semantics", "[v2][ui][unit][text][visual-window]") {
+    using effindom::v2::ui::GetRuntime;
+    using effindom::v2::ui::Rect;
+    using effindom::v2::ui::UiRuntime;
+    using effindom::v2::ui::UINode;
+
+    UINode node{};
+    node.is_text_node = true;
+    node.line_height = 20.0f;
+    node.line_y_offsets.reserve(11U);
+    for (std::size_t line = 0U; line <= 10U; line += 1U) {
+        node.line_y_offsets.push_back(static_cast<float>(line) * 20.0f);
+    }
+
+    UiRuntime::ParagraphLayout paragraph{};
+    paragraph.visible_line_count = 10U;
+    paragraph.total_line_count = 10U;
+    paragraph.height = 200.0f;
+
+    const auto visible = GetRuntime().ResolveVisualGeometryWindow(
+        node,
+        paragraph,
+        Rect{110.0f, 121.0f, 240.0f, 59.0f},
+        100.0f,
+        20.0f);
+    REQUIRE(visible.visible());
+    CHECK(visible.line_start == 5U);
+    CHECK(visible.line_end == 8U);
+    CHECK(visible.local_clip.x == Approx(10.0f));
+    CHECK(visible.local_clip.y == Approx(101.0f));
+    CHECK(visible.local_clip.width == Approx(240.0f));
+    CHECK(visible.local_clip.height == Approx(59.0f));
+
+    const auto clipped_top = GetRuntime().ResolveVisualGeometryWindow(
+        node,
+        paragraph,
+        Rect{100.0f, 0.0f, 240.0f, 50.0f},
+        100.0f,
+        20.0f);
+    REQUIRE(clipped_top.visible());
+    CHECK(clipped_top.line_start == 0U);
+    CHECK(clipped_top.line_end == 2U);
+
+    const auto offscreen = GetRuntime().ResolveVisualGeometryWindow(
+        node,
+        paragraph,
+        Rect{100.0f, 240.0f, 240.0f, 40.0f},
+        100.0f,
+        20.0f);
+    CHECK_FALSE(offscreen.visible());
+    CHECK(offscreen.line_start == 0U);
+    CHECK(offscreen.line_end == 0U);
+
+    paragraph.height = 0.0f;
+    const auto degenerate_height = GetRuntime().ResolveVisualGeometryWindow(
+        node,
+        paragraph,
+        Rect{100.0f, 20.0f, 240.0f, 40.0f},
+        100.0f,
+        20.0f);
+    REQUIRE(degenerate_height.visible());
+    CHECK(degenerate_height.line_start == 0U);
+    CHECK(degenerate_height.line_end == 10U);
+
+    const auto empty_clip = GetRuntime().ResolveVisualGeometryWindow(
+        node,
+        paragraph,
+        Rect{100.0f, 20.0f, 0.0f, 40.0f},
+        100.0f,
+        20.0f);
+    CHECK_FALSE(empty_clip.visible());
+}
+
+TEST_CASE("v2 bounded selection geometry visits and emits only intersecting viewport lines", "[v2][ui][unit][text][bounded-geometry]") {
+    using effindom::v2::ui::GetRuntime;
+    using effindom::v2::ui::Rect;
+    using effindom::v2::ui::UiRuntime;
+    using effindom::v2::ui::UINode;
+
+    ui_reset();
+    RegisterTestFont();
+
+    UINode node{};
+    node.is_text_node = true;
+    node.text_wrap = false;
+    node.font_id = 1U;
+    node.font_size = 18.0f;
+    for (std::size_t line = 0U; line < 1000U; line += 1U) {
+        if (line != 0U) {
+            node.text_content += '\n';
+        }
+        node.text_content += "line " + std::to_string(line) + " viewport geometry";
+    }
+    const auto paragraph = GetRuntime().LayoutParagraph(node, 320.0f);
+    REQUIRE(paragraph.visible_line_count == 1000U);
+
+    const std::uint32_t full_end = static_cast<std::uint32_t>(node.text_content.size());
+    GetRuntime().ClearTextGeometryProfile();
+    const auto unrestricted = GetRuntime().BuildSelectionRects(node, 0U, full_end, std::nullopt);
+    const auto unrestricted_profile = GetRuntime().text_geometry_profile();
+    REQUIRE(unrestricted.size() == 1000U);
+    CHECK(unrestricted_profile.unrestricted_calls == 1U);
+    CHECK(unrestricted_profile.bounded_calls == 0U);
+    CHECK(unrestricted_profile.lines_visited == 1000U);
+
+    UiRuntime::VisualGeometryWindow window{};
+    window.line_start = 400U;
+    window.line_end = 410U;
+    window.local_clip = Rect{
+        0.0f,
+        GetRuntime().GetLineTopForIndex(node, window.line_start),
+        120.0f,
+        GetRuntime().GetLineTopForIndex(node, window.line_end) -
+            GetRuntime().GetLineTopForIndex(node, window.line_start),
+    };
+    GetRuntime().ClearTextGeometryProfile();
+    const auto bounded = GetRuntime().BuildSelectionRects(node, 0U, full_end, window);
+    const auto bounded_profile = GetRuntime().text_geometry_profile();
+    REQUIRE(bounded.size() == 10U);
+    CHECK(bounded_profile.bounded_calls == 1U);
+    CHECK(bounded_profile.unrestricted_calls == 0U);
+    CHECK(bounded_profile.lines_visited == 10U);
+    CHECK(bounded_profile.rectangles_emitted == 10U);
+    CHECK(bounded_profile.shaping_calls == 0U);
+    for (const Rect& rect : bounded) {
+        CHECK(rect.x >= window.local_clip.x);
+        CHECK(rect.x + rect.width <= window.local_clip.x + window.local_clip.width + 0.01f);
+        CHECK(rect.y >= window.local_clip.y);
+        CHECK(rect.y + rect.height <= window.local_clip.y + window.local_clip.height + 0.01f);
+    }
+}
+
+TEST_CASE("v2 bounded selection geometry clips a very wide line without changing unrestricted output", "[v2][ui][unit][text][bounded-geometry]") {
+    using effindom::v2::ui::GetRuntime;
+    using effindom::v2::ui::Rect;
+    using effindom::v2::ui::UiRuntime;
+    using effindom::v2::ui::UINode;
+
+    ui_reset();
+    RegisterTestFont();
+
+    UINode node{};
+    node.is_text_node = true;
+    node.text_wrap = false;
+    node.font_id = 1U;
+    node.font_size = 18.0f;
+    node.text_content.assign(20000U, 'W');
+    const auto paragraph = GetRuntime().LayoutParagraph(node, 200.0f);
+    REQUIRE(paragraph.visible_line_count == 1U);
+    const std::uint32_t full_end = static_cast<std::uint32_t>(node.text_content.size());
+
+    const auto unrestricted = GetRuntime().BuildSelectionRects(node, 0U, full_end, std::nullopt);
+    REQUIRE(unrestricted.size() == 1U);
+    REQUIRE(unrestricted.front().width > 500.0f);
+
+    UiRuntime::VisualGeometryWindow window{};
+    window.line_start = 0U;
+    window.line_end = 1U;
+    window.local_clip = Rect{250.0f, 0.0f, 80.0f, paragraph.height};
+    GetRuntime().ClearTextGeometryProfile();
+    const auto bounded = GetRuntime().BuildSelectionRects(node, 0U, full_end, window);
+    REQUIRE(bounded.size() == 1U);
+    CHECK(bounded.front().x == Approx(250.0f));
+    CHECK(bounded.front().width == Approx(80.0f));
+    CHECK(GetRuntime().text_geometry_profile().lines_visited == 1U);
+    CHECK(GetRuntime().text_geometry_profile().rectangles_emitted == 1U);
+}
+
 TEST_CASE("v2 ui private paragraph helpers cover multiline utility branches", "[v2][ui][unit][text]") {
     using effindom::v2::ui::GetRuntime;
 
@@ -615,6 +783,57 @@ TEST_CASE("v2 ui incremental wrapped relayout matches fresh layout for same-line
     CHECK(node.visual_line_shapes[1].start == original_visual_shapes[1].start);
     CHECK(node.visual_line_shapes[1].end == original_visual_shapes[1].end);
     CHECK(node.visual_line_shapes[1].width == Approx(original_visual_shapes[1].width).margin(0.05f));
+}
+
+TEST_CASE("v2 ui multiline wrapped edits are not rejected by unrelated hard lines or tabs", "[v2][ui][unit][text]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterTestFont();
+
+    effindom::v2::ui::UINode node{};
+    node.is_text_node = true;
+    node.text_wrap = true;
+    node.font_id = 1U;
+    node.font_size = 20.0f;
+    node.text_content =
+        "first paragraph has a\ttab but is otherwise untouched\n"
+        "second paragraph is edited in place and wraps across the viewport\n"
+        "third paragraph remains intact";
+
+    const auto initial_layout = GetRuntime().LayoutParagraph(node, 110.0f);
+    REQUIRE(initial_layout.total_line_count >= 4U);
+    REQUIRE(node.logical_line_shape_cache_valid);
+    REQUIRE(node.visual_line_shape_cache_valid);
+    REQUIRE(node.logical_line_shapes.size() == 3U);
+
+    const auto untouched_first_shape = node.logical_line_shapes.front();
+    const std::string previous_text = node.text_content;
+    const std::size_t edit_at = node.text_content.find("edited") + 3U;
+    REQUIRE(edit_at != std::string::npos);
+    node.text_content.insert(edit_at, "!");
+    REQUIRE(GetRuntime().TryApplyIncrementalTextLineStarts(node, previous_text));
+    REQUIRE(GetRuntime().TryApplyIncrementalWrappedLayoutCache(node, previous_text));
+
+    effindom::v2::ui::UINode expected{};
+    expected.is_text_node = true;
+    expected.text_wrap = true;
+    expected.font_id = node.font_id;
+    expected.font_size = node.font_size;
+    expected.text_content = node.text_content;
+    const auto expected_layout = GetRuntime().LayoutParagraph(expected, 110.0f);
+
+    CHECK(node.text_layout_cache_valid);
+    CHECK(node.break_offsets == expected.break_offsets);
+    CHECK(node.total_line_count == expected_layout.total_line_count);
+    REQUIRE(node.line_widths.size() == expected.line_widths.size());
+    for (std::size_t index = 0; index < node.line_widths.size(); index += 1U) {
+        CHECK(node.line_widths[index] == Approx(expected.line_widths[index]).margin(0.05f));
+    }
+    REQUIRE(node.logical_line_shapes.size() == expected.logical_line_shapes.size());
+    CHECK(node.logical_line_shapes.front().raw_start == untouched_first_shape.raw_start);
+    CHECK(node.logical_line_shapes.front().end == untouched_first_shape.end);
+    CHECK(node.logical_line_shapes.front().width == Approx(untouched_first_shape.width).margin(0.05f));
 }
 
 TEST_CASE("v2 ui incremental wrapped relayout keeps appending ascii text on one logical line incremental", "[v2][ui][unit][text]") {
@@ -1758,7 +1977,7 @@ TEST_CASE("v2 ui fragment geometry helpers round-trip indices and selection rect
 
     const auto selection_start = target_index - 6U;
     const auto selection_end = target_index + 8U;
-    const auto rects = GetRuntime().BuildSelectionRects(node, selection_start, selection_end);
+    const auto rects = GetRuntime().BuildSelectionRects(node, selection_start, selection_end, std::nullopt);
     REQUIRE(rects.size() == 1U);
     const auto [selection_left, selection_left_line] = GetRuntime().GetLocalPositionFromIndex(node, selection_start);
     const auto [selection_right, selection_right_line] = GetRuntime().GetLocalPositionFromIndex(node, selection_end);
@@ -1877,12 +2096,226 @@ TEST_CASE("v2 ui non-wrap monospace geometry stays arithmetic and skips fragment
 
     const std::uint32_t selection_start = target_index - 6U;
     const std::uint32_t selection_end = target_index + 8U;
-    const auto rects = GetRuntime().BuildSelectionRects(node, selection_start, selection_end);
+    const auto rects = GetRuntime().BuildSelectionRects(node, selection_start, selection_end, std::nullopt);
     REQUIRE(rects.size() == 1U);
     CHECK(rects.front().x == Approx(static_cast<float>(selection_start) * cell_width).margin(0.05f));
     CHECK(rects.front().width == Approx(static_cast<float>(selection_end - selection_start) * cell_width).margin(0.05f));
     CHECK(rects.front().height == Approx(paragraph.line_height).margin(0.05f));
     CHECK(node.cached_nonwrap_geometry_slices.empty());
+}
+
+TEST_CASE("v2 ui fixed-pitch tab geometry round-trips cached non-wrap positions", "[v2][ui][unit][text][tabs]") {
+    using effindom::v2::ui::FixedPitchTabModel;
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterMonoTestFont(5U);
+
+    effindom::v2::ui::UINode node{};
+    node.is_text_node = true;
+    node.is_selectable = true;
+    node.is_editable = true;
+    node.semantic_role = UI_SEMANTIC_TEXTBOX;
+    node.max_lines = 0;
+    node.text_wrap = false;
+    node.font_id = 5U;
+    node.font_size = 16.0f;
+    node.layout_width = 120.0f;
+    node.layout_height = 40.0f;
+    node.text_content = "ab\tcd\tefghijklmnopqrstuvwxyz0123456789";
+
+    const auto paragraph = GetRuntime().LayoutParagraph(node, 120.0f);
+    REQUIRE(paragraph.total_line_count == 1U);
+    REQUIRE(node.logical_line_shape_cache_valid);
+    REQUIRE(node.logical_line_shapes.size() == 1U);
+    const auto& line = node.logical_line_shapes.front();
+    REQUIRE(line.has_tabs);
+    REQUIRE(line.monospace_fast_path_eligible);
+    CHECK(line.monospace_wrapped_metrics_eligible);
+    REQUIRE(line.monospace_cell_width > 0.0f);
+    REQUIRE(node.nonwrap_fragment_cache_valid);
+    REQUIRE_FALSE(node.nonwrap_fragments.empty());
+
+    for (const auto& fragment : node.nonwrap_fragments) {
+        const auto expected_start_x = FixedPitchTabModel::XForByteOffset(
+            node.text_content,
+            fragment.local_byte_start,
+            line.monospace_cell_width);
+        const auto expected_end_x = FixedPitchTabModel::XForByteOffset(
+            node.text_content,
+            fragment.local_byte_end,
+            line.monospace_cell_width);
+        REQUIRE(expected_start_x.has_value());
+        REQUIRE(expected_end_x.has_value());
+        CHECK(fragment.x == Approx(*expected_start_x).margin(0.05f));
+        CHECK(fragment.width == Approx(*expected_end_x - *expected_start_x).margin(0.05f));
+    }
+
+    for (std::size_t byte_offset = 0U; byte_offset <= node.text_content.size(); byte_offset += 1U) {
+        const auto expected_x = FixedPitchTabModel::XForByteOffset(
+            node.text_content,
+            byte_offset,
+            line.monospace_cell_width);
+        REQUIRE(expected_x.has_value());
+        const auto [local_x, line_index] = GetRuntime().GetLocalPositionFromIndex(
+            node,
+            static_cast<std::uint32_t>(byte_offset));
+        CHECK(line_index == 0);
+        CHECK(local_x == Approx(*expected_x).margin(0.05f));
+        CHECK(GetRuntime().GetStringIndexFromPoint(
+            node,
+            local_x,
+            paragraph.line_height * 0.5f) == byte_offset);
+    }
+
+    const float tab_start_x = 2.0f * line.monospace_cell_width;
+    CHECK(GetRuntime().GetStringIndexFromPoint(
+        node,
+        tab_start_x + (line.monospace_cell_width * 0.9f),
+        paragraph.line_height * 0.5f) == 2U);
+    CHECK(GetRuntime().GetStringIndexFromPoint(
+        node,
+        tab_start_x + (line.monospace_cell_width * 1.1f),
+        paragraph.line_height * 0.5f) == 3U);
+
+    const auto tab_selection = GetRuntime().BuildSelectionRects(node, 2U, 3U, std::nullopt);
+    REQUIRE(tab_selection.size() == 1U);
+    CHECK(tab_selection.front().x == Approx(tab_start_x).margin(0.05f));
+    CHECK(tab_selection.front().width == Approx(2.0f * line.monospace_cell_width).margin(0.05f));
+}
+
+TEST_CASE("v2 ui fixed-pitch tabs wrap with cached geometry matching materialized lines", "[v2][ui][unit][text][tabs]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterMonoTestFont(5U);
+
+    effindom::v2::ui::UINode node{};
+    node.is_text_node = true;
+    node.is_selectable = true;
+    node.text_wrap = true;
+    node.font_id = 5U;
+    node.font_size = 16.0f;
+    node.text_content = "ab\tcd\tef gh\tij";
+
+    const auto unconstrained = GetRuntime().LayoutParagraph(node, 1000.0f);
+    REQUIRE(unconstrained.total_line_count == 1U);
+    REQUIRE(node.logical_line_shapes.size() == 1U);
+    const float cell_width = node.logical_line_shapes.front().monospace_cell_width;
+    REQUIRE(cell_width > 0.0f);
+
+    GetRuntime().InvalidateTextLayoutCache(node);
+    const auto wrapped = GetRuntime().LayoutParagraph(node, cell_width * 6.1f);
+    REQUIRE(wrapped.total_line_count >= 2U);
+    REQUIRE(node.logical_line_shapes.size() == 1U);
+    const auto& logical = node.logical_line_shapes.front();
+    CHECK(logical.has_tabs);
+    CHECK(logical.monospace_wrapped_metrics_eligible);
+    CHECK(logical.break_candidate_cache_valid);
+
+    for (std::size_t line_index = 0U; line_index < node.visual_line_shapes.size(); line_index += 1U) {
+        const auto* materialized = GetRuntime().EnsureWrappedVisualLineShape(node, line_index);
+        REQUIRE(materialized != nullptr);
+        CHECK(materialized->cache_materialized);
+        CHECK_FALSE(materialized->cache_dirty);
+        CHECK(materialized->width == Approx(node.line_widths[line_index]).margin(0.05f));
+        REQUIRE_FALSE(materialized->cluster_stops.empty());
+        CHECK(materialized->cluster_stops.front().index == 0U);
+        CHECK(materialized->cluster_stops.back().index == materialized->end - materialized->start);
+        CHECK(materialized->cluster_stops.back().x == Approx(materialized->width).margin(0.05f));
+    }
+
+    const auto narrow_breaks = node.break_offsets;
+    GetRuntime().InvalidateTextLayoutCache(node);
+    const auto wider = GetRuntime().LayoutParagraph(node, cell_width * 10.1f);
+    CHECK(wider.total_line_count < wrapped.total_line_count);
+    CHECK(node.break_offsets != narrow_breaks);
+
+    node.text_wrap = false;
+    GetRuntime().InvalidateTextLayoutCache(node);
+    const auto unwrapped = GetRuntime().LayoutParagraph(node, cell_width * 6.1f);
+    CHECK(unwrapped.total_line_count == 1U);
+    REQUIRE(node.logical_line_shapes.size() == 1U);
+    CHECK(node.logical_line_shapes.front().has_tabs);
+    CHECK(node.logical_line_shapes.front().monospace_fast_path_eligible);
+}
+
+TEST_CASE("v2 ui fixed-pitch tab edits keep wrapped splice local and match fresh layout", "[v2][ui][unit][text][tabs]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterMonoTestFont(5U);
+
+    const auto verify_edit = [&](
+                                 std::string initial_text,
+                                 std::size_t edit_at,
+                                 std::size_t erase_length,
+                                 std::string inserted) {
+        effindom::v2::ui::UINode node{};
+        node.is_text_node = true;
+        node.is_selectable = true;
+        node.is_editable = true;
+        node.text_wrap = true;
+        node.font_id = 5U;
+        node.font_size = 16.0f;
+        node.text_content = std::move(initial_text);
+
+        const auto initial = GetRuntime().LayoutParagraph(node, 74.0f);
+        REQUIRE(initial.total_line_count >= 3U);
+        REQUIRE(node.logical_line_shapes.size() == 3U);
+        const auto untouched_prefix = node.logical_line_shapes.front();
+
+        const std::string previous_text = node.text_content;
+        node.text_content.replace(edit_at, erase_length, inserted);
+        if (!GetRuntime().TryApplyIncrementalTextLineStarts(node, previous_text)) {
+            GetRuntime().RebuildTextLineStarts(node);
+        }
+        REQUIRE(GetRuntime().TryApplyIncrementalWrappedLayoutCache(node, previous_text));
+
+        effindom::v2::ui::UINode fresh{};
+        fresh.is_text_node = true;
+        fresh.is_selectable = true;
+        fresh.is_editable = true;
+        fresh.text_wrap = true;
+        fresh.font_id = node.font_id;
+        fresh.font_size = node.font_size;
+        fresh.text_content = node.text_content;
+        const auto fresh_layout = GetRuntime().LayoutParagraph(fresh, 74.0f);
+
+        CHECK(node.break_offsets == fresh.break_offsets);
+        CHECK(node.total_line_count == fresh_layout.total_line_count);
+        REQUIRE(node.line_widths.size() == fresh.line_widths.size());
+        for (std::size_t index = 0U; index < node.line_widths.size(); index += 1U) {
+            CHECK(node.line_widths[index] == Approx(fresh.line_widths[index]).margin(0.05f));
+            const auto* patched_line = GetRuntime().EnsureWrappedVisualLineShape(node, index);
+            const auto* fresh_line = GetRuntime().EnsureWrappedVisualLineShape(fresh, index);
+            REQUIRE(patched_line != nullptr);
+            REQUIRE(fresh_line != nullptr);
+            CHECK(patched_line->start == fresh_line->start);
+            CHECK(patched_line->end == fresh_line->end);
+            CHECK(patched_line->width == Approx(fresh_line->width).margin(0.05f));
+            REQUIRE(patched_line->cluster_stops.size() == fresh_line->cluster_stops.size());
+            for (std::size_t stop = 0U; stop < patched_line->cluster_stops.size(); stop += 1U) {
+                CHECK(patched_line->cluster_stops[stop].index == fresh_line->cluster_stops[stop].index);
+                CHECK(patched_line->cluster_stops[stop].x == Approx(fresh_line->cluster_stops[stop].x).margin(0.05f));
+            }
+        }
+
+        REQUIRE(node.logical_line_shapes.size() == fresh.logical_line_shapes.size());
+        REQUIRE(node.logical_line_shapes.size() >= 3U);
+        CHECK(node.logical_line_shapes.front().raw_start == untouched_prefix.raw_start);
+        CHECK(node.logical_line_shapes.front().end == untouched_prefix.end);
+        CHECK(node.logical_line_shapes.front().width == Approx(untouched_prefix.width).margin(0.05f));
+    };
+
+    const std::string text =
+        "untouched prefix line\n"
+        "ab\tcd efgh ijkl\n"
+        "untouched suffix line";
+    verify_edit(text, text.find('\t'), 0U, "Z");
+    verify_edit(text, text.find("cd") + 2U, 0U, "\t");
+    verify_edit(text, text.find('\t'), 1U, "");
+    verify_edit(text, text.find('\t'), 0U, "\n");
 }
 
 TEST_CASE("v2 ui non-wrap caches invalidate across font fallback obscured and wrap changes", "[v2][ui][unit][text]") {
@@ -2104,10 +2537,14 @@ TEST_CASE("v2 ui non-wrap incremental edits shrink stale tall cached line height
     REQUIRE(node.logical_line_shapes.size() == 3U);
 
     const std::string previous_text = node.text_content;
+    const std::size_t beta_offset = node.text_content.find("beta");
+    const auto edit = effindom::v2::ui::TextEdit::Create(previous_text, beta_offset, beta_offset + 4U, "bet");
+    REQUIRE(edit.has_value());
     node.logical_line_shapes[1].height += 7.0f;
     node.line_height = node.logical_line_shapes[1].height;
-    node.text_content.replace(node.text_content.find("beta"), 4U, "bet");
-    REQUIRE(GetRuntime().TryApplyIncrementalNonWrapLayoutCache(node, previous_text));
+    node.text_content.replace(beta_offset, 4U, "bet");
+    REQUIRE(GetRuntime().TryApplyIncrementalTextLineStarts(node, *edit));
+    REQUIRE(GetRuntime().TryApplyIncrementalNonWrapLayoutCache(node, *edit));
 
     effindom::v2::ui::UINode expected{};
     expected.is_text_node = true;
@@ -2148,13 +2585,16 @@ TEST_CASE("v2 ui wrapped incremental edits shrink stale tall cached line height"
     const std::uint32_t edit_index = 1U;
     REQUIRE(edit_index < node.text_content.size());
     const std::string previous_text = node.text_content;
+    const auto edit = effindom::v2::ui::TextEdit::Create(previous_text, edit_index, edit_index, "!");
+    REQUIRE(edit.has_value());
     node.logical_line_shapes[0].height += 7.0f;
     node.line_height = node.logical_line_shapes[0].height;
     for (auto& visual_line : node.visual_line_shapes) {
         visual_line.height += 7.0f;
     }
     node.text_content.insert(static_cast<std::size_t>(edit_index), "!");
-    REQUIRE(GetRuntime().TryApplyIncrementalWrappedLayoutCache(node, previous_text));
+    REQUIRE(GetRuntime().TryApplyIncrementalTextLineStarts(node, *edit));
+    REQUIRE(GetRuntime().TryApplyIncrementalWrappedLayoutCache(node, *edit));
 
     effindom::v2::ui::UINode expected{};
     expected.is_text_node = true;

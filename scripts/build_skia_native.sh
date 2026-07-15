@@ -7,7 +7,9 @@ WORK_DIR="${SKIA_BUILD_WORKDIR:-/tmp/effindom-skia-native-build}"
 SKIA_REVISION="${SKIA_REVISION:-chrome/m136}"
 DEPOT_TOOLS_COMMIT="${DEPOT_TOOLS_COMMIT:-}"
 STAGING="${SKIA_NATIVE_DIR:-${REPO_ROOT}/skia/native}"
-BIN_DIR="out/native-raster"
+BIN_DIR="out/native-metal"
+BACKEND_ID="native-ganesh-metal-${SKIA_REVISION}"
+BACKEND_STAMP="${STAGING}/.effindom-skia-backend"
 FORCE=false
 
 bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -21,7 +23,7 @@ for arg in "$@"; do
   esac
 done
 
-if [ "$FORCE" = false ] && [ -f "${STAGING}/libskia.a" ] && [ -f "${STAGING}/libsvg.a" ] && [ -f "${STAGING}/libskshaper.a" ] && [ -f "${STAGING}/modules/svg/include/SkSVGDOM.h" ] && [ -f "${STAGING}/modules/skresources/include/SkResources.h" ] && [ -f "${STAGING}/modules/skshaper/include/SkShaper_factory.h" ] && [ -f "${STAGING}/src/core/SkTHash.h" ] && [ -f "${STAGING}/src/base/SkMathPriv.h" ]; then
+if [ "$FORCE" = false ] && [ -f "${BACKEND_STAMP}" ] && [ "$(cat "${BACKEND_STAMP}")" = "${BACKEND_ID}" ] && [ -f "${STAGING}/libskia.a" ] && [ -f "${STAGING}/libsvg.a" ] && [ -f "${STAGING}/libskshaper.a" ] && [ -f "${STAGING}/modules/svg/include/SkSVGDOM.h" ] && [ -f "${STAGING}/modules/skresources/include/SkResources.h" ] && [ -f "${STAGING}/modules/skshaper/include/SkShaper_factory.h" ] && [ -f "${STAGING}/src/core/SkTHash.h" ] && [ -f "${STAGING}/src/base/SkMathPriv.h" ]; then
   green "=== Native Skia already staged at ${STAGING} — skipping ==="
   exit 0
 fi
@@ -85,10 +87,10 @@ gn gen "${BIN_DIR}" --args="
 is_official_build=true
 is_debug=false
 target_cpu=\"${TARGET_CPU}\"
-skia_enable_gpu=false
+skia_enable_gpu=true
 skia_use_gl=false
 skia_use_vulkan=false
-skia_use_metal=false
+skia_use_metal=true
 skia_use_dawn=false
 skia_use_egl=false
 skia_use_expat=true
@@ -127,5 +129,6 @@ cp -R modules/svg "${STAGING}/modules/svg"
 mkdir -p "${STAGING}/src"
 cp -R src/base "${STAGING}/src/base"
 cp -R src/core "${STAGING}/src/core"
+printf '%s\n' "${BACKEND_ID}" > "${BACKEND_STAMP}"
 
 green "=== Native Skia staged at ${STAGING} ==="

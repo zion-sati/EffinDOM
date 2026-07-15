@@ -21,6 +21,196 @@ void TouchPointerEvent(std::uint32_t event_enum, ui_handle_t handle, float logic
 
 } // namespace
 
+TEST_CASE("v2 retained select-all paint and hit regions stay bounded while scrolling", "[v2][ui][text-edit][bounded-selection-paint]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    std::string content{};
+    for (std::size_t line = 0U; line < 1000U; line += 1U) {
+        if (line != 0U) {
+            content += '\n';
+        }
+        content += "select-all retained line " + std::to_string(line);
+    }
+
+    ui_set_root(root);
+    ui_resize_window(240.0f, 120.0f);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 18.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(content.data()), static_cast<std::uint32_t>(content.size()));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, text);
+    ui_commit_frame();
+
+    const std::uint32_t text_length = static_cast<std::uint32_t>(content.size());
+    GetRuntime().ClearTextGeometryProfile();
+    ui_set_text_selection_range(text, 0U, text_length);
+    ui_commit_frame();
+
+    const auto first_profile = GetRuntime().text_geometry_profile();
+    const auto* first_text = GetRuntime().Resolve(text);
+    REQUIRE(first_text != nullptr);
+    CHECK(first_text->selection_start == 0U);
+    CHECK(first_text->selection_end == text_length);
+    CHECK(first_profile.bounded_calls == 1U);
+    CHECK(first_profile.unrestricted_calls == 0U);
+    CHECK(first_profile.lines_visited <= 8U);
+    CHECK(first_profile.rectangles_emitted <= 8U);
+    CHECK(GetRuntime().Selection().state().hit_rects.size() == first_profile.rectangles_emitted);
+
+    ui_set_scroll_offset(scroll, 0.0f, 6000.0f);
+    GetRuntime().ClearTextGeometryProfile();
+    ui_commit_frame();
+
+    const auto scrolled_profile = GetRuntime().text_geometry_profile();
+    const auto* scrolled_text = GetRuntime().Resolve(text);
+    REQUIRE(scrolled_text != nullptr);
+    CHECK(scrolled_text->selection_start == 0U);
+    CHECK(scrolled_text->selection_end == text_length);
+    CHECK(scrolled_profile.bounded_calls == 1U);
+    CHECK(scrolled_profile.unrestricted_calls == 0U);
+    CHECK(scrolled_profile.lines_visited <= 8U);
+    CHECK(scrolled_profile.rectangles_emitted <= 8U);
+    CHECK(GetRuntime().Selection().state().hit_rects.size() == scrolled_profile.rectangles_emitted);
+}
+
+TEST_CASE("v2 retained find highlight paint stays bounded while logical matches survive scrolling", "[v2][ui][text-edit][bounded-find-paint]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    std::string content{};
+    for (std::size_t line = 0U; line < 1000U; line += 1U) {
+        if (line != 0U) {
+            content += '\n';
+        }
+        content += "find-highlight retained line " + std::to_string(line);
+    }
+
+    ui_set_root(root);
+    ui_resize_window(240.0f, 120.0f);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 18.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(content.data()), static_cast<std::uint32_t>(content.size()));
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, text);
+    ui_commit_frame();
+
+    const std::uint32_t text_length = static_cast<std::uint32_t>(content.size());
+    REQUIRE(ui_push_text_find_highlight(text, 0U, text_length, 0x80FFD000U));
+    GetRuntime().ClearTextGeometryProfile();
+    ui_commit_frame();
+
+    const auto first_profile = GetRuntime().text_geometry_profile();
+    REQUIRE(GetRuntime().text_find_highlights_.size() == 1U);
+    CHECK(GetRuntime().text_find_highlights_.front().start == 0U);
+    CHECK(GetRuntime().text_find_highlights_.front().end == text_length);
+    CHECK(first_profile.bounded_calls == 1U);
+    CHECK(first_profile.lines_visited <= 8U);
+    CHECK(first_profile.find_rectangles_emitted <= 8U);
+    CHECK(first_profile.find_rectangles_emitted == first_profile.rectangles_emitted);
+
+    ui_set_scroll_offset(scroll, 0.0f, 6000.0f);
+    GetRuntime().ClearTextGeometryProfile();
+    ui_commit_frame();
+
+    const auto scrolled_profile = GetRuntime().text_geometry_profile();
+    REQUIRE(GetRuntime().text_find_highlights_.size() == 1U);
+    CHECK(GetRuntime().text_find_highlights_.front().start == 0U);
+    CHECK(GetRuntime().text_find_highlights_.front().end == text_length);
+    CHECK(scrolled_profile.bounded_calls == 1U);
+    CHECK(scrolled_profile.lines_visited <= 8U);
+    CHECK(scrolled_profile.find_rectangles_emitted <= 8U);
+    CHECK(scrolled_profile.find_rectangles_emitted == scrolled_profile.rectangles_emitted);
+}
+
+TEST_CASE("v2 public text range rectangle ABI stays unrestricted across scrolling", "[v2][ui][text-edit][unrestricted-range-geometry]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    std::string content{};
+    for (std::size_t line = 0U; line < 1000U; line += 1U) {
+        if (line != 0U) {
+            content += '\n';
+        }
+        content += "public geometry line " + std::to_string(line);
+    }
+
+    ui_set_root(root);
+    ui_resize_window(240.0f, 120.0f);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 18.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(content.data()), static_cast<std::uint32_t>(content.size()));
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, text);
+    ui_commit_frame();
+
+    const std::uint32_t text_length = static_cast<std::uint32_t>(content.size());
+    GetRuntime().ClearTextGeometryProfile();
+    const std::uint32_t first_count = ui_get_text_range_rect_count(text, 0U, text_length);
+    REQUIRE(first_count > 1000U);
+    CHECK(GetRuntime().text_geometry_profile().unrestricted_calls == 1U);
+    CHECK(GetRuntime().text_geometry_profile().bounded_calls == 0U);
+    CHECK(GetRuntime().text_geometry_profile().lines_visited == first_count);
+
+    std::vector<float> rect_words(static_cast<std::size_t>(first_count) * 4U);
+    REQUIRE(ui_copy_text_range_rects(text, 0U, text_length, rect_words.data(), first_count) == first_count);
+
+    ui_set_scroll_offset(scroll, 0.0f, 6000.0f);
+    ui_commit_frame();
+    GetRuntime().ClearTextGeometryProfile();
+    const std::uint32_t scrolled_count = ui_get_text_range_rect_count(text, 0U, text_length);
+    CHECK(scrolled_count == first_count);
+    CHECK(GetRuntime().text_geometry_profile().unrestricted_calls == 1U);
+    CHECK(GetRuntime().text_geometry_profile().bounded_calls == 0U);
+    CHECK(GetRuntime().text_geometry_profile().lines_visited == first_count);
+}
+
 TEST_CASE("v2 ui auto-scroll tick advances a dragged selection inside scroll views", "[v2][ui][text-edit]") {
     using effindom::v2::ui::GetRuntime;
 
@@ -84,7 +274,7 @@ TEST_CASE("v2 ui auto-scroll tick advances a dragged selection inside scroll vie
         scroll_node->abs_x + (scroll_node->layout_width * 0.5f),
         scroll_node->abs_y + scroll_node->layout_height + 24.0f,
         30.0f) == scroll);
-    REQUIRE(GetRuntime().auto_scroll_active_);
+    REQUIRE((*GetRuntime().scroll_coordinator_).HasAutoScroll());
     REQUIRE(GetRuntime().ResolveMutable(text) != nullptr);
     CHECK(GetRuntime().ResolveMutable(text)->selection_end == visible_edge_index);
     CHECK(GetRuntime().ResolveMutable(text)->selection_end < std::strlen(kSample));
@@ -156,7 +346,7 @@ TEST_CASE("v2 ui selection auto-scroll stays inactive until the pointer drag cro
         text_node->abs_y + (text_node->line_height * 0.5f));
 
     CHECK(ui_selection_autoscroll(edge_x, edge_y, 30.0f) == UI_INVALID_HANDLE);
-    CHECK_FALSE(GetRuntime().auto_scroll_active_);
+    CHECK_FALSE((*GetRuntime().scroll_coordinator_).HasAutoScroll());
     REQUIRE(GetRuntime().ResolveMutable(text) != nullptr);
     CHECK(GetRuntime().ResolveMutable(text)->selection_start == 0U);
     CHECK(GetRuntime().ResolveMutable(text)->selection_end == 0U);
@@ -168,7 +358,7 @@ TEST_CASE("v2 ui selection auto-scroll stays inactive until the pointer drag cro
         text_node->abs_y + (text_node->line_height * 0.5f));
 
     CHECK(ui_selection_autoscroll(edge_x, edge_y, 30.0f) == UI_INVALID_HANDLE);
-    CHECK_FALSE(GetRuntime().auto_scroll_active_);
+    CHECK_FALSE((*GetRuntime().scroll_coordinator_).HasAutoScroll());
 }
 
 TEST_CASE("v2 ui selection and scroll drag autoscroll share the same edge-factor logic", "[v2][ui][text-edit]") {
@@ -229,15 +419,15 @@ TEST_CASE("v2 ui selection and scroll drag autoscroll share the same edge-factor
         pointer_y);
 
     REQUIRE(ui_selection_autoscroll(pointer_x, pointer_y, 30.0f) == scroll);
-    REQUIRE(GetRuntime().auto_scroll_active_);
-    const float selection_factor_x = GetRuntime().auto_scroll_factor_x_;
-    const float selection_factor_y = GetRuntime().auto_scroll_factor_y_;
+    REQUIRE((*GetRuntime().scroll_coordinator_).HasAutoScroll());
+    const float selection_factor_x = (*GetRuntime().scroll_coordinator_).AutoScrollFactorX();
+    const float selection_factor_y = (*GetRuntime().scroll_coordinator_).AutoScrollFactorY();
 
     GetRuntime().UpdateAutoScrollState(text, pointer_x, pointer_y);
-    CHECK(GetRuntime().auto_scroll_active_);
-    CHECK(GetRuntime().auto_scroll_view_handle_ == scroll);
-    CHECK(GetRuntime().auto_scroll_factor_x_ == Approx(selection_factor_x));
-    CHECK(GetRuntime().auto_scroll_factor_y_ == Approx(selection_factor_y));
+    CHECK((*GetRuntime().scroll_coordinator_).HasAutoScroll());
+    CHECK((*GetRuntime().scroll_coordinator_).ActiveAutoScrollHandle() == scroll);
+    CHECK((*GetRuntime().scroll_coordinator_).AutoScrollFactorX() == Approx(selection_factor_x));
+    CHECK((*GetRuntime().scroll_coordinator_).AutoScrollFactorY() == Approx(selection_factor_y));
 }
 
 TEST_CASE("v2 ui collapsed text range returns caret geometry for selection handle crossover", "[v2][ui][text-edit]") {
@@ -351,14 +541,14 @@ TEST_CASE("v2 ui cross-selection auto-scroll advances the endpoint as new text s
         scroll_node->abs_x + (scroll_node->layout_width * 0.5f),
         scroll_node->abs_y + scroll_node->layout_height - 2.0f,
         30.0f) == scroll);
-    REQUIRE(GetRuntime().auto_scroll_active_);
+    REQUIRE((*GetRuntime().scroll_coordinator_).HasAutoScroll());
 
     for (int tick = 0; tick < 8; tick += 1) {
         ui_commit_frame();
     }
 
     CHECK(GetRuntime().Resolve(scroll)->scroll_offset_y > 0.0f);
-    CHECK(GetRuntime().end_node_handle_ == second);
+    CHECK(GetRuntime().Selection().state().end_node_handle == second);
     CHECK(GetRuntime().BuildCrossSelectionText().find('\n') != std::string::npos);
 }
 
@@ -432,9 +622,9 @@ TEST_CASE("v2 ui cross-selection drag can escape a nested scroll view to visible
     UiTestPointerEvent(UI_EVENT_POINTER_MOVE, outside_text, outside_node->abs_x + outside_x + 0.5f, outside_y);
     UiTestPointerEvent(UI_EVENT_POINTER_UP, outside_text, outside_node->abs_x + outside_x + 0.5f, outside_y);
 
-    CHECK(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().start_node_handle_ == inner_text);
-    CHECK(GetRuntime().end_node_handle_ == outside_text);
+    CHECK(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Selection().state().start_node_handle == inner_text);
+    CHECK(GetRuntime().Selection().state().end_node_handle == outside_text);
     CHECK(GetRuntime().BuildCrossSelectionText().find("Outside") != std::string::npos);
 }
 
@@ -844,17 +1034,17 @@ TEST_CASE("v2 ui scroll helpers cover ancestor lookup, edge detection, and drag 
     REQUIRE(plain_node != nullptr);
 
     runtime->UpdateAutoScrollState(PackHandle(0U, 1U), 0.0f, 0.0f);
-    CHECK_FALSE(runtime->auto_scroll_active_);
+    CHECK_FALSE((*runtime->scroll_coordinator_).HasAutoScroll());
     CHECK(runtime->FindScrollableAncestorContainingPoint(PackHandle(0U, 1U), 0.0f, 0.0f) == UI_INVALID_HANDLE);
 
     scroll_node->children.push_back(PackHandle(0U, 1U));
-    runtime->UpdateScrollMetrics(scroll, *scroll_node);
+    (*runtime->scroll_coordinator_).UpdateMetrics(scroll, *scroll_node);
     scroll_node->children.pop_back();
-    runtime->UpdateScrollMetrics(plain, *plain_node);
+    (*runtime->scroll_coordinator_).UpdateMetrics(plain, *plain_node);
 
     scroll_node->scroll_enabled_x = false;
     scroll_node->scroll_enabled_y = false;
-    runtime->ApplyScrollOffset(scroll, *scroll_node, 40.0f, 50.0f, false);
+    (*runtime->scroll_coordinator_).ApplyOffset(scroll, *scroll_node, 40.0f, 50.0f, false);
     CHECK(scroll_node->scroll_offset_x == Approx(0.0f));
     CHECK(scroll_node->scroll_offset_y == Approx(0.0f));
     scroll_node->scroll_enabled_x = true;
@@ -862,41 +1052,38 @@ TEST_CASE("v2 ui scroll helpers cover ancestor lookup, edge detection, and drag 
 
     scroll_node->edge_hot_zone = 10.0f;
     runtime->UpdateAutoScrollState(content, scroll_node->abs_x + 1.0f, scroll_node->abs_y + 50.0f);
-    CHECK(runtime->auto_scroll_active_);
-    CHECK(runtime->auto_scroll_factor_x_ == Approx(-0.9f));
-    CHECK(runtime->auto_scroll_factor_y_ == Approx(0.0f));
+    CHECK((*runtime->scroll_coordinator_).HasAutoScroll());
+    CHECK((*runtime->scroll_coordinator_).AutoScrollFactorX() == Approx(-0.9f));
+    CHECK((*runtime->scroll_coordinator_).AutoScrollFactorY() == Approx(0.0f));
 
     runtime->UpdateAutoScrollState(content, scroll_node->abs_x + scroll_node->layout_width - 1.0f, scroll_node->abs_y + 50.0f);
-    CHECK(runtime->auto_scroll_factor_x_ == Approx(0.9f));
+    CHECK((*runtime->scroll_coordinator_).AutoScrollFactorX() == Approx(0.9f));
 
     runtime->UpdateAutoScrollState(content, scroll_node->abs_x + 50.0f, scroll_node->abs_y + 1.0f);
-    CHECK(runtime->auto_scroll_factor_y_ == Approx(-0.9f));
+    CHECK((*runtime->scroll_coordinator_).AutoScrollFactorY() == Approx(-0.9f));
 
     runtime->UpdateAutoScrollState(content, scroll_node->abs_x - 20.0f, scroll_node->abs_y + 50.0f);
-    CHECK(runtime->auto_scroll_factor_x_ == Approx(-3.0f));
+    CHECK((*runtime->scroll_coordinator_).AutoScrollFactorX() == Approx(-3.0f));
 
     UiTestPointerEvent(UI_EVENT_POINTER_DOWN, content, 30.0f, 60.0f);
-    CHECK(runtime->active_scroll_handle_ == scroll);
+    CHECK((*runtime->scroll_coordinator_).ActiveDragHandle() == scroll);
     ui_commit_frame();
     UiTestPointerEvent(UI_EVENT_POINTER_MOVE, UI_INVALID_HANDLE, 30.0f, 20.0f);
-    CHECK(runtime->active_scroll_dragged_);
+    CHECK((*runtime->scroll_coordinator_).ActiveDragWasMoved());
     CHECK(runtime->Resolve(scroll)->scroll_offset_y == Approx(40.0f));
     CHECK(runtime->Resolve(scroll)->scroll_velocity_y == Approx(2400.0f));
     UiTestPointerEvent(UI_EVENT_POINTER_UP, content, 30.0f, 20.0f);
-    CHECK(runtime->active_scroll_handle_ == UI_INVALID_HANDLE);
+    CHECK((*runtime->scroll_coordinator_).ActiveDragHandle() == UI_INVALID_HANDLE);
 
     UiTestPointerEvent(UI_EVENT_POINTER_DOWN, content, 30.0f, 40.0f);
-    CHECK(runtime->active_scroll_handle_ == scroll);
+    CHECK((*runtime->scroll_coordinator_).ActiveDragHandle() == scroll);
     UiTestPointerEvent(UI_EVENT_POINTER_UP, content, 30.0f, 40.0f);
     CHECK(runtime->Resolve(scroll)->scroll_velocity_y == Approx(0.0f));
 
-    runtime->auto_scroll_active_ = true;
-    runtime->auto_scroll_view_handle_ = PackHandle(0U, 1U);
-    runtime->auto_scroll_factor_x_ = 1.0f;
-    runtime->auto_scroll_factor_y_ = 1.0f;
+    (*runtime->scroll_coordinator_).SetAutoScroll(PackHandle(0U, 1U), 1.0f, 1.0f);
     ui_commit_frame();
-    CHECK_FALSE(runtime->auto_scroll_active_);
-    CHECK(runtime->auto_scroll_view_handle_ == UI_INVALID_HANDLE);
+    CHECK_FALSE((*runtime->scroll_coordinator_).HasAutoScroll());
+    CHECK((*runtime->scroll_coordinator_).ActiveAutoScrollHandle() == UI_INVALID_HANDLE);
 }
 
 TEST_CASE("v2 ui routes hover click focus and html-style tab traversal", "[v2][ui][input]") {
@@ -975,7 +1162,7 @@ TEST_CASE("v2 ui routes hover click focus and html-style tab traversal", "[v2][u
     REQUIRE(g_focus_events.size() == 1U);
     CHECK(g_focus_events[0].handle == child_c);
     CHECK(g_focus_events[0].is_focused);
-    CHECK(GetRuntime().focused_handle_ == child_c);
+    CHECK(GetRuntime().Focus().FocusedHandle() == child_c);
 
     ResetInteractionLogs();
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("Tab"), 3U, 0U);
@@ -1033,12 +1220,11 @@ TEST_CASE("v2 ui invalidates focus order and clears focus when detached or disab
     ui_set_focusable(child_c, true, 2);
 
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("Tab"), 3U, 0U);
-    CHECK(GetRuntime().focused_handle_ == child_c);
+    CHECK(GetRuntime().Focus().FocusedHandle() == child_c);
 
     ResetInteractionLogs();
     ui_node_remove_child(root, child_c);
-    CHECK(GetRuntime().focused_handle_ == UI_INVALID_HANDLE);
-    CHECK(GetRuntime().focus_order_dirty_);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
     REQUIRE(g_focus_events.size() == 1U);
     CHECK(g_focus_events[0].handle == child_c);
     CHECK_FALSE(g_focus_events[0].is_focused);
@@ -1051,8 +1237,7 @@ TEST_CASE("v2 ui invalidates focus order and clears focus when detached or disab
 
     ResetInteractionLogs();
     ui_set_focusable(child_a, false, 0);
-    CHECK(GetRuntime().focused_handle_ == UI_INVALID_HANDLE);
-    CHECK(GetRuntime().focus_order_dirty_);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
     REQUIRE(g_focus_events.size() == 1U);
     CHECK(g_focus_events[0].handle == child_a);
     CHECK_FALSE(g_focus_events[0].is_focused);
@@ -1107,7 +1292,7 @@ TEST_CASE("v2 ui Tab focus scrolls a focusable target into view inside a scroll 
     REQUIRE(g_focus_events.size() == 1U);
     CHECK(g_focus_events[0].handle == target);
     CHECK(g_focus_events[0].is_focused);
-    CHECK(GetRuntime().focused_handle_ == target);
+    CHECK(GetRuntime().Focus().FocusedHandle() == target);
     REQUIRE(GetRuntime().Resolve(scroll) != nullptr);
     CHECK(GetRuntime().Resolve(scroll)->scroll_offset_y == Approx(80.0f));
 
@@ -1219,7 +1404,7 @@ TEST_CASE("v2 ui mouse focus does not scroll a partially visible target into vie
     REQUIRE(g_focus_events.size() == 1U);
     CHECK(g_focus_events[0].handle == target);
     CHECK(g_focus_events[0].is_focused);
-    CHECK(GetRuntime().focused_handle_ == target);
+    CHECK(GetRuntime().Focus().FocusedHandle() == target);
     REQUIRE(GetRuntime().Resolve(scroll) != nullptr);
     CHECK(GetRuntime().Resolve(scroll)->scroll_offset_x == Approx(0.0f));
 }
@@ -1268,7 +1453,7 @@ TEST_CASE("v2 ui coarse pointer focus does not scroll a focused target into view
     REQUIRE(g_focus_events.size() == 1U);
     CHECK(g_focus_events[0].handle == target);
     CHECK(g_focus_events[0].is_focused);
-    CHECK(GetRuntime().focused_handle_ == target);
+    CHECK(GetRuntime().Focus().FocusedHandle() == target);
     REQUIRE(GetRuntime().Resolve(scroll) != nullptr);
     CHECK(GetRuntime().Resolve(scroll)->scroll_offset_y == Approx(0.0f));
     ui_set_coarse_pointer_mode(false);
@@ -1937,6 +2122,17 @@ TEST_CASE("v2 ui multiline non-wrap preserves the skipped short-line gap near ma
     REQUIRE(text_node->line_widths[0] > text_node->line_widths[1]);
     REQUIRE(text_node->line_widths[2] > text_node->line_widths[1]);
 
+    const auto count_rendered_baselines = [text]() {
+        const auto glyph_runs = ReadGlyphRuns(ReadCommandBuffer());
+        REQUIRE(glyph_runs.find(text) != glyph_runs.end());
+        std::set<int> baselines{};
+        for (const auto& glyph : glyph_runs.at(text).glyphs) {
+            baselines.insert(static_cast<int>(std::lround(glyph.y * 10.0f)));
+        }
+        return baselines;
+    };
+    CHECK(count_rendered_baselines().size() == 3U);
+
     const float max_scroll_offset = std::max(scroll_node->scroll_content_width - 220.0f, 0.0f);
     REQUIRE(max_scroll_offset > text_node->line_widths[1]);
 
@@ -1955,6 +2151,10 @@ TEST_CASE("v2 ui multiline non-wrap preserves the skipped short-line gap near ma
     const std::vector<int> baseline_values(baselines.begin(), baselines.end());
     const int expected_gap = static_cast<int>(std::lround(text_node->line_height * 20.0f));
     CHECK((baseline_values[1] - baseline_values[0]) == Approx(expected_gap).margin(10));
+
+    ui_set_scroll_offset(scroll, 0.0f, 0.0f);
+    ui_commit_frame();
+    CHECK(count_rendered_baselines().size() == 3U);
 }
 
 TEST_CASE("v2 ui long non-wrap selection hit testing and caret placement stay correct while horizontally scrolled", "[v2][ui][scroll]") {
@@ -2010,7 +2210,7 @@ TEST_CASE("v2 ui long non-wrap selection hit testing and caret placement stay co
     REQUIRE(text_node != nullptr);
     const std::uint32_t anchor_index = GetRuntime().GetStringIndexFromPoint(
         *text_node,
-        text_node->layout_width * 0.35f,
+        target_offset + (text_node->layout_width * 0.35f),
         text_node->line_height * 0.5f);
     REQUIRE(anchor_index > 4U);
     REQUIRE(anchor_index + 8U < static_cast<std::uint32_t>(text_node->text_content.size()));
@@ -2026,13 +2226,20 @@ TEST_CASE("v2 ui long non-wrap selection hit testing and caret placement stay co
     const auto [selection_right, selection_right_line] = GetRuntime().GetLocalPositionFromIndex(*text_node, caret_index);
     REQUIRE(selection_left_line == 0);
     REQUIRE(selection_right_line == 0);
-    REQUIRE_FALSE(GetRuntime().current_selection_hit_rects_.empty());
-    const auto& hit_rect = GetRuntime().current_selection_hit_rects_.front();
+    REQUIRE_FALSE(GetRuntime().Selection().state().hit_rects.empty());
+    const auto& hit_rect = GetRuntime().Selection().state().hit_rects.front();
     const float selection_probe_x = hit_rect.x + (hit_rect.width * 0.5f);
     const float selection_probe_y = hit_rect.y + (hit_rect.height * 0.5f);
-    CHECK(hit_rect.x <= text_node->scene_x + selection_right);
-    CHECK(hit_rect.x + hit_rect.width >= text_node->scene_x + selection_left);
+    CHECK(hit_rect.x <= text_node->abs_x + selection_right);
+    CHECK(hit_rect.x + hit_rect.width >= text_node->abs_x + selection_left);
     CHECK(ui_is_point_in_selection(selection_probe_x, selection_probe_y));
+
+    GetRuntime().Selection().state().hit_rects.clear();
+    GetRuntime().ClearTextGeometryProfile();
+    CHECK(ui_is_point_in_selection(selection_probe_x, selection_probe_y));
+    CHECK(GetRuntime().text_geometry_profile().bounded_calls == 1U);
+    CHECK(GetRuntime().text_geometry_profile().unrestricted_calls == 0U);
+    CHECK(GetRuntime().text_geometry_profile().lines_visited == 1U);
 
     text_node->selection_start = caret_index;
     text_node->selection_end = caret_index;
@@ -3441,7 +3648,7 @@ TEST_CASE("v2 ui modal semantic scope traps Tab focus inside the active subtree"
     REQUIRE(g_focus_events.size() == 1U);
     CHECK(g_focus_events[0].handle == first_modal);
     CHECK(g_focus_events[0].is_focused);
-    CHECK(GetRuntime().focused_handle_ == first_modal);
+    CHECK(GetRuntime().Focus().FocusedHandle() == first_modal);
 
     ResetInteractionLogs();
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("Tab"), 3U, 0U);
@@ -3450,21 +3657,21 @@ TEST_CASE("v2 ui modal semantic scope traps Tab focus inside the active subtree"
     CHECK_FALSE(g_focus_events[0].is_focused);
     CHECK(g_focus_events[1].handle == second_modal);
     CHECK(g_focus_events[1].is_focused);
-    CHECK(GetRuntime().focused_handle_ == second_modal);
+    CHECK(GetRuntime().Focus().FocusedHandle() == second_modal);
 
     ResetInteractionLogs();
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("Tab"), 3U, 0U);
     REQUIRE(g_focus_events.size() == 2U);
     CHECK(g_focus_events[1].handle == first_modal);
     CHECK(g_focus_events[1].is_focused);
-    CHECK(GetRuntime().focused_handle_ == first_modal);
+    CHECK(GetRuntime().Focus().FocusedHandle() == first_modal);
 
     ResetInteractionLogs();
     ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>("Tab"), 3U, UI_KEY_MOD_SHIFT);
     REQUIRE(g_focus_events.size() == 2U);
     CHECK(g_focus_events[1].handle == second_modal);
     CHECK(g_focus_events[1].is_focused);
-    CHECK(GetRuntime().focused_handle_ == second_modal);
+    CHECK(GetRuntime().Focus().FocusedHandle() == second_modal);
 
     ui_remove_semantic_scope(dialog_scope);
     GetRuntime().SetFocus(UI_INVALID_HANDLE);
@@ -3771,7 +3978,7 @@ TEST_CASE("v2 ui touch tap on editable text places the caret", "[v2][ui][text-ed
 
     const auto* final_node = GetRuntime().Resolve(text);
     REQUIRE(final_node != nullptr);
-    CHECK(GetRuntime().focused_handle_ == text);
+    CHECK(GetRuntime().Focus().FocusedHandle() == text);
     CHECK(final_node->selection_start == 8U);
     CHECK(final_node->selection_end == 8U);
     REQUIRE_FALSE(g_selection_changes.empty());
@@ -3859,7 +4066,7 @@ TEST_CASE("v2 ui touch swipe over selected cross-selection text preserves the se
     const float y = node->abs_y + (node->line_height * 0.5f);
 
     REQUIRE(ui_select_word_at(text, node->abs_x + start_x + 2.0f, y));
-    REQUIRE(GetRuntime().cross_selection_active_);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().text == "brave");
     ResetInteractionLogs();
@@ -3867,12 +4074,12 @@ TEST_CASE("v2 ui touch swipe over selected cross-selection text preserves the se
     TouchPointerEvent(UI_EVENT_POINTER_MOVE, text, node->abs_x + end_x + 24.0f, y);
     TouchPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + end_x + 24.0f, y);
 
-    REQUIRE(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().selection_area_handle_ == root);
-    CHECK(GetRuntime().start_node_handle_ == text);
-    CHECK(GetRuntime().end_node_handle_ == text);
-    CHECK(GetRuntime().start_index_ == expected.first);
-    CHECK(GetRuntime().end_index_ == expected.second);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Selection().state().area_handle == root);
+    CHECK(GetRuntime().Selection().state().start_node_handle == text);
+    CHECK(GetRuntime().Selection().state().end_node_handle == text);
+    CHECK(GetRuntime().Selection().state().start_index == expected.first);
+    CHECK(GetRuntime().Selection().state().end_index == expected.second);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
     CHECK(g_cross_selection_changes.back().text == "brave");
@@ -3913,12 +4120,12 @@ TEST_CASE("v2 ui touch tap outside selected cross-selection text clears the sele
     const float y = node->abs_y + (node->line_height * 0.5f);
 
     REQUIRE(ui_select_word_at(text, node->abs_x + selected_x + 2.0f, y));
-    REQUIRE(GetRuntime().cross_selection_active_);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
     ResetInteractionLogs();
     TouchPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + tap_x + 0.5f, y);
     TouchPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + tap_x + 0.5f, y);
 
-    CHECK_FALSE(GetRuntime().cross_selection_active_);
+    CHECK_FALSE(GetRuntime().Selection().state().cross_active);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
     CHECK(g_cross_selection_changes.back().text.empty());
@@ -3957,14 +4164,14 @@ TEST_CASE("v2 ui touch tap inside selected cross-selection text preserves the se
     const float y = node->abs_y + (node->line_height * 0.5f);
 
     REQUIRE(ui_select_word_at(text, node->abs_x + tap_x + 0.5f, y));
-    REQUIRE(GetRuntime().cross_selection_active_);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
     ResetInteractionLogs();
     TouchPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + tap_x + 0.5f, y);
     TouchPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + tap_x + 0.5f, y);
 
-    REQUIRE(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().start_index_ == expected.first);
-    CHECK(GetRuntime().end_index_ == expected.second);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Selection().state().start_index == expected.first);
+    CHECK(GetRuntime().Selection().state().end_index == expected.second);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().text == "brave");
 }
@@ -4059,7 +4266,7 @@ TEST_CASE("v2 ui reverse mouse selection keeps the visual start as the keyboard 
 
     auto* selected_node = GetRuntime().ResolveMutable(text);
     REQUIRE(selected_node != nullptr);
-    CHECK(GetRuntime().focused_handle_ == text);
+    CHECK(GetRuntime().Focus().FocusedHandle() == text);
     CHECK(selected_node->selection_start == 11U);
     CHECK(selected_node->selection_end == 6U);
 
@@ -4110,12 +4317,12 @@ TEST_CASE("v2 ui reverse mouse cross-selection keeps the visual start as the key
     UiTestPointerEvent(UI_EVENT_POINTER_MOVE, text, node->abs_x + focus_x + 0.5f, y);
     UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + focus_x + 0.5f, y);
 
-    REQUIRE(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().focused_handle_ == text);
-    CHECK(GetRuntime().start_node_handle_ == text);
-    CHECK(GetRuntime().start_index_ == 11U);
-    CHECK(GetRuntime().end_node_handle_ == text);
-    CHECK(GetRuntime().end_index_ == 6U);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Focus().FocusedHandle() == text);
+    CHECK(GetRuntime().Selection().state().start_node_handle == text);
+    CHECK(GetRuntime().Selection().state().start_index == 11U);
+    CHECK(GetRuntime().Selection().state().end_node_handle == text);
+    CHECK(GetRuntime().Selection().state().end_index == 6U);
 
     GetRuntime().HandleKeyEvent(
         UI_KEY_EVENT_DOWN,
@@ -4123,10 +4330,10 @@ TEST_CASE("v2 ui reverse mouse cross-selection keeps the visual start as the key
         9U,
         UI_KEY_MOD_SHIFT);
 
-    CHECK(GetRuntime().start_node_handle_ == text);
-    CHECK(GetRuntime().start_index_ == 11U);
-    CHECK(GetRuntime().end_node_handle_ == text);
-    CHECK(GetRuntime().end_index_ == 5U);
+    CHECK(GetRuntime().Selection().state().start_node_handle == text);
+    CHECK(GetRuntime().Selection().state().start_index == 11U);
+    CHECK(GetRuntime().Selection().state().end_node_handle == text);
+    CHECK(GetRuntime().Selection().state().end_index == 5U);
 }
 
 TEST_CASE("v2 ui selection handle pointer down preserves single text selection", "[v2][ui][text-edit]") {
@@ -4213,18 +4420,18 @@ TEST_CASE("v2 ui selection endpoint drag updates cross-selection through pointer
     const float handle_drag_y = y + kSelectionHandleDragAnchorYOffset;
 
     REQUIRE(ui_select_word_at(text, node->abs_x + word_x + 0.5f, y));
-    REQUIRE(GetRuntime().cross_selection_active_);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
     ResetInteractionLogs();
 
     REQUIRE(ui_begin_selection_endpoint_drag(root, 0U));
     TouchPointerEvent(UI_EVENT_POINTER_MOVE, UI_INVALID_HANDLE, node->abs_x + drag_x + 0.5f, handle_drag_y);
     TouchPointerEvent(UI_EVENT_POINTER_UP, UI_INVALID_HANDLE, node->abs_x + drag_x + 0.5f, handle_drag_y);
 
-    REQUIRE(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().start_node_handle_ == text);
-    CHECK(GetRuntime().end_node_handle_ == text);
-    CHECK(GetRuntime().start_index_ == 1U);
-    CHECK(GetRuntime().end_index_ == 11U);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Selection().state().start_node_handle == text);
+    CHECK(GetRuntime().Selection().state().end_node_handle == text);
+    CHECK(GetRuntime().Selection().state().start_index == 1U);
+    CHECK(GetRuntime().Selection().state().end_index == 11U);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
     CHECK(g_cross_selection_changes.back().text == "ello brave");
@@ -4269,15 +4476,15 @@ TEST_CASE("v2 ui selection handle pointer down preserves cross-selection", "[v2]
     const float y = node->abs_y + (node->line_height * 0.5f);
 
     REQUIRE(ui_select_word_at(text, node->abs_x + word_x + 0.5f, y));
-    REQUIRE(GetRuntime().cross_selection_active_);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
     ResetInteractionLogs();
     TouchPointerEvent(UI_EVENT_POINTER_DOWN, handle, 5.0f, 5.0f);
 
-    CHECK(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().start_node_handle_ == text);
-    CHECK(GetRuntime().end_node_handle_ == text);
-    CHECK(GetRuntime().start_index_ == 6U);
-    CHECK(GetRuntime().end_index_ == 11U);
+    CHECK(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Selection().state().start_node_handle == text);
+    CHECK(GetRuntime().Selection().state().end_node_handle == text);
+    CHECK(GetRuntime().Selection().state().start_index == 6U);
+    CHECK(GetRuntime().Selection().state().end_index == 11U);
     CHECK(g_cross_selection_changes.empty());
 }
 
@@ -4374,12 +4581,12 @@ TEST_CASE("v2 ui selection-area double click selects the clicked word", "[v2][ui
     UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
     UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
 
-    REQUIRE(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().selection_area_handle_ == root);
-    CHECK(GetRuntime().start_node_handle_ == text);
-    CHECK(GetRuntime().end_node_handle_ == text);
-    CHECK(GetRuntime().start_index_ == expected.first);
-    CHECK(GetRuntime().end_index_ == expected.second);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Selection().state().area_handle == root);
+    CHECK(GetRuntime().Selection().state().start_node_handle == text);
+    CHECK(GetRuntime().Selection().state().end_node_handle == text);
+    CHECK(GetRuntime().Selection().state().start_index == expected.first);
+    CHECK(GetRuntime().Selection().state().end_index == expected.second);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
     CHECK(g_cross_selection_changes.back().text == "brave");
@@ -4433,12 +4640,12 @@ TEST_CASE("v2 ui selection-area triple click selects the clicked newline-delimit
     UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + click_x + 0.5f, click_y);
     UiTestPointerEvent(UI_EVENT_POINTER_UP, text, node->abs_x + click_x + 0.5f, click_y);
 
-    REQUIRE(GetRuntime().cross_selection_active_);
-    CHECK(GetRuntime().selection_area_handle_ == root);
-    CHECK(GetRuntime().start_node_handle_ == text);
-    CHECK(GetRuntime().end_node_handle_ == text);
-    CHECK(GetRuntime().start_index_ == expected.first);
-    CHECK(GetRuntime().end_index_ == expected.second);
+    REQUIRE(GetRuntime().Selection().state().cross_active);
+    CHECK(GetRuntime().Selection().state().area_handle == root);
+    CHECK(GetRuntime().Selection().state().start_node_handle == text);
+    CHECK(GetRuntime().Selection().state().end_node_handle == text);
+    CHECK(GetRuntime().Selection().state().start_index == expected.first);
+    CHECK(GetRuntime().Selection().state().end_index == expected.second);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
     CHECK(g_cross_selection_changes.back().handle == root);
     CHECK(g_cross_selection_changes.back().text == "Second paragraph");
@@ -4639,7 +4846,7 @@ TEST_CASE("v2 ui non-text clicks clear an existing text selection", "[v2][ui][te
     CHECK(g_selection_changes[0].handle == text);
     CHECK(g_selection_changes[0].start == 5U);
     CHECK(g_selection_changes[0].end == 5U);
-    CHECK(GetRuntime().focused_handle_ == button);
+    CHECK(GetRuntime().Focus().FocusedHandle() == button);
 
     ui_commit_frame();
     auto highlights = ReadHighlights(ReadCommandBuffer());
@@ -4659,7 +4866,7 @@ TEST_CASE("v2 ui non-text clicks clear an existing text selection", "[v2][ui][te
     CHECK(g_selection_changes[0].handle == text);
     CHECK(g_selection_changes[0].start == 5U);
     CHECK(g_selection_changes[0].end == 5U);
-    CHECK(GetRuntime().focused_handle_ == UI_INVALID_HANDLE);
+    CHECK(GetRuntime().Focus().FocusedHandle() == UI_INVALID_HANDLE);
 }
 
 TEST_CASE("v2 ui focusing another editable text clears the previous text selection", "[v2][ui][text-edit]") {
@@ -4714,7 +4921,7 @@ TEST_CASE("v2 ui focusing another editable text clears the previous text selecti
     UiTestPointerEvent(UI_EVENT_POINTER_MOVE, first, first_node->abs_x + first_end_x + 0.5f, first_y);
     UiTestPointerEvent(UI_EVENT_POINTER_UP, first, first_node->abs_x + first_end_x + 0.5f, first_y);
     REQUIRE_FALSE(g_selection_changes.empty());
-    REQUIRE(GetRuntime().focused_handle_ == first);
+    REQUIRE(GetRuntime().Focus().FocusedHandle() == first);
     ResetInteractionLogs();
 
     UiTestPointerEvent(UI_EVENT_POINTER_DOWN, second, second_node->abs_x + second_click_x + 0.5f, second_y);
@@ -4732,7 +4939,7 @@ TEST_CASE("v2 ui focusing another editable text clears the previous text selecti
     CHECK_FALSE(g_focus_events[0].is_focused);
     CHECK(g_focus_events[1].handle == second);
     CHECK(g_focus_events[1].is_focused);
-    CHECK(GetRuntime().focused_handle_ == second);
+    CHECK(GetRuntime().Focus().FocusedHandle() == second);
 
     ui_commit_frame();
     const auto highlights = ReadHighlights(ReadCommandBuffer());

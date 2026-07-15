@@ -28,7 +28,7 @@ void ReentrantScrollApplyCallback(
         auto& runtime = effindom::v2::ui::GetRuntime();
         auto* node = runtime.ResolveMutable(handle);
         REQUIRE(node != nullptr);
-        REQUIRE(runtime.ApplyScrollOffset(handle, *node, offset_x, offset_y + 10.0f, true));
+        REQUIRE((*runtime.scroll_coordinator_).ApplyOffset(handle, *node, offset_x, offset_y + 10.0f, true));
     }
     g_reentrant_scroll_callback_depth -= 1U;
 }
@@ -269,7 +269,7 @@ TEST_CASE("v2 ui scroll apply guard defers reentrant notifications", "[v2][ui][u
     auto& runtime = GetRuntime();
     auto* scroll_node = runtime.ResolveMutable(scroll);
     REQUIRE(scroll_node != nullptr);
-    REQUIRE(runtime.ApplyScrollOffset(scroll, *scroll_node, 0.0f, 20.0f, true));
+    REQUIRE((*runtime.scroll_coordinator_).ApplyOffset(scroll, *scroll_node, 0.0f, 20.0f, true));
 
     CHECK(g_reentrant_scroll_max_depth == 1U);
     REQUIRE(g_scroll_changes.size() == 2U);
@@ -309,8 +309,8 @@ TEST_CASE("v2 ui scroll views respect configured scroll axes and friction", "[v2
     ui_commit_frame();
 
     auto& runtime = GetRuntime();
-    runtime.last_pointer_logical_x_ = 40.0f;
-    runtime.last_pointer_logical_y_ = 40.0f;
+    runtime.Input().state().last_pointer_logical_x = 40.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
 
     ui_set_scroll_enabled(scroll, true, false);
     ui_on_wheel_event(0.0f, 24.0f);
@@ -336,6 +336,52 @@ TEST_CASE("v2 ui scroll views respect configured scroll axes and friction", "[v2
 
     REQUIRE(runtime.Resolve(scroll) != nullptr);
     CHECK(runtime.Resolve(scroll)->scroll_velocity_y == Approx(600.0f));
+}
+
+TEST_CASE("v2 ui precise wheel streams bypass coarse smoothing and retain their gesture target", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(content, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, content);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    runtime.Input().state().last_pointer_logical_x = 40.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
+
+    runtime.HandleWheelEvent(0.0f, 24.0f);
+    REQUIRE(runtime.Resolve(scroll) != nullptr);
+    CHECK(runtime.Resolve(scroll)->scroll_offset_y == Approx(0.0f));
+    CHECK(runtime.Resolve(scroll)->smooth_scroll_active);
+
+    runtime.HandlePreciseWheelEvent(0.0f, 7.5f, true, false);
+    CHECK(runtime.Resolve(scroll)->scroll_offset_y == Approx(7.5f));
+    CHECK_FALSE(runtime.Resolve(scroll)->smooth_scroll_active);
+
+    runtime.Input().state().last_pointer_logical_x = 220.0f;
+    runtime.Input().state().last_pointer_logical_y = 100.0f;
+    runtime.HandlePreciseWheelEvent(0.0f, 2.5f, false, false);
+    CHECK(runtime.Resolve(scroll)->scroll_offset_y == Approx(10.0f));
+
+    runtime.HandlePreciseWheelEvent(0.0f, 0.0f, false, true);
+    runtime.HandlePreciseWheelEvent(0.0f, 3.0f, true, true);
+    CHECK(runtime.Resolve(scroll)->scroll_offset_y == Approx(10.0f));
 }
 
 
@@ -380,11 +426,11 @@ TEST_CASE("v2 ui pull-to-refresh reports true for non-scroll starts and top-of-s
 
     auto& runtime = GetRuntime();
     REQUIRE(runtime.ResolveMutable(scroll) != nullptr);
-    runtime.active_touch_scroll_handle_y_ = scroll;
+    (*runtime.scroll_coordinator_).BeginTouch(scroll, -1.0);
     CHECK(ui_touch_scroll_allows_pull_to_refresh());
     runtime.ResolveMutable(scroll)->scroll_offset_y = 18.0f;
     CHECK_FALSE(ui_touch_scroll_allows_pull_to_refresh());
-    runtime.active_touch_scroll_handle_y_ = UI_INVALID_HANDLE;
+    ui_touch_scroll_end();
     CHECK(ui_touch_scroll_allows_pull_to_refresh());
 }
 
