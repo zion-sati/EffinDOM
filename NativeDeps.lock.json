@@ -1,0 +1,11 @@
+{
+  "schema": 1,
+  "base_url": "https://native-deps.effindom.dev",
+  "targets": {
+    "macos-arm64": {
+      "recipe_hash": "b90ff1acbec07a72b7113b730923882edd130ba131bf3211cf087a9543923883",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/macos-arm64/b90ff1acbec07a72b7113b730923882edd130ba131bf3211cf087a9543923883/manifest.json",
+      "manifest_sha256": "e0e1e27cc498731428085ab8449026c9b93086036192fabe9053fd161e77582c"
+    }
+  }
+}

@@ -1,0 +1,215 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 20, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "windows-msvc-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "EFFINDOM_BUILD_NATIVE_HEADLESS": "ON",
+        "EFFINDOM_BUILD_NATIVE_MACOS": "OFF",
+        "EFFINDOM_BUILD_NATIVE_WINDOWS": "ON",
+        "EFFINDOM_BUILD_NATIVE_FUI_RS_DEMO": "ON"
+      }
+    },
+    {
+      "name": "windows-x64-msvc-debug-raster",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x64 MSVC Debug (raster)",
+      "binaryDir": "${sourceDir}/build/native-windows-x64-msvc-debug-raster",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "EFFINDOM_TARGET_ARCH": "x64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "raster" }
+    },
+    {
+      "name": "windows-x64-msvc-release-raster",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x64 MSVC Release (raster)",
+      "binaryDir": "${sourceDir}/build/native-windows-x64-msvc-release-raster",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "EFFINDOM_TARGET_ARCH": "x64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "raster" }
+    },
+    {
+      "name": "windows-x64-msvc-relwithdebinfo-raster",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x64 MSVC RelWithDebInfo (raster)",
+      "binaryDir": "${sourceDir}/build/native-windows-x64-msvc-relwithdebinfo-raster",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "EFFINDOM_TARGET_ARCH": "x64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "raster" }
+    },
+    {
+      "name": "windows-x86-msvc-debug-raster",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x86 MSVC Debug (raster)",
+      "binaryDir": "${sourceDir}/build/native-windows-x86-msvc-debug-raster",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "EFFINDOM_TARGET_ARCH": "x86", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "raster" }
+    },
+    {
+      "name": "windows-x86-msvc-release-raster",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x86 MSVC Release (raster)",
+      "binaryDir": "${sourceDir}/build/native-windows-x86-msvc-release-raster",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "EFFINDOM_TARGET_ARCH": "x86", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "raster" }
+    },
+    {
+      "name": "windows-x86-msvc-relwithdebinfo-raster",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x86 MSVC RelWithDebInfo (raster)",
+      "binaryDir": "${sourceDir}/build/native-windows-x86-msvc-relwithdebinfo-raster",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "EFFINDOM_TARGET_ARCH": "x86", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "raster" }
+    },
+    {
+      "name": "windows-arm64-msvc-debug-raster",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows ARM64 MSVC Debug (raster)",
+      "binaryDir": "${sourceDir}/build/native-windows-arm64-msvc-debug-raster",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "EFFINDOM_TARGET_ARCH": "arm64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "raster" }
+    },
+    {
+      "name": "windows-arm64-msvc-release-raster",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows ARM64 MSVC Release (raster)",
+      "binaryDir": "${sourceDir}/build/native-windows-arm64-msvc-release-raster",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "EFFINDOM_TARGET_ARCH": "arm64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "raster" }
+    },
+    {
+      "name": "windows-arm64-msvc-relwithdebinfo-raster",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows ARM64 MSVC RelWithDebInfo (raster)",
+      "binaryDir": "${sourceDir}/build/native-windows-arm64-msvc-relwithdebinfo-raster",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "EFFINDOM_TARGET_ARCH": "arm64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "raster" }
+    },
+    {
+      "name": "windows-x64-msvc-debug-d3d",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x64 MSVC Debug (Direct3D)",
+      "binaryDir": "${sourceDir}/build/native-windows-x64-msvc-debug-d3d",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "EFFINDOM_TARGET_ARCH": "x64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "d3d" }
+    },
+    {
+      "name": "windows-x64-msvc-release-d3d",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x64 MSVC Release (Direct3D)",
+      "binaryDir": "${sourceDir}/build/native-windows-x64-msvc-release-d3d",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "EFFINDOM_TARGET_ARCH": "x64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "d3d" }
+    },
+    {
+      "name": "windows-x64-msvc-relwithdebinfo-d3d",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x64 MSVC RelWithDebInfo (Direct3D)",
+      "binaryDir": "${sourceDir}/build/native-windows-x64-msvc-relwithdebinfo-d3d",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "EFFINDOM_TARGET_ARCH": "x64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "d3d" }
+    },
+    {
+      "name": "windows-x86-msvc-debug-d3d",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x86 MSVC Debug (Direct3D)",
+      "binaryDir": "${sourceDir}/build/native-windows-x86-msvc-debug-d3d",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "EFFINDOM_TARGET_ARCH": "x86", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "d3d" }
+    },
+    {
+      "name": "windows-x86-msvc-release-d3d",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x86 MSVC Release (Direct3D)",
+      "binaryDir": "${sourceDir}/build/native-windows-x86-msvc-release-d3d",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "EFFINDOM_TARGET_ARCH": "x86", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "d3d" }
+    },
+    {
+      "name": "windows-x86-msvc-relwithdebinfo-d3d",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows x86 MSVC RelWithDebInfo (Direct3D)",
+      "binaryDir": "${sourceDir}/build/native-windows-x86-msvc-relwithdebinfo-d3d",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "EFFINDOM_TARGET_ARCH": "x86", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "d3d" }
+    },
+    {
+      "name": "windows-arm64-msvc-debug-d3d",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows ARM64 MSVC Debug (Direct3D)",
+      "binaryDir": "${sourceDir}/build/native-windows-arm64-msvc-debug-d3d",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug", "EFFINDOM_TARGET_ARCH": "arm64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "d3d" }
+    },
+    {
+      "name": "windows-arm64-msvc-release-d3d",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows ARM64 MSVC Release (Direct3D)",
+      "binaryDir": "${sourceDir}/build/native-windows-arm64-msvc-release-d3d",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "EFFINDOM_TARGET_ARCH": "arm64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "d3d" }
+    },
+    {
+      "name": "windows-arm64-msvc-relwithdebinfo-d3d",
+      "inherits": "windows-msvc-base",
+      "displayName": "Windows ARM64 MSVC RelWithDebInfo (Direct3D)",
+      "binaryDir": "${sourceDir}/build/native-windows-arm64-msvc-relwithdebinfo-d3d",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "EFFINDOM_TARGET_ARCH": "arm64", "EFFINDOM_NATIVE_GRAPHICS_BACKEND": "d3d" }
+    },
+    {
+      "name": "macos-native-base",
+      "hidden": true,
+      "generator": "Ninja",
+      "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
+      "cacheVariables": {
+        "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
+        "EFFINDOM_BUILD_NATIVE_HEADLESS": "ON",
+        "EFFINDOM_BUILD_NATIVE_MACOS": "ON",
+        "EFFINDOM_BUILD_NATIVE_WINDOWS": "OFF",
+        "EFFINDOM_BUILD_NATIVE_FUI_RS_DEMO": "ON"
+      }
+    },
+    {
+      "name": "macos-arm64-appleclang-release-metal",
+      "inherits": "macos-native-base",
+      "displayName": "macOS arm64 AppleClang Release (Metal)",
+      "binaryDir": "${sourceDir}/build/native-macos-arm64-appleclang-release-metal",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "CMAKE_OSX_ARCHITECTURES": "arm64", "EFFINDOM_TARGET_ARCH": "arm64" }
+    },
+    {
+      "name": "macos-x64-appleclang-release-metal",
+      "inherits": "macos-native-base",
+      "displayName": "macOS x86_64 AppleClang Release (Metal)",
+      "binaryDir": "${sourceDir}/build/native-macos-x64-appleclang-release-metal",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release", "CMAKE_OSX_ARCHITECTURES": "x86_64", "EFFINDOM_TARGET_ARCH": "x64" }
+    }
+  ],
+  "buildPresets": [
+    { "name": "windows-x64-msvc-debug-raster", "configurePreset": "windows-x64-msvc-debug-raster" },
+    { "name": "windows-x64-msvc-release-raster", "configurePreset": "windows-x64-msvc-release-raster" },
+    { "name": "windows-x64-msvc-relwithdebinfo-raster", "configurePreset": "windows-x64-msvc-relwithdebinfo-raster" },
+    { "name": "windows-x86-msvc-debug-raster", "configurePreset": "windows-x86-msvc-debug-raster" },
+    { "name": "windows-x86-msvc-release-raster", "configurePreset": "windows-x86-msvc-release-raster" },
+    { "name": "windows-x86-msvc-relwithdebinfo-raster", "configurePreset": "windows-x86-msvc-relwithdebinfo-raster" },
+    { "name": "windows-arm64-msvc-debug-raster", "configurePreset": "windows-arm64-msvc-debug-raster" },
+    { "name": "windows-arm64-msvc-release-raster", "configurePreset": "windows-arm64-msvc-release-raster" },
+    { "name": "windows-arm64-msvc-relwithdebinfo-raster", "configurePreset": "windows-arm64-msvc-relwithdebinfo-raster" },
+    { "name": "windows-x64-msvc-debug-d3d", "configurePreset": "windows-x64-msvc-debug-d3d" },
+    { "name": "windows-x64-msvc-release-d3d", "configurePreset": "windows-x64-msvc-release-d3d" },
+    { "name": "windows-x64-msvc-relwithdebinfo-d3d", "configurePreset": "windows-x64-msvc-relwithdebinfo-d3d" },
+    { "name": "windows-x86-msvc-debug-d3d", "configurePreset": "windows-x86-msvc-debug-d3d" },
+    { "name": "windows-x86-msvc-release-d3d", "configurePreset": "windows-x86-msvc-release-d3d" },
+    { "name": "windows-x86-msvc-relwithdebinfo-d3d", "configurePreset": "windows-x86-msvc-relwithdebinfo-d3d" },
+    { "name": "windows-arm64-msvc-debug-d3d", "configurePreset": "windows-arm64-msvc-debug-d3d" },
+    { "name": "windows-arm64-msvc-release-d3d", "configurePreset": "windows-arm64-msvc-release-d3d" },
+    { "name": "windows-arm64-msvc-relwithdebinfo-d3d", "configurePreset": "windows-arm64-msvc-relwithdebinfo-d3d" },
+    { "name": "macos-arm64-appleclang-release-metal", "configurePreset": "macos-arm64-appleclang-release-metal" },
+    { "name": "macos-x64-appleclang-release-metal", "configurePreset": "macos-x64-appleclang-release-metal" }
+  ],
+  "testPresets": [
+    { "name": "windows-x64-msvc-debug-raster", "configurePreset": "windows-x64-msvc-debug-raster", "output": { "outputOnFailure": true } },
+    { "name": "windows-x64-msvc-release-raster", "configurePreset": "windows-x64-msvc-release-raster", "output": { "outputOnFailure": true } },
+    { "name": "windows-x64-msvc-relwithdebinfo-raster", "configurePreset": "windows-x64-msvc-relwithdebinfo-raster", "output": { "outputOnFailure": true } },
+    { "name": "windows-x86-msvc-debug-raster", "configurePreset": "windows-x86-msvc-debug-raster", "output": { "outputOnFailure": true } },
+    { "name": "windows-x86-msvc-release-raster", "configurePreset": "windows-x86-msvc-release-raster", "output": { "outputOnFailure": true } },
+    { "name": "windows-x86-msvc-relwithdebinfo-raster", "configurePreset": "windows-x86-msvc-relwithdebinfo-raster", "output": { "outputOnFailure": true } },
+    { "name": "windows-arm64-msvc-debug-raster", "configurePreset": "windows-arm64-msvc-debug-raster", "output": { "outputOnFailure": true } },
+    { "name": "windows-arm64-msvc-release-raster", "configurePreset": "windows-arm64-msvc-release-raster", "output": { "outputOnFailure": true } },
+    { "name": "windows-arm64-msvc-relwithdebinfo-raster", "configurePreset": "windows-arm64-msvc-relwithdebinfo-raster", "output": { "outputOnFailure": true } },
+    { "name": "windows-x64-msvc-debug-d3d", "configurePreset": "windows-x64-msvc-debug-d3d", "output": { "outputOnFailure": true } },
+    { "name": "windows-x64-msvc-release-d3d", "configurePreset": "windows-x64-msvc-release-d3d", "output": { "outputOnFailure": true } },
+    { "name": "windows-x64-msvc-relwithdebinfo-d3d", "configurePreset": "windows-x64-msvc-relwithdebinfo-d3d", "output": { "outputOnFailure": true } },
+    { "name": "windows-x86-msvc-debug-d3d", "configurePreset": "windows-x86-msvc-debug-d3d", "output": { "outputOnFailure": true } },
+    { "name": "windows-x86-msvc-release-d3d", "configurePreset": "windows-x86-msvc-release-d3d", "output": { "outputOnFailure": true } },
+    { "name": "windows-x86-msvc-relwithdebinfo-d3d", "configurePreset": "windows-x86-msvc-relwithdebinfo-d3d", "output": { "outputOnFailure": true } },
+    { "name": "windows-arm64-msvc-debug-d3d", "configurePreset": "windows-arm64-msvc-debug-d3d", "output": { "outputOnFailure": true } },
+    { "name": "windows-arm64-msvc-release-d3d", "configurePreset": "windows-arm64-msvc-release-d3d", "output": { "outputOnFailure": true } },
+    { "name": "windows-arm64-msvc-relwithdebinfo-d3d", "configurePreset": "windows-arm64-msvc-relwithdebinfo-d3d", "output": { "outputOnFailure": true } },
+    { "name": "macos-arm64-appleclang-release-metal", "configurePreset": "macos-arm64-appleclang-release-metal", "output": { "outputOnFailure": true } },
+    { "name": "macos-x64-appleclang-release-metal", "configurePreset": "macos-x64-appleclang-release-metal", "output": { "outputOnFailure": true } }
+  ]
+}
