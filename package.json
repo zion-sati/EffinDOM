@@ -4,7 +4,7 @@
   "version": "0.1.26",
   "description": "Standalone runtime repository for @effindomv2/runtime",
   "engines": {
-    "node": ">=18"
+    "node": ">=24"
   },
   "workspaces": [
     "v2/browser-bridge"

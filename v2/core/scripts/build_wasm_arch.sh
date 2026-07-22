@@ -146,6 +146,18 @@ if [ -n "${EFFINDOM_WASM_DEPS_ROOT:-}" ]; then
   WASM_DEPS_CMAKE_ARGS+=("-DEFFINDOM_WASM_DEPS_ROOT=${EFFINDOM_WASM_DEPS_ROOT}")
 fi
 
+CACHE_LAUNCHER_CMAKE_ARGS=()
+if [ "${EFFINDOM_USE_CCACHE:-0}" = "1" ]; then
+  if ! command -v ccache >/dev/null 2>&1; then
+    echo "EFFINDOM_USE_CCACHE=1 requires ccache on PATH." >&2
+    exit 1
+  fi
+  CACHE_LAUNCHER_CMAKE_ARGS=(
+    "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
+    "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+  )
+fi
+
 if ! cmake_output="$(
   emcmake cmake -S . -B "${BUILD_DIR}" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -161,6 +173,7 @@ if ! cmake_output="$(
     "-DSKIA_GRAPHITE_WASM_DIR=${GRAPHITE_DIR}" \
     "-DSKIA_GANESH_WASM_DIR=${GANESH_DIR}" \
     "${WASM_DEPS_CMAKE_ARGS[@]}" \
+    "${CACHE_LAUNCHER_CMAKE_ARGS[@]}" \
     "${MEMORY64_FLAGS[@]}" 2>&1
 )"; then
   printf '%s\n' "${cmake_output}"

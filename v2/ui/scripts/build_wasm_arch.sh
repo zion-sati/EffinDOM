@@ -107,6 +107,18 @@ if [ -n "${SKIA_GANESH_WASM_DIR:-}" ]; then
   SKIA_CMAKE_ARGS+=("-DSKIA_GANESH_WASM_DIR=${SKIA_GANESH_WASM_DIR}")
 fi
 
+CACHE_LAUNCHER_CMAKE_ARGS=()
+if [ "${EFFINDOM_USE_CCACHE:-0}" = "1" ]; then
+  if ! command -v ccache >/dev/null 2>&1; then
+    echo "EFFINDOM_USE_CCACHE=1 requires ccache on PATH." >&2
+    exit 1
+  fi
+  CACHE_LAUNCHER_CMAKE_ARGS=(
+    "-DCMAKE_C_COMPILER_LAUNCHER=ccache"
+    "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+  )
+fi
+
 if ! cmake_output="$(
   emcmake cmake -S . -B "${BUILD_DIR}" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -121,6 +133,7 @@ if ! cmake_output="$(
     "-DEFFINDOM_V2_UI_BROWSER_OUTPUT_DIR=${OUTPUT_DIR}" \
     "${WASM_DEPS_CMAKE_ARGS[@]}" \
     "${SKIA_CMAKE_ARGS[@]}" \
+    "${CACHE_LAUNCHER_CMAKE_ARGS[@]}" \
     "${MEMORY64_FLAGS[@]}" 2>&1
 )"; then
   printf '%s\n' "${cmake_output}"
