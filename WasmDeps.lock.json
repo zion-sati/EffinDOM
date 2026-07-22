@@ -3,9 +3,9 @@
   "base_url": "https://native-deps.effindom.dev",
   "targets": {
     "wasm-web": {
-      "recipe_hash": "32b82fd58cce8a4bb427eaf7d24d28f8d56c711b278fd44b7cd2bb30cb43ba9e",
-      "manifest_url": "https://native-deps.effindom.dev/wasm-deps/v1/wasm-web/32b82fd58cce8a4bb427eaf7d24d28f8d56c711b278fd44b7cd2bb30cb43ba9e/manifest.json",
-      "manifest_sha256": "f212e9ab032e8ff5f72e02a35fa3a8d644cd926fab866a9631e6bd06b16e245a",
+      "recipe_hash": "09381329df883fe8df3c32aef81cab0bd3fc40d3cfed61f00a4eb0aff1b4ccde",
+      "manifest_url": "https://native-deps.effindom.dev/wasm-deps/v1/wasm-web/09381329df883fe8df3c32aef81cab0bd3fc40d3cfed61f00a4eb0aff1b4ccde/manifest.json",
+      "manifest_sha256": "85305824bdca89d8c48bd487bcb2ec90212d4e2bc6b0508d02b39772333e9930",
       "emscripten": "emcc (Emscripten gcc/clang-like replacement + linker emulating GNU ld) 5.0.6 (6ea9c28c38cdd40c1032fa04400c9d16230ee180)"
     }
   }

@@ -29,7 +29,9 @@ function(effindom_use_prebuilt_wasm_deps)
 
     _effindom_wasm_deps_require("lanes/${_effindom_wasm_lane}/skia/libskia.a")
     _effindom_wasm_add_prebuilt_static(yogacore "yoga.a")
-    target_include_directories(yogacore SYSTEM INTERFACE "${EFFINDOM_WASM_DEPS_ROOT}/sources/yoga")
+    # The archive preserves Yoga as sources/yoga/Yoga.h, while callers include
+    # it as <yoga/Yoga.h>; expose the parent include root.
+    target_include_directories(yogacore SYSTEM INTERFACE "${EFFINDOM_WASM_DEPS_ROOT}/sources")
     target_link_libraries(yogacore INTERFACE effindom_wasm_feature_flags)
 
     _effindom_wasm_add_prebuilt_static(effindom_icu_common "icu-common.a")
