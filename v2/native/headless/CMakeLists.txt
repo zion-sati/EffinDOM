@@ -17,6 +17,9 @@ target_link_libraries(effindom_v2_headless_host
     PRIVATE effindom_compile_flags
 )
 target_compile_definitions(effindom_v2_headless_host PRIVATE EFFINDOM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+if(MSVC)
+    target_compile_options(effindom_v2_headless_host PRIVATE /wd4251 /wd4275)
+endif()
 
 function(effindom_configure_headless_target target_name)
     target_include_directories(${target_name} PRIVATE
@@ -40,6 +43,20 @@ function(effindom_configure_headless_target target_name)
         )
     endif()
     target_compile_definitions(${target_name} PRIVATE EFFINDOM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+    if(MSVC)
+        target_compile_options(${target_name} PRIVATE /wd4251 /wd4275)
+    endif()
+    if(WIN32)
+        add_custom_command(TARGET ${target_name} POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:effindom_v2_core>
+                $<TARGET_FILE_DIR:${target_name}>
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:effindom_v2_ui>
+                $<TARGET_FILE_DIR:${target_name}>
+            VERBATIM
+        )
+    endif()
 endfunction()
 
 add_executable(effindom_v2_headless_conformance
@@ -54,13 +71,15 @@ target_link_libraries(effindom_v2_headless_tests PRIVATE Catch2::Catch2WithMain)
 effindom_configure_headless_target(effindom_v2_headless_tests)
 
 include(CTest)
-include(Catch)
-catch_discover_tests(effindom_v2_headless_tests)
+if(EFFINDOM_TARGET_RUNNABLE)
+    include(Catch)
+    catch_discover_tests(effindom_v2_headless_tests)
 
-set(EFFINDOM_V2_HEADLESS_ARTIFACT_DIR "${CMAKE_CURRENT_BINARY_DIR}/artifacts")
-add_test(
-    NAME effindom_v2_headless_conformance_cli
-    COMMAND effindom_v2_headless_conformance
-        --output "${EFFINDOM_V2_HEADLESS_ARTIFACT_DIR}"
-        --verify "${CMAKE_CURRENT_SOURCE_DIR}/goldens"
-)
+    set(EFFINDOM_V2_HEADLESS_ARTIFACT_DIR "${CMAKE_CURRENT_BINARY_DIR}/artifacts")
+    add_test(
+        NAME effindom_v2_headless_conformance_cli
+        COMMAND effindom_v2_headless_conformance
+            --output "${EFFINDOM_V2_HEADLESS_ARTIFACT_DIR}"
+            --verify "${CMAKE_CURRENT_SOURCE_DIR}/goldens"
+    )
+endif()

@@ -48,12 +48,11 @@ FetchContent_Declare(
     effindom_pinned_woff2
     GIT_REPOSITORY https://github.com/google/woff2.git
     GIT_TAG        ${EFFINDOM_PINNED_WOFF2_REV}
+    # Populate the pinned sources without adopting WOFF2's upstream targets;
+    # EffinDOM defines the exact static decoder targets it needs below.
+    SOURCE_SUBDIR  __effindom_source_only
 )
-
-FetchContent_GetProperties(effindom_pinned_woff2)
-if(NOT effindom_pinned_woff2_POPULATED)
-    FetchContent_Populate(effindom_pinned_woff2)
-endif()
+FetchContent_MakeAvailable(effindom_pinned_woff2)
 
 add_library(effindom_woff2common STATIC
     "${effindom_pinned_woff2_SOURCE_DIR}/src/table_tags.cc"
@@ -78,6 +77,13 @@ target_include_directories(effindom_woff2dec
     PRIVATE
         "${effindom_pinned_woff2_SOURCE_DIR}/src"
 )
+# WOFF2 v1.0.2's output.h uses uint8_t without including the standard header.
+# Older toolchains supplied it transitively, while current GCC does not.
+if(MSVC)
+    target_compile_options(effindom_woff2dec PRIVATE /FIcstdint)
+else()
+    target_compile_options(effindom_woff2dec PRIVATE -include cstdint)
+endif()
 target_link_libraries(effindom_woff2dec
     PRIVATE
         effindom_wasm_feature_flags

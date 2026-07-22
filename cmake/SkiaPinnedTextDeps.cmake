@@ -25,12 +25,10 @@ FetchContent_Declare(
     effindom_skia_pinned_harfbuzz
     GIT_REPOSITORY https://chromium.googlesource.com/external/github.com/harfbuzz/harfbuzz.git
     GIT_TAG        ${EFFINDOM_SKIA_PINNED_HARFBUZZ_REV}
+    # HarfBuzz is built through the pinned Meson configuration below.
+    SOURCE_SUBDIR  __effindom_source_only
 )
-
-FetchContent_GetProperties(effindom_skia_pinned_harfbuzz)
-if(NOT effindom_skia_pinned_harfbuzz_POPULATED)
-    FetchContent_Populate(effindom_skia_pinned_harfbuzz)
-endif()
+FetchContent_MakeAvailable(effindom_skia_pinned_harfbuzz)
 
 file(TO_CMAKE_PATH "${EFFINDOM_MESON_EXECUTABLE}" _EFFINDOM_MESON_EXECUTABLE_PATH)
 file(TO_CMAKE_PATH "${EFFINDOM_HARFBUZZ_NINJA_EXECUTABLE}" _EFFINDOM_HARFBUZZ_NINJA_EXECUTABLE_PATH)
@@ -99,6 +97,36 @@ if(EMSCRIPTEN)
         "${_EFFINDOM_HARFBUZZ_CROSS_FILE}"
         @ONLY
     )
+elseif(WIN32 AND EFFINDOM_TARGET_ARCH STREQUAL "arm64")
+    # Meson otherwise treats this as a native build and tries to execute its
+    # ARM64 compiler sanity binary on the x64 build host.
+    file(TO_CMAKE_PATH "${CMAKE_CXX_COMPILER}" EFFINDOM_HARFBUZZ_MSVC_COMPILER)
+    file(TO_CMAKE_PATH "${CMAKE_AR}" EFFINDOM_HARFBUZZ_MSVC_ARCHIVER)
+    set(_EFFINDOM_HARFBUZZ_CROSS_FILE "${CMAKE_BINARY_DIR}/effindom-harfbuzz-meson-cross.ini")
+    configure_file(
+        "${CMAKE_CURRENT_LIST_DIR}/WindowsArm64MesonCross.ini.in"
+        "${_EFFINDOM_HARFBUZZ_CROSS_FILE}"
+        @ONLY
+    )
+elseif(APPLE)
+    file(TO_CMAKE_PATH "${CMAKE_C_COMPILER}" EFFINDOM_HARFBUZZ_APPLE_C_COMPILER)
+    file(TO_CMAKE_PATH "${CMAKE_CXX_COMPILER}" EFFINDOM_HARFBUZZ_APPLE_CPP_COMPILER)
+    file(TO_CMAKE_PATH "${CMAKE_AR}" EFFINDOM_HARFBUZZ_APPLE_ARCHIVER)
+    if(EFFINDOM_TARGET_ARCH STREQUAL "arm64")
+        set(EFFINDOM_HARFBUZZ_APPLE_ARCH "arm64")
+        set(EFFINDOM_HARFBUZZ_APPLE_CPU_FAMILY "aarch64")
+        set(EFFINDOM_HARFBUZZ_APPLE_CPU "arm64")
+    else()
+        set(EFFINDOM_HARFBUZZ_APPLE_ARCH "x86_64")
+        set(EFFINDOM_HARFBUZZ_APPLE_CPU_FAMILY "x86_64")
+        set(EFFINDOM_HARFBUZZ_APPLE_CPU "x86_64")
+    endif()
+    set(_EFFINDOM_HARFBUZZ_CROSS_FILE "${CMAKE_BINARY_DIR}/effindom-harfbuzz-meson-cross.ini")
+    configure_file(
+        "${CMAKE_CURRENT_LIST_DIR}/MacosMesonCross.ini.in"
+        "${_EFFINDOM_HARFBUZZ_CROSS_FILE}"
+        @ONLY
+    )
 endif()
 file(TO_CMAKE_PATH "${_EFFINDOM_HARFBUZZ_CROSS_FILE}" _EFFINDOM_HARFBUZZ_CROSS_FILE_PATH)
 
@@ -147,11 +175,9 @@ file(GLOB_RECURSE EFFINDOM_HARFBUZZ_BUILD_SOURCES CONFIGURE_DEPENDS
     "${effindom_skia_pinned_harfbuzz_SOURCE_DIR}/src/*"
 )
 
-if(WIN32 AND NOT EMSCRIPTEN)
-    set(_EFFINDOM_HARFBUZZ_LIBRARY_NAME "harfbuzz.lib")
-else()
-    set(_EFFINDOM_HARFBUZZ_LIBRARY_NAME "libharfbuzz.a")
-endif()
+# HarfBuzz's Meson static target retains its Unix-style archive name when it
+# contains MSVC COFF objects; the file is still a valid MSVC static library.
+set(_EFFINDOM_HARFBUZZ_LIBRARY_NAME "libharfbuzz.a")
 set(_EFFINDOM_HARFBUZZ_LIBRARY_PATH "${_EFFINDOM_HARFBUZZ_MESON_BUILD_DIR}/src/${_EFFINDOM_HARFBUZZ_LIBRARY_NAME}")
 set(_EFFINDOM_HARFBUZZ_CONFIG_PATH "${_EFFINDOM_HARFBUZZ_MESON_BUILD_DIR}/config.h")
 set(_EFFINDOM_HARFBUZZ_VERSION_HEADER_PATH "${_EFFINDOM_HARFBUZZ_MESON_BUILD_DIR}/src/hb-version.h")
@@ -203,12 +229,10 @@ FetchContent_Declare(
     effindom_skia_pinned_icu
     GIT_REPOSITORY https://chromium.googlesource.com/chromium/deps/icu.git
     GIT_TAG        ${EFFINDOM_SKIA_PINNED_ICU_REV}
+    # EffinDOM owns the ICU source lists and target configuration below.
+    SOURCE_SUBDIR  __effindom_source_only
 )
-
-FetchContent_GetProperties(effindom_skia_pinned_icu)
-if(NOT effindom_skia_pinned_icu_POPULATED)
-    FetchContent_Populate(effindom_skia_pinned_icu)
-endif()
+FetchContent_MakeAvailable(effindom_skia_pinned_icu)
 
 set(_EFFINDOM_ICU_SOURCE_ROOT "${effindom_skia_pinned_icu_SOURCE_DIR}/source")
 

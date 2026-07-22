@@ -9,6 +9,13 @@ set(_cross_file [==[@EFFINDOM_HARFBUZZ_CROSS_FILE@]==])
 set(_setup_args)
 @EFFINDOM_HARFBUZZ_MESON_SETUP_ARGS_BLOCK@
 
+# Meson --wipe requires a previously configured build tree. Recover from an
+# interrupted first setup, which can otherwise leave only a partial directory.
+if(IS_DIRECTORY "${_build_dir}" AND
+   NOT EXISTS "${_build_dir}/meson-private/coredata.dat")
+    file(REMOVE_RECURSE "${_build_dir}")
+endif()
+
 set(_setup_command
     "${_meson}"
     "setup"

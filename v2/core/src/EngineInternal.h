@@ -77,7 +77,7 @@ struct TextureRecord {
     sk_sp<SkImage> raster_image;
 };
 
-struct DisplayNode {
+struct EFFINDOM_V2_CORE_INTERNAL_API DisplayNode {
     bool alive = false;
     std::uint32_t generation = 0;
     Rect visual_bounds{};
@@ -171,15 +171,16 @@ struct DisplayNode {
     void ResetForDelete();
 };
 
-HandleParts DecodeHandle(std::uint64_t handle);
-std::uint64_t DecodeHandleWords(std::uint32_t low, std::uint32_t high);
-float ReadFloat(std::uint32_t word);
-float ClampNonNegative(float value);
-float ClampOpacity(float value);
-std::uint32_t VerbArgCount(std::uint32_t verb);
-bool IsValidImageSampling(std::uint32_t sampling);
-std::uint32_t NormalizeImageMaxAniso(std::uint32_t max_aniso);
-SkSamplingOptions MakeImageSamplingOptions(std::uint32_t sampling, std::uint32_t max_aniso);
+EFFINDOM_V2_CORE_INTERNAL_API HandleParts DecodeHandle(std::uint64_t handle);
+EFFINDOM_V2_CORE_INTERNAL_API std::uint64_t DecodeHandleWords(std::uint32_t low, std::uint32_t high);
+EFFINDOM_V2_CORE_INTERNAL_API float ReadFloat(std::uint32_t word);
+EFFINDOM_V2_CORE_INTERNAL_API float ClampNonNegative(float value);
+EFFINDOM_V2_CORE_INTERNAL_API float ClampOpacity(float value);
+EFFINDOM_V2_CORE_INTERNAL_API std::uint32_t VerbArgCount(std::uint32_t verb);
+EFFINDOM_V2_CORE_INTERNAL_API bool IsValidImageSampling(std::uint32_t sampling);
+EFFINDOM_V2_CORE_INTERNAL_API std::uint32_t NormalizeImageMaxAniso(std::uint32_t max_aniso);
+EFFINDOM_V2_CORE_INTERNAL_API SkSamplingOptions MakeImageSamplingOptions(
+    std::uint32_t sampling, std::uint32_t max_aniso);
 
 } // namespace effindom::v2::detail
 
@@ -246,22 +247,22 @@ struct Engine::Impl {
 /* Standalone canvas drawing functions (no engine state needed). */
 namespace effindom::v2 {
 
-void EdCanvasSave(SkCanvas* canvas);
-void EdCanvasRestore(SkCanvas* canvas);
-void EdCanvasTranslate(SkCanvas* canvas, float x, float y);
-void EdCanvasScale(SkCanvas* canvas, float sx, float sy);
-void EdCanvasRotate(SkCanvas* canvas, float degrees);
-void EdCanvasClipRect(SkCanvas* canvas, float x, float y, float w, float h);
-void EdCanvasClipRoundRect(SkCanvas* canvas, float x, float y, float w, float h,
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasSave(SkCanvas* canvas);
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasRestore(SkCanvas* canvas);
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasTranslate(SkCanvas* canvas, float x, float y);
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasScale(SkCanvas* canvas, float sx, float sy);
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasRotate(SkCanvas* canvas, float degrees);
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasClipRect(SkCanvas* canvas, float x, float y, float w, float h);
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasClipRoundRect(SkCanvas* canvas, float x, float y, float w, float h,
                            float top_left, float top_right, float bottom_right, float bottom_left);
 
-void EdCanvasDrawRect(SkCanvas* canvas, float x, float y, float w, float h,
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasDrawRect(SkCanvas* canvas, float x, float y, float w, float h,
                       std::uint32_t fill_color, std::uint32_t stroke_color, float stroke_width);
-void EdCanvasDrawCircle(SkCanvas* canvas, float cx, float cy, float radius,
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasDrawCircle(SkCanvas* canvas, float cx, float cy, float radius,
                         std::uint32_t fill_color, std::uint32_t stroke_color, float stroke_width);
-void EdCanvasDrawLine(SkCanvas* canvas, float x1, float y1, float x2, float y2,
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasDrawLine(SkCanvas* canvas, float x1, float y1, float x2, float y2,
                       std::uint32_t color, float stroke_width);
-void EdCanvasDrawRoundRect(SkCanvas* canvas, float x, float y, float w, float h,
+EFFINDOM_V2_CORE_INTERNAL_API void EdCanvasDrawRoundRect(SkCanvas* canvas, float x, float y, float w, float h,
                            float rx, float ry,
                            std::uint32_t fill_color, std::uint32_t stroke_color, float stroke_width);
 

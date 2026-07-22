@@ -1,5 +1,7 @@
 #pragma once
 
+#include "effindom_ui.h"
+
 #include <cstdint>
 #include <string_view>
 
@@ -23,12 +25,13 @@ public:
 
 // Existing C ABI adapter. In browser builds the ABI callbacks are implemented
 // by Emscripten glue; native applications may inject their own UiPlatformHost.
-UiPlatformHost& GetAbiUiPlatformHost();
+EFFINDOM_UI_API UiPlatformHost& GetAbiUiPlatformHost();
 
 // Selects the host used by the process-global C ABI runtime. This must be
 // called before the first GetRuntime() access. The caller owns the host and
-// must keep it alive until process shutdown.
-void SetGlobalUiPlatformHost(UiPlatformHost& host);
-UiPlatformHost& GetGlobalUiPlatformHost();
+// must clear it before the host is destroyed.
+EFFINDOM_UI_API void SetGlobalUiPlatformHost(UiPlatformHost& host);
+EFFINDOM_UI_API void ClearGlobalUiPlatformHost(UiPlatformHost& host);
+EFFINDOM_UI_API UiPlatformHost& GetGlobalUiPlatformHost();
 
 } // namespace effindom::v2::ui

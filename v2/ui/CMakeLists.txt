@@ -44,7 +44,15 @@ else()
     set(EFFINDOM_V2_UI_LIBRARY_TYPE SHARED)
 endif()
 add_library(effindom_v2_ui ${EFFINDOM_V2_UI_LIBRARY_TYPE} ${EFFINDOM_V2_UI_SOURCES})
-set_target_properties(effindom_v2_ui PROPERTIES OUTPUT_NAME "effindom_ui")
+set_target_properties(effindom_v2_ui PROPERTIES
+    OUTPUT_NAME "effindom_ui")
+if(WIN32 AND EFFINDOM_V2_UI_LIBRARY_TYPE STREQUAL "SHARED")
+    # CMake derives this list from EffinDOM's own object files; linked static
+    # dependency archives are not added to the generated .def file.
+    set_target_properties(effindom_v2_ui PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    target_compile_definitions(effindom_v2_ui PRIVATE EFFINDOM_V2_UI_BUILDING_DLL=1)
+    target_compile_options(effindom_v2_ui PRIVATE /wd4251 /wd4275)
+endif()
 target_include_directories(effindom_v2_ui
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -61,6 +69,22 @@ target_link_libraries(effindom_v2_ui
     PUBLIC effindom_icu_stubdata
     PUBLIC yogacore
 )
+
+# All statically linked dependencies are implementation details. In addition
+# to hidden-by-default compilation, prevent archive members with their own
+# default visibility from entering the ELF dynamic symbol table.
+if(UNIX AND NOT APPLE AND EFFINDOM_V2_UI_LIBRARY_TYPE STREQUAL "SHARED")
+    target_link_options(effindom_v2_ui PRIVATE
+        "LINKER:--exclude-libs,ALL"
+        "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/native-exports.map")
+    set_property(TARGET effindom_v2_ui APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/native-exports.map")
+elseif(APPLE AND EFFINDOM_V2_UI_LIBRARY_TYPE STREQUAL "SHARED")
+    target_link_options(effindom_v2_ui PRIVATE
+        "LINKER:-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/native-exports.apple")
+    set_property(TARGET effindom_v2_ui APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/native-exports.apple")
+endif()
 
 if(EMSCRIPTEN)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/exports.txt")
@@ -145,6 +169,9 @@ else()
         Catch2::Catch2WithMain
         effindom_compile_flags
     )
+    if(MSVC)
+        target_compile_options(effindom_v2_ui_tests PRIVATE /wd4251 /wd4275)
+    endif()
     if(CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang" AND NOT APPLE)
         target_link_libraries(effindom_v2_ui_tests PRIVATE
             "-Wl,--start-group"
@@ -156,6 +183,8 @@ else()
     endif()
     target_compile_definitions(effindom_v2_ui_tests PRIVATE EFFINDOM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
-    include(Catch)
-    catch_discover_tests(effindom_v2_ui_tests)
+    if(EFFINDOM_TARGET_RUNNABLE)
+        include(Catch)
+        catch_discover_tests(effindom_v2_ui_tests)
+    endif()
 endif()

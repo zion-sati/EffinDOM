@@ -58,6 +58,7 @@ public:
     bool CanConsumeFromTarget(std::uint64_t start_handle, float delta_x, float delta_y) const;
     std::uint64_t RetargetForDelta(std::uint64_t start_handle, float delta_x, float delta_y, bool use_smooth_target = false) const;
     std::uint64_t FindScrollableAncestor(std::uint64_t start_handle) const;
+    std::uint64_t FindCommonScrollableAncestor(std::uint64_t first_handle, std::uint64_t second_handle) const;
     void HandleWheel(std::uint64_t start_handle, float delta_x, float delta_y);
     void HandlePreciseWheel(
         std::uint64_t start_handle,

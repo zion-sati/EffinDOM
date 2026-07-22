@@ -11,6 +11,7 @@
 #include "include/gpu/ganesh/mtl/SkSurfaceMetal.h"
 #include "include/ports/SkCFObject.h"
 
+#import <AppKit/AppKit.h>
 #import <Metal/Metal.h>
 #import <QuartzCore/CAMetalLayer.h>
 #import <QuartzCore/CATransaction.h>
@@ -19,6 +20,12 @@
 #include <memory>
 
 namespace effindom::v2::native {
+namespace {
+
+std::atomic_bool fail_next_initialization{false};
+std::atomic_bool fail_next_recovery{false};
+
+} // namespace
 
 struct MacosMetalSurface::Impl {
     explicit Impl(SDL_Window* owner_window) : window(owner_window) {}
@@ -36,6 +43,7 @@ struct MacosMetalSurface::Impl {
     }
 
     bool Initialize() {
+        if (fail_next_initialization.exchange(false)) return false;
         SDL_SetHint(SDL_HINT_VIDEO_METAL_AUTO_RESIZE_DRAWABLE, "0");
         recovery_event = SDL_RegisterEvents(1);
         if (recovery_event == 0U) return false;
@@ -52,7 +60,7 @@ struct MacosMetalSurface::Impl {
         layer.pixelFormat = MTLPixelFormatBGRA8Unorm;
         layer.framebufferOnly = NO;
         layer.opaque = YES;
-        layer.backgroundColor = CGColorGetConstantColor(kCGColorWhite);
+        ApplyBackdropColor();
         layer.contentsGravity = kCAGravityTopLeft;
         layer.masksToBounds = YES;
         layer.actions = @{
@@ -60,6 +68,18 @@ struct MacosMetalSurface::Impl {
             @"position": [NSNull null],
             @"contents": [NSNull null],
         };
+    }
+
+    void ApplyBackdropColor() {
+        const CGFloat red = static_cast<CGFloat>((backdrop_color >> 24U) & 0xFFU) / 255.0;
+        const CGFloat green = static_cast<CGFloat>((backdrop_color >> 16U) & 0xFFU) / 255.0;
+        const CGFloat blue = static_cast<CGFloat>((backdrop_color >> 8U) & 0xFFU) / 255.0;
+        const CGFloat alpha = static_cast<CGFloat>(backdrop_color & 0xFFU) / 255.0;
+        NSColor* color = [NSColor colorWithSRGBRed:red green:green blue:blue alpha:alpha];
+        if (layer != nil) layer.backgroundColor = color.CGColor;
+        NSWindow* native_window = (__bridge NSWindow*)SDL_GetPointerProperty(
+            SDL_GetWindowProperties(window), SDL_PROP_WINDOW_COCOA_WINDOW_POINTER, nullptr);
+        if (native_window != nil) native_window.backgroundColor = color;
     }
 
     bool CreateContext() {
@@ -90,6 +110,7 @@ struct MacosMetalSurface::Impl {
     }
 
     bool Recover() {
+        if (fail_next_recovery.exchange(false)) return false;
         WaitForIdle();
         ReleaseDrawable();
         if (context != nullptr) {
@@ -107,8 +128,16 @@ struct MacosMetalSurface::Impl {
 
     bool PrepareFrame(std::uint32_t width, std::uint32_t height, float pixel_density) {
         const bool context_lost = context == nullptr || context->abandoned() || command_failed->exchange(false);
-        if ((recovery_requested || context_lost) && !Recover()) return false;
-        recovery_requested = false;
+        if (recovery_requested || context_lost) {
+            if (!Recover()) {
+                // Preserve Metal as the selected strategy and retry rather
+                // than silently changing renderer after a runtime failure.
+                ReleaseDrawable();
+                recovery_requested = true;
+                return true;
+            }
+            recovery_requested = false;
+        }
 
         [CATransaction begin];
         [CATransaction setDisableActions:YES];
@@ -169,12 +198,21 @@ struct MacosMetalSurface::Impl {
     std::uint64_t generation = 0U;
     std::uint64_t recovery_count = 0U;
     bool recovery_requested = false;
+    std::uint32_t backdrop_color = 0xFFFFFFFFU;
 };
 
 std::unique_ptr<MacosMetalSurface> MacosMetalSurface::Create(SDL_Window* window) {
     auto impl = std::make_unique<Impl>(window);
     if (!impl->Initialize()) return nullptr;
     return std::unique_ptr<MacosMetalSurface>(new MacosMetalSurface(std::move(impl)));
+}
+
+void MacosMetalSurface::FailNextInitializationForTesting() {
+    fail_next_initialization.store(true);
+}
+
+void MacosMetalSurface::FailNextRecoveryForTesting() {
+    fail_next_recovery.store(true);
 }
 
 MacosMetalSurface::MacosMetalSurface(std::unique_ptr<Impl> impl) : impl_(std::move(impl)) {}
@@ -184,7 +222,15 @@ bool MacosMetalSurface::PrepareFrame(std::uint32_t width, std::uint32_t height, 
     return impl_->PrepareFrame(width, height, pixel_density);
 }
 
+bool MacosMetalSurface::QueryOutputSize(int& width, int& height) const {
+    return SDL_GetWindowSizeInPixels(impl_->window, &width, &height);
+}
+
 bool MacosMetalSurface::Present() { return impl_->Present(); }
+void MacosMetalSurface::SetBackdropColor(std::uint32_t rgba) {
+    impl_->backdrop_color = rgba;
+    impl_->ApplyBackdropColor();
+}
 void MacosMetalSurface::RequestRecovery() { impl_->recovery_requested = true; }
 
 bool MacosMetalSurface::HandleRecoveryEvent(const SDL_Event& event) {

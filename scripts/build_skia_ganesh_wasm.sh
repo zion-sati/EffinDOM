@@ -28,12 +28,12 @@
 #   SKIA_GANESH_WASM_DIR   Staging destination  (default: <repo>/skia/wasm-ganesh or <repo>/skia/wasm-ganesh64)
 #   SKIA_REVISION          Skia git ref         (default: chrome/m136)
 #   DEPOT_TOOLS_COMMIT     depot_tools commit   (default: empty = HEAD)
-#   SKIA_BUILD_WORKDIR     Scratch space        (default: /tmp/effindom-skia-build)
+#   SKIA_BUILD_WORKDIR     Scratch space        (default: ~/.cache/effindom-skia-build/ganesh-wasm)
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORK_DIR="${SKIA_BUILD_WORKDIR:-/tmp/effindom-skia-build}"
+WORK_DIR="${SKIA_BUILD_WORKDIR:-${HOME}/.cache/effindom-skia-build/ganesh-wasm}"
 
 SKIA_REVISION="${SKIA_REVISION:-chrome/m136}"
 DEPOT_TOOLS_COMMIT="${DEPOT_TOOLS_COMMIT:-}"

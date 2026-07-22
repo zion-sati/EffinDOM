@@ -228,9 +228,14 @@ std::uint64_t InputRouter::SelectionAutoScroll(float logical_x, float logical_y,
 
     std::uint64_t start_handle = UI_INVALID_HANDLE;
     if (selection_.state().cross_active && selection_.state().cross_dragged) {
-        start_handle = selection_.state().end_node_handle != UI_INVALID_HANDLE
+        const bool dragging_start = selection_.state().handle_drag_active && selection_.state().drag_endpoint == 0U;
+        const std::uint64_t moving_handle = dragging_start
+            ? selection_.state().start_node_handle
+            : selection_.state().end_node_handle;
+        const std::uint64_t stationary_handle = dragging_start
             ? selection_.state().end_node_handle
-            : selection_.state().area_handle;
+            : selection_.state().start_node_handle;
+        start_handle = scrolling_.FindCommonScrollableAncestor(stationary_handle, moving_handle);
     } else if (selection_.state().active_handle != UI_INVALID_HANDLE && selection_.state().active_dragged) {
         start_handle = selection_.state().active_handle;
     }
@@ -241,7 +246,9 @@ std::uint64_t InputRouter::SelectionAutoScroll(float logical_x, float logical_y,
     if (!scrolling_.UpdateAutoScrollFor(start_handle, logical_x, logical_y, edge_threshold)) {
         return UI_INVALID_HANDLE;
     }
-    return scrolling_.HasAutoScroll() ? scrolling_.ActiveAutoScrollHandle() : UI_INVALID_HANDLE;
+    return scrolling_.HasAutoScroll()
+        ? scrolling_.ActiveAutoScrollHandle()
+        : static_cast<std::uint64_t>(UI_INVALID_HANDLE);
 }
 
 void InputRouter::ClearAutoScroll() {
@@ -401,7 +408,7 @@ bool InputRouter::HandleKeyEvent(
     return false;
 }
 
-void InputRouter::HandlePointerEvent(
+bool InputRouter::HandlePointerEvent(
     std::uint32_t event_enum,
     std::uint64_t handle,
     float logical_x,
@@ -426,6 +433,14 @@ void InputRouter::HandlePointerEvent(
     const float previous_pointer_x = state_.last_pointer_logical_x;
     const float previous_pointer_y = state_.last_pointer_logical_y;
     bool handled_cross_selection = false;
+    const bool selection_pointer_capture =
+        pointer_type != UI_POINTER_TYPE_TOUCH &&
+        state_.primary_pointer_down &&
+        (event_enum == UI_EVENT_POINTER_MOVE || event_enum == UI_EVENT_POINTER_UP) &&
+        (selection_.state().cross_active || selection_.state().active_handle != UI_INVALID_HANDLE);
+    const std::uint64_t selection_capture_handle = selection_.state().cross_active
+        ? selection_.state().start_node_handle
+        : selection_.state().active_handle;
     const bool is_primary_pointer_button =
         button == 0 ||
         ((event_enum == UI_EVENT_POINTER_MOVE || event_enum == UI_EVENT_POINTER_UP) && state_.primary_pointer_down);
@@ -439,12 +454,16 @@ void InputRouter::HandlePointerEvent(
         state_.primary_pointer_down = false;
     }
 
-    if (event_enum == UI_EVENT_POINTER_MOVE && handle != state_.last_hovered_handle) {
-        ClearHover(state_.last_hovered_handle);
-        if (handle != UI_INVALID_HANDLE) {
-            events_.PointerEvent(handle, UI_EVENT_POINTER_ENTER);
+    if (event_enum == UI_EVENT_POINTER_MOVE) {
+        if (selection_pointer_capture) {
+            ClearHover(state_.last_hovered_handle);
+        } else if (handle != state_.last_hovered_handle) {
+            ClearHover(state_.last_hovered_handle);
+            if (handle != UI_INVALID_HANDLE) {
+                events_.PointerEvent(handle, UI_EVENT_POINTER_ENTER);
+            }
+            state_.last_hovered_handle = handle;
         }
-        state_.last_hovered_handle = handle;
     }
 
     UINode* selection_node = writer_.Resolve(selection_.state().active_handle);
@@ -496,7 +515,9 @@ void InputRouter::HandlePointerEvent(
     }
 
     if (event_enum == UI_EVENT_POINTER_DOWN && handle != UI_INVALID_HANDLE) {
-        if (IsRepeatClick(
+        if (click_count > 0) {
+            state_.click_count = static_cast<std::uint32_t>(click_count);
+        } else if (IsRepeatClick(
                 handle,
                 logical_x,
                 logical_y,
@@ -804,12 +825,20 @@ void InputRouter::HandlePointerEvent(
         }
     }
 
-    if (handle != UI_INVALID_HANDLE) {
-        events_.PointerEvent(handle, static_cast<UiEvent>(event_enum));
+    const std::uint64_t event_handle = selection_pointer_capture ? selection_capture_handle : handle;
+    const bool handled = event_handle != UI_INVALID_HANDLE &&
+        events_.PointerEvent(event_handle, static_cast<UiEvent>(event_enum));
+    if (selection_pointer_capture && event_enum == UI_EVENT_POINTER_UP && handle != state_.last_hovered_handle) {
+        ClearHover(state_.last_hovered_handle);
+        if (handle != UI_INVALID_HANDLE) {
+            events_.PointerEvent(handle, UI_EVENT_POINTER_ENTER);
+        }
+        state_.last_hovered_handle = handle;
     }
     state_.suppress_touch_editor_focus_request = false;
     state_.last_pointer_logical_x = logical_x;
     state_.last_pointer_logical_y = logical_y;
+    return handled;
 }
 
 

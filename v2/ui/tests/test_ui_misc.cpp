@@ -1126,7 +1126,9 @@ TEST_CASE("v2 ui cross-selection helpers cover invalid state and direct endpoint
         UI_INVALID_HANDLE,
         second_node->abs_x + 2.0f,
         second_node->abs_y + (second_node->line_height * 0.5f)));
-    CHECK_FALSE(runtime.UpdateCrossSelectionEndpoint(UI_INVALID_HANDLE, -50.0f, -50.0f));
+    REQUIRE(runtime.UpdateCrossSelectionEndpoint(UI_INVALID_HANDLE, -50.0f, -50.0f));
+    CHECK(runtime.Selection().state().end_node_handle == first);
+    CHECK(runtime.Selection().state().end_index == 0U);
 
     runtime.Selection().state().area_handle = area;
     runtime.Selection().state().area_nodes = {first};

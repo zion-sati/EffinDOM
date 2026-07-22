@@ -218,6 +218,13 @@ TEST_CASE("v2 ui private editable mutation helpers cover undo and delete branche
     CHECK(GetRuntime().HandleTextEditingKey(*node, "Delete", 0U));
     CHECK(node->text_content == "ac");
 
+    node->text_content = "abc";
+    node->selection_start = 1U;
+    node->selection_end = 1U;
+    CHECK_FALSE(GetRuntime().HandleTextEditingKey(*node, "Up", 0U));
+    CHECK_FALSE(GetRuntime().HandleTextEditingKey(*node, "Insert", 0U));
+    CHECK(node->text_content == "abc");
+
     node->text_content = "abcd";
     node->selection_start = 1U;
     node->selection_end = 3U;

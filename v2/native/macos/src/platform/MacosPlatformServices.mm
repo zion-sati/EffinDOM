@@ -1,5 +1,5 @@
 #include "MacosPlatformServices.h"
-#include "NativeAssetLoader.h"
+#include "MacosAssetEnvironment.h"
 
 #include "Engine.h"
 #include "effindom_ui.h"
@@ -25,11 +25,13 @@ NSString* PathString(const std::filesystem::path& path) {
 MacosPlatformServices::MacosPlatformServices(
     Engine& engine,
     std::function<void()> request_frame,
+    std::function<void(std::uint64_t)> announce,
     bool allow_external_launch)
     : engine_(engine),
       request_frame_(std::move(request_frame)),
+      announce_(std::move(announce)),
       allow_external_launch_(allow_external_launch),
-      assets_(std::make_unique<NativeAssetLoader>(engine_, request_frame_)) {}
+      assets_(engine_, request_frame_, CreateMacosAssetEnvironment()) {}
 
 MacosPlatformServices::~MacosPlatformServices() {
     if (cursor_ != nullptr) SDL_DestroyCursor(cursor_);
@@ -49,16 +51,18 @@ void MacosPlatformServices::RequestClipboardRead(std::uint64_t handle) {
 }
 
 void MacosPlatformServices::RequestFontLoad(std::uint32_t font_id, std::string_view url) {
-    assets_->LoadFont(font_id, url);
+    assets_.LoadFont(font_id, url);
 }
 
 void MacosPlatformServices::ReportMissingFontCoverage(
     std::uint32_t font_id,
     std::uint32_t coverage_kind,
     std::string_view sample_text) {
-    assets_->QueueMissingFontCoverage(font_id, coverage_kind, sample_text);
+    assets_.QueueMissingFontCoverage(font_id, coverage_kind, sample_text);
 }
-void MacosPlatformServices::RequestSemanticAnnouncement(std::uint64_t) {}
+void MacosPlatformServices::RequestSemanticAnnouncement(std::uint64_t handle) {
+    if (announce_) announce_(handle);
+}
 
 bool MacosPlatformServices::SetClipboardText(std::string_view text) {
     return SDL_SetClipboardText(std::string(text).c_str());
@@ -106,26 +110,26 @@ void MacosPlatformServices::SetCursor(std::uint32_t style) {
 }
 
 bool MacosPlatformServices::LoadDefaultFont(std::uint32_t font_id, const char* name) {
-    return assets_->LoadDefaultFont(font_id, name);
+    return assets_.LoadDefaultFont(font_id, name);
 }
 
 bool MacosPlatformServices::LoadFont(std::uint32_t font_id, const std::filesystem::path& path) {
-    return assets_->LoadFont(font_id, path.string());
+    return assets_.LoadFont(font_id, path);
 }
 
 bool MacosPlatformServices::LoadSvg(std::uint32_t svg_id, std::string_view source) {
-    return assets_->LoadSvg(svg_id, source);
+    return assets_.LoadSvg(svg_id, source);
 }
 
 bool MacosPlatformServices::LoadTexture(std::uint32_t texture_id, std::string_view source) {
-    return assets_->LoadTexture(texture_id, source);
+    return assets_.LoadTexture(texture_id, source);
 }
 
-void MacosPlatformServices::ReleaseSvg(std::uint32_t svg_id) { assets_->ReleaseSvg(svg_id); }
-void MacosPlatformServices::ReleaseTexture(std::uint32_t texture_id) { assets_->ReleaseTexture(texture_id); }
-bool MacosPlatformServices::ProcessPendingAssets() { return assets_->ProcessPendingFontCoverage(); }
+void MacosPlatformServices::ReleaseSvg(std::uint32_t svg_id) { assets_.ReleaseSvg(svg_id); }
+void MacosPlatformServices::ReleaseTexture(std::uint32_t texture_id) { assets_.ReleaseTexture(texture_id); }
+bool MacosPlatformServices::ProcessPendingAssets() { return assets_.ProcessPendingFontCoverage(); }
 std::size_t MacosPlatformServices::FallbackFontCountForTesting() const {
-    return assets_->FallbackFontCountForTesting();
+    return assets_.FallbackFontCountForTesting();
 }
 
 bool MacosPlatformServices::IsSupportedExternalUrl(std::string_view url) {

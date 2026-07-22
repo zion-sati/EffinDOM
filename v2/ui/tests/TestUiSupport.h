@@ -68,7 +68,9 @@ struct WrappedTextFixtureTargets {
 inline std::string ReadWrappedTextFixture() {
     const auto bytes = ReadFileBytes(
         std::string(EFFINDOM_SOURCE_DIR) + "/v2/ui/tests/fixtures/wrapped_large_document.txt");
-    return std::string(bytes.begin(), bytes.end());
+    std::string text(bytes.begin(), bytes.end());
+    text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+    return text;
 }
 
 inline WrappedTextFixtureTargets FindWrappedTextFixtureTargets(std::string_view text) {
@@ -1533,7 +1535,7 @@ inline std::vector<effindom::v2::ui::SceneInstruction> ReadScene(const std::vect
 
 using namespace test_ui_support;
 
-extern "C" void as_on_pointer_event(ui_handle_t handle, UiEvent event_enum);
+extern "C" bool as_on_pointer_event(ui_handle_t handle, UiEvent event_enum);
 extern "C" void as_on_focus_changed(ui_handle_t handle, bool is_focused);
 extern "C" void as_on_text_changed(ui_handle_t handle, const uint8_t* utf8_str, uint32_t len);
 extern "C" void as_on_selection_changed(ui_handle_t handle, uint32_t start_idx, uint32_t end_idx);

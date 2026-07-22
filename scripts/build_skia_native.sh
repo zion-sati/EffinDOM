@@ -3,13 +3,9 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORK_DIR="${SKIA_BUILD_WORKDIR:-/tmp/effindom-skia-native-build}"
+WORK_DIR="${SKIA_BUILD_WORKDIR:-${HOME}/.cache/effindom-skia-build/native}"
 SKIA_REVISION="${SKIA_REVISION:-chrome/m136}"
 DEPOT_TOOLS_COMMIT="${DEPOT_TOOLS_COMMIT:-}"
-STAGING="${SKIA_NATIVE_DIR:-${REPO_ROOT}/skia/native}"
-BIN_DIR="out/native-metal"
-BACKEND_ID="native-ganesh-metal-${SKIA_REVISION}"
-BACKEND_STAMP="${STAGING}/.effindom-skia-backend"
 FORCE=false
 
 bold()  { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -23,17 +19,64 @@ for arg in "$@"; do
   esac
 done
 
-if [ "$FORCE" = false ] && [ -f "${BACKEND_STAMP}" ] && [ "$(cat "${BACKEND_STAMP}")" = "${BACKEND_ID}" ] && [ -f "${STAGING}/libskia.a" ] && [ -f "${STAGING}/libsvg.a" ] && [ -f "${STAGING}/libskshaper.a" ] && [ -f "${STAGING}/modules/svg/include/SkSVGDOM.h" ] && [ -f "${STAGING}/modules/skresources/include/SkResources.h" ] && [ -f "${STAGING}/modules/skshaper/include/SkShaper_factory.h" ] && [ -f "${STAGING}/src/core/SkTHash.h" ] && [ -f "${STAGING}/src/base/SkMathPriv.h" ]; then
-  green "=== Native Skia already staged at ${STAGING} — skipping ==="
-  exit 0
-fi
-
 for tool in python3 git ninja; do
   if ! command -v "${tool}" >/dev/null 2>&1; then
     red "ERROR: ${tool} is required to build native Skia."
     exit 1
   fi
 done
+
+TARGET_CPU="x64"
+case "${SKIA_TARGET_ARCH:-$(uname -m)}" in
+  arm64|aarch64) TARGET_CPU="arm64" ;;
+  x64|x86_64|amd64) TARGET_CPU="x64" ;;
+  x86|i386|i686) TARGET_CPU="x86" ;;
+  *) red "ERROR: unsupported native Skia architecture '${SKIA_TARGET_ARCH:-$(uname -m)}'."; exit 1 ;;
+esac
+
+CONFIGURATION="${SKIA_BUILD_CONFIGURATION:-Release}"
+CONFIGURATION_TOKEN="$(printf '%s' "${CONFIGURATION}" | tr '[:upper:]' '[:lower:]')"
+case "${CONFIGURATION}" in
+  Debug|debug) IS_DEBUG=true; IS_OFFICIAL_BUILD=false ;;
+  Release|release|RelWithDebInfo|relwithdebinfo) IS_DEBUG=false; IS_OFFICIAL_BUILD=true ;;
+  *) red "ERROR: unsupported native Skia configuration '${CONFIGURATION}'."; exit 1 ;;
+esac
+
+PLATFORM_TOKEN="$(uname -s | tr '[:upper:]' '[:lower:]')"
+case "${PLATFORM_TOKEN}" in
+  darwin) PLATFORM_TOKEN="macos"; DEFAULT_BACKEND="metal" ;;
+  linux) DEFAULT_BACKEND="vulkan" ;;
+  *) red "ERROR: unsupported native Skia platform '$(uname -s)'."; exit 1 ;;
+esac
+
+BACKEND="${SKIA_NATIVE_BACKEND:-${DEFAULT_BACKEND}}"
+if [ "${BACKEND}" = "metal" ] && [ "${PLATFORM_TOKEN}" != "macos" ]; then
+  red "ERROR: the Metal native Skia backend requires macOS."
+  exit 1
+fi
+if [ "${BACKEND}" = "vulkan" ] && [ "${PLATFORM_TOKEN}" != "linux" ]; then
+  red "ERROR: the Vulkan native Skia backend currently requires Linux."
+  exit 1
+fi
+if [ "${BACKEND}" != "metal" ] && [ "${BACKEND}" != "vulkan" ] && [ "${BACKEND}" != "raster" ]; then
+  red "ERROR: unsupported native Skia backend '${BACKEND}'."
+  exit 1
+fi
+
+COMPILER_TOKEN="${SKIA_COMPILER_ID:-}"
+if [ -z "${COMPILER_TOKEN}" ]; then
+  if [ "${PLATFORM_TOKEN}" = "macos" ]; then COMPILER_TOKEN="appleclang"; else COMPILER_TOKEN="clang"; fi
+fi
+COMPILER_TOKEN="$(printf '%s' "${COMPILER_TOKEN}" | tr '[:upper:]' '[:lower:]')"
+STAGING="${SKIA_NATIVE_DIR:-${REPO_ROOT}/skia/native/${PLATFORM_TOKEN}-${TARGET_CPU}-${COMPILER_TOKEN}-${CONFIGURATION_TOKEN}-${BACKEND}}"
+BIN_DIR="out/${PLATFORM_TOKEN}-${TARGET_CPU}-${CONFIGURATION_TOKEN}-${BACKEND}"
+BACKEND_ID="native-ganesh-${PLATFORM_TOKEN}-${TARGET_CPU}-${CONFIGURATION_TOKEN}-${BACKEND}-${SKIA_REVISION}"
+BACKEND_STAMP="${STAGING}/.effindom-skia-backend"
+
+if [ "$FORCE" = false ] && [ -f "${BACKEND_STAMP}" ] && [ "$(cat "${BACKEND_STAMP}")" = "${BACKEND_ID}" ] && [ -f "${STAGING}/libskia.a" ] && [ -f "${STAGING}/libsvg.a" ] && [ -f "${STAGING}/libskshaper.a" ] && [ -f "${STAGING}/modules/svg/include/SkSVGDOM.h" ] && [ -f "${STAGING}/modules/skresources/include/SkResources.h" ] && [ -f "${STAGING}/modules/skshaper/include/SkShaper_factory.h" ] && [ -f "${STAGING}/src/core/SkTHash.h" ] && [ -f "${STAGING}/src/base/SkMathPriv.h" ]; then
+  green "=== Native Skia already staged at ${STAGING} — skipping ==="
+  exit 0
+fi
 
 mkdir -p "${WORK_DIR}"
 
@@ -71,26 +114,31 @@ git checkout FETCH_HEAD
 bold "-- Syncing Skia dependencies..."
 python3 tools/git-sync-deps
 
-TARGET_CPU="x64"
-case "$(uname -m)" in
-  arm64|aarch64) TARGET_CPU="arm64" ;;
-  x86_64|amd64) TARGET_CPU="x64" ;;
-esac
-
 SKIA_USE_CORETEXT=false
-if [ "$(uname -s)" = "Darwin" ]; then
+SKIA_USE_METAL=false
+SKIA_USE_VULKAN=false
+SKIA_ENABLE_GPU=false
+if [ "${PLATFORM_TOKEN}" = "macos" ]; then
   SKIA_USE_CORETEXT=true
+fi
+if [ "${BACKEND}" = "metal" ]; then
+  SKIA_USE_METAL=true
+  SKIA_ENABLE_GPU=true
+fi
+if [ "${BACKEND}" = "vulkan" ]; then
+  SKIA_USE_VULKAN=true
+  SKIA_ENABLE_GPU=true
 fi
 
 bold "-- Generating GN files..."
 gn gen "${BIN_DIR}" --args="
-is_official_build=true
-is_debug=false
+is_official_build=${IS_OFFICIAL_BUILD}
+is_debug=${IS_DEBUG}
 target_cpu=\"${TARGET_CPU}\"
-skia_enable_gpu=true
+skia_enable_gpu=${SKIA_ENABLE_GPU}
 skia_use_gl=false
-skia_use_vulkan=false
-skia_use_metal=true
+skia_use_vulkan=${SKIA_USE_VULKAN}
+skia_use_metal=${SKIA_USE_METAL}
 skia_use_dawn=false
 skia_use_egl=false
 skia_use_expat=true

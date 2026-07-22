@@ -202,7 +202,8 @@ void TextEditingCoordinator::NotifyTextStateChanged(
             host.EnsureTextEditCaretVisible(handle, node);
         }
     }
-    host.SetTextEditPendingCaretVisibility(should_ensure_caret_visible ? handle : UI_INVALID_HANDLE);
+    host.SetTextEditPendingCaretVisibility(
+        should_ensure_caret_visible ? handle : static_cast<std::uint64_t>(UI_INVALID_HANDLE));
 #ifdef __EMSCRIPTEN__
     bool emitted_incremental_replace = false;
     if (edit != nullptr) {
@@ -387,7 +388,9 @@ bool TextEditingCoordinator::HandleTextMutationKey(
         key == "Shift" || key == "Control" || key == "Alt" || key == "Meta" ||
         key == "CapsLock" || key == "NumLock" || key == "ScrollLock" ||
         key == "Fn" || key == "Dead" || key == "Compose" || key == "Unidentified" ||
-        key == "ContextMenu";
+        key == "ContextMenu" || key == "Insert" || key == "PrintScreen" || key == "Pause" ||
+        key == "Up" || key == "Down" || key == "Left" || key == "Right" ||
+        IsFunctionKeyName(key);
     if (text_insertion_modifier || named_non_text_key) {
         return false;
     }

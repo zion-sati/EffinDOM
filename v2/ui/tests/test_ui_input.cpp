@@ -1,5 +1,47 @@
 #include "TestUiSupport.h"
 
+TEST_CASE("v2 ui trusts host click counts and only classifies missing counts", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    ui_set_root(root);
+    ui_set_width(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_DOWN,
+        root,
+        20.0f,
+        20.0f,
+        -1,
+        UI_POINTER_TYPE_MOUSE,
+        0,
+        1U,
+        0.5f,
+        1.0f,
+        1.0f,
+        4);
+    CHECK(runtime.Input().state().click_count == 4U);
+
+    ui_set_interaction_time(1000U);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, root, 40.0f, 40.0f);
+    CHECK(runtime.Input().state().click_count == 1U);
+    ui_set_interaction_time(1100U);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, root, 40.0f, 40.0f);
+    CHECK(runtime.Input().state().click_count == 2U);
+    ui_set_interaction_time(1200U);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, root, 40.0f, 40.0f);
+    CHECK(runtime.Input().state().click_count == 3U);
+    ui_set_interaction_time(1300U);
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, root, 40.0f, 40.0f);
+    CHECK(runtime.Input().state().click_count == 4U);
+}
+
 TEST_CASE("v2 ui hierarchy operations support reparenting and invalid input", "[v2][ui][unit]") {
     using effindom::v2::ui::GetRuntime;
     using effindom::v2::ui::PackHandle;

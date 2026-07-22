@@ -1,0 +1,10 @@
+EFFINDOM_UI_1 {
+    global:
+        ui_*;
+        as_*;
+        _ZN8effindom*;
+        _ZNK8effindom*;
+        _ZT*N8effindom*;
+    local:
+        *;
+};

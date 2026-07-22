@@ -31,6 +31,22 @@
 
 #include <hb.h>
 
+#if defined(_WIN32)
+#define EFFINDOM_V2_UI_PRIVATE public
+#if defined(EFFINDOM_V2_UI_BUILDING_DLL)
+#define EFFINDOM_V2_UI_INTERNAL_API __declspec(dllexport)
+#else
+#define EFFINDOM_V2_UI_INTERNAL_API __declspec(dllimport)
+#endif
+#else
+#define EFFINDOM_V2_UI_PRIVATE private
+#if defined(__GNUC__) || defined(__clang__)
+#define EFFINDOM_V2_UI_INTERNAL_API __attribute__((visibility("default")))
+#else
+#define EFFINDOM_V2_UI_INTERNAL_API
+#endif
+#endif
+
 namespace effindom::v2::ui {
 
 class TreePainter;
@@ -40,7 +56,7 @@ class CommandBuilder;
 
 inline constexpr std::size_t kTextboxHardClampMaxCodepoints = 10000U;
 
-class UiRuntime :
+class EFFINDOM_V2_UI_INTERNAL_API UiRuntime :
     private SelectionHost,
     private TextEditingHost,
     private InputRouter::Host,
@@ -339,7 +355,8 @@ public:
     bool RegisterIcuData(const std::uint8_t* bytes, std::uint32_t length);
     void FontLoaded(std::uint32_t font_id);
     void SetInteractionTime(std::uint64_t interaction_time_ms);
-    void HandlePointerEvent(
+    std::uint64_t FocusedHandle() const;
+    bool HandlePointerEvent(
         std::uint32_t event_enum,
         std::uint64_t handle,
         float logical_x,
@@ -430,7 +447,7 @@ public:
     const TextGeometryProfile& text_geometry_profile() const;
     void ClearTextGeometryProfile();
 
-private:
+EFFINDOM_V2_UI_PRIVATE:
     Rect ComputeInputVisibleBounds(const UINode& node) const override {
         return ComputeVisibleBounds(node);
     }
@@ -730,7 +747,7 @@ private:
         hb_buffer_t* get() const { return buffer_; }
         explicit operator bool() const { return buffer_ != nullptr; }
 
-    private:
+    EFFINDOM_V2_UI_PRIVATE:
         friend class UiRuntime;
         ShapingBufferLease(const UiRuntime* owner, std::size_t index, hb_buffer_t* buffer)
             : owner_(owner), index_(index), buffer_(buffer) {}
@@ -834,7 +851,7 @@ private:
         }
         bool operator!=(const RetainedArrayView& other) const { return !(*this == other); }
 
-    private:
+    EFFINDOM_V2_UI_PRIVATE:
         const T* data_ = nullptr;
         std::size_t size_ = 0U;
     };
@@ -892,7 +909,7 @@ private:
         std::vector<TextClusterStop> cluster_stops{};
     };
 
-private:
+EFFINDOM_V2_UI_PRIVATE:
 
     static YGSize MeasureTextCallback(
         YGNodeConstRef yg_node,
@@ -1367,6 +1384,6 @@ private:
 #endif
 };
 
-UiRuntime& GetRuntime();
+EFFINDOM_V2_UI_INTERNAL_API UiRuntime& GetRuntime();
 
 } // namespace effindom::v2::ui

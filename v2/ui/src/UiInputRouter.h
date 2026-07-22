@@ -172,7 +172,7 @@ public:
     bool WheelScrollCanConsume(float delta_x, float delta_y) const;
     bool ActiveTouchScrollCanConsume(float delta_x, float delta_y) const;
     void SetCoarsePointerMode(bool coarse_pointer_mode);
-    void HandlePointerEvent(
+    bool HandlePointerEvent(
         std::uint32_t event_enum,
         std::uint64_t handle,
         float logical_x,

@@ -135,7 +135,7 @@ void CheckWarmResourceReuse() {
 
 TEST_CASE("v2 fixed-pitch tab contract uses four-column stops", "[v2][ui][shaping-resources][tabs]") {
     constexpr std::uint32_t kColumnsPerTab = 4U;
-    const auto next_tab_column = [](std::uint32_t column) {
+    const auto next_tab_column = [=](std::uint32_t column) {
         return ((column / kColumnsPerTab) + 1U) * kColumnsPerTab;
     };
 
@@ -361,7 +361,7 @@ TEST_CASE("v2 shaping fresh resources preserve complete output across representa
     ResetShapingFixture();
 
     CheckFreshPair("office affinity", 16.0f);
-    CheckFreshPair(u8"Cafe\u0301 \xF0\x9F\x8C\x8D", 19.0f);
+    CheckFreshPair(u8"Cafe\u0301 \U0001F30D", 19.0f);
     CheckFreshPair(u8"\u05E9\u05DC\u05D5\u05DD \u05E2\u05D5\u05DC\u05DD", 21.0f);
     CheckFreshPair("one\ttwo", 17.0f);
     CheckFreshPair("secret", 18.0f, true);
@@ -649,7 +649,7 @@ TEST_CASE("v2 fallback registration invalidates retained layout and then reuses 
 
     const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
     REQUIRE(text != UI_INVALID_HANDLE);
-    constexpr std::string_view content = u8"status \xF0\x9F\x8C\x8D";
+    constexpr std::string_view content = u8"status \U0001F30D";
     ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
     ui_set_font(text, 5U, 20.0f);
     ui_set_text(text, reinterpret_cast<const std::uint8_t*>(content.data()), static_cast<std::uint32_t>(content.size()));

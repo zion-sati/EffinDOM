@@ -13,6 +13,17 @@ bool IsHorizontalContainer(const UINode* node) {
         YGNodeStyleGetFlexDirection(node->yg_node) == YGFlexDirectionRow;
 }
 
+std::pair<float, float> ClampSelectionPointToNodeRows(
+    const UINode& node,
+    float logical_x,
+    float logical_y) {
+    const float node_bottom = node.abs_y + std::max(0.0f, node.layout_height);
+    const float last_row_y = node_bottom > node.abs_y
+        ? std::nextafter(node_bottom, node.abs_y)
+        : node.abs_y;
+    return {logical_x, std::clamp(logical_y, node.abs_y, last_row_y)};
+}
+
 } // namespace
 
 std::uint64_t SelectionCoordinator::FindAreaAncestor(
@@ -39,7 +50,7 @@ void SelectionCoordinator::CollectAreaNodes(
     std::uint64_t handle,
     std::vector<std::uint64_t>& out) const {
     const UINode* node = host.ResolveSelectionNode(handle);
-    if (node == nullptr) {
+    if (node == nullptr || !node->is_active || node->visibility != UI_VISIBILITY_NORMAL) {
         return;
     }
     if (node->is_text_node && node->is_selectable && !node->is_obscured) {
@@ -125,20 +136,42 @@ bool SelectionCoordinator::UpdateCrossSelectionEndpoint(
     std::uint32_t target_index = 0U;
     if (handle != UI_INVALID_HANDLE && FindAreaNodeIndex(handle) >= 0) {
         if (const UINode* node = host.ResolveSelectionNode(handle); node != nullptr) {
+            const auto [clamped_x, clamped_y] = ClampSelectionPointToNodeRows(*node, logical_x, logical_y);
             target_handle = handle;
-            target_index = host.GetSelectionIndexFromPoint(*node, logical_x - node->abs_x, logical_y - node->abs_y);
+            target_index = host.GetSelectionIndexFromPoint(
+                *node,
+                clamped_x - node->abs_x,
+                clamped_y - node->abs_y);
         }
     }
     if (target_handle == UI_INVALID_HANDLE) {
+        float best_vertical_distance = std::numeric_limits<float>::max();
+        float best_horizontal_distance = std::numeric_limits<float>::max();
         for (const std::uint64_t candidate_handle : state_.area_nodes) {
             const UINode* node = host.ResolveSelectionNode(candidate_handle);
-            if (node == nullptr || logical_x < node->abs_x || logical_x > node->abs_x + node->layout_width ||
-                logical_y < node->abs_y || logical_y > node->abs_y + node->layout_height) {
+            if (node == nullptr) {
                 continue;
             }
+            const float right = node->abs_x + std::max(0.0f, node->layout_width);
+            const float bottom = node->abs_y + std::max(0.0f, node->layout_height);
+            const float vertical_distance = logical_y < node->abs_y
+                ? node->abs_y - logical_y
+                : (logical_y > bottom ? logical_y - bottom : 0.0f);
+            const float horizontal_distance = logical_x < node->abs_x
+                ? node->abs_x - logical_x
+                : (logical_x > right ? logical_x - right : 0.0f);
+            if (vertical_distance > best_vertical_distance ||
+                (vertical_distance == best_vertical_distance && horizontal_distance >= best_horizontal_distance)) {
+                continue;
+            }
+            const auto [clamped_x, clamped_y] = ClampSelectionPointToNodeRows(*node, logical_x, logical_y);
             target_handle = candidate_handle;
-            target_index = host.GetSelectionIndexFromPoint(*node, logical_x - node->abs_x, logical_y - node->abs_y);
-            break;
+            target_index = host.GetSelectionIndexFromPoint(
+                *node,
+                clamped_x - node->abs_x,
+                clamped_y - node->abs_y);
+            best_vertical_distance = vertical_distance;
+            best_horizontal_distance = horizontal_distance;
         }
     }
     if (target_handle == UI_INVALID_HANDLE) {
@@ -636,7 +669,7 @@ bool SelectionCoordinator::HandleCrossSelectionPointer(
                 clamped_x != request.logical_x || clamped_y != selection_drag_logical_y;
             handled = UpdateCrossSelectionEndpoint(
                 host,
-                point_was_clamped ? UI_INVALID_HANDLE : request.handle,
+                point_was_clamped ? static_cast<std::uint64_t>(UI_INVALID_HANDLE) : request.handle,
                 clamped_x,
                 clamped_y);
         }
@@ -678,8 +711,10 @@ NodeSelectionPointerResult SelectionCoordinator::HandleNodeSelectionPointer(
             const float selection_drag_logical_y = state_.handle_drag_active
                 ? request.logical_y - request.handle_center_to_text_hit_offset
                 : request.logical_y;
-            const auto [clamped_x, clamped_y] = host.ClampSelectionPointToViewport(
+            const auto [viewport_x, viewport_y] = host.ClampSelectionPointToViewport(
                 state_.active_handle, request.logical_x, selection_drag_logical_y);
+            const auto [clamped_x, clamped_y] = ClampSelectionPointToNodeRows(
+                *node, viewport_x, viewport_y);
             const std::uint32_t next_selection_end = host.GetSelectionIndexFromPoint(
                 *node, clamped_x - node->abs_x, clamped_y - node->abs_y);
             std::uint32_t& dragged_endpoint = state_.drag_endpoint == 0U
@@ -709,8 +744,10 @@ NodeSelectionPointerResult SelectionCoordinator::HandleNodeSelectionPointer(
         const float selection_drag_logical_y = state_.handle_drag_active
             ? request.logical_y - request.handle_center_to_text_hit_offset
             : request.logical_y;
-        const auto [clamped_x, clamped_y] = host.ClampSelectionPointToViewport(
+        const auto [viewport_x, viewport_y] = host.ClampSelectionPointToViewport(
             state_.active_handle, request.logical_x, selection_drag_logical_y);
+        const auto [clamped_x, clamped_y] = ClampSelectionPointToNodeRows(
+            *node, viewport_x, viewport_y);
         const std::uint32_t next_selection_end = host.GetSelectionIndexFromPoint(
             *node, clamped_x - node->abs_x, clamped_y - node->abs_y);
         std::uint32_t& dragged_endpoint = state_.drag_endpoint == 0U

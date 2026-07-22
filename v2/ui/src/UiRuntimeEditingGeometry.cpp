@@ -462,11 +462,11 @@ std::uint32_t UiRuntime::GetStringIndexFromPoint(const UINode& node, float local
         if (cached_line == nullptr) {
             return start;
         }
-        const float aligned_x = local_x - GetAlignedLineXOffset(node, cached_line->width);
-        if (aligned_x <= 0.0f) {
+        const float wrapped_aligned_x = local_x - GetAlignedLineXOffset(node, cached_line->width);
+        if (wrapped_aligned_x <= 0.0f) {
             return cached_line->start;
         }
-        if (aligned_x >= cached_line->width) {
+        if (wrapped_aligned_x >= cached_line->width) {
             return cached_line->end;
         }
 
@@ -474,7 +474,7 @@ std::uint32_t UiRuntime::GetStringIndexFromPoint(const UINode& node, float local
         for (std::size_t index = 0; index + 1U < cached_line->cluster_stops.size(); index += 1U) {
             const float midpoint =
                 (cached_line->cluster_stops[index].x + cached_line->cluster_stops[index + 1U].x) * 0.5f;
-            if (aligned_x < midpoint) {
+            if (wrapped_aligned_x < midpoint) {
                 result = cached_line->start + cached_line->cluster_stops[index].index;
                 break;
             }

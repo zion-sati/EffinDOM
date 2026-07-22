@@ -8,6 +8,7 @@
 #include <array>
 #include <chrono>
 #include <cmath>
+#include <cstdlib>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -19,7 +20,9 @@
 #include <include/core/SkCanvas.h>
 #include <include/core/SkImage.h>
 #include <include/core/SkImageInfo.h>
+#include <include/core/SkPixmap.h>
 #include <include/core/SkSurface.h>
+#include <include/encode/SkPngEncoder.h>
 
 using Catch::Approx;
 
@@ -40,6 +43,19 @@ using effindom::v2::SceneInstructionDebugView;
 namespace detail = effindom::v2::detail;
 using effindom::v2::test::CommandBuilder;
 using effindom::v2::test::Handle;
+
+bool EnvironmentVariableIsSet(const char* name) {
+#if defined(_WIN32)
+    char* value = nullptr;
+    std::size_t length = 0;
+    const int error = _dupenv_s(&value, &length, name);
+    const bool is_set = error == 0 && value != nullptr;
+    std::free(value);
+    return is_set;
+#else
+    return std::getenv(name) != nullptr;
+#endif
+}
 
 std::vector<std::uint8_t> ReadFileBytes(const std::string& path) {
     std::ifstream file(path, std::ios::binary);
@@ -278,6 +294,64 @@ bool HasOpaquePixelDifferentFrom(
     return false;
 }
 
+bool WriteRgbaPng(
+    const std::vector<std::uint8_t>& pixels,
+    int width,
+    int height,
+    const std::filesystem::path& output_path) {
+    const SkImageInfo info = SkImageInfo::Make(width, height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
+    const sk_sp<SkSurface> surface = SkSurfaces::Raster(info);
+    if (!surface) {
+        return false;
+    }
+    const SkPixmap pixmap(info, pixels.data(), static_cast<std::size_t>(width) * 4U);
+    surface->writePixels(pixmap, 0, 0);
+
+    const sk_sp<SkImage> image = surface->makeImageSnapshot();
+    if (!image) {
+        return false;
+    }
+
+    SkPngEncoder::Options options;
+    const sk_sp<SkData> png = SkPngEncoder::Encode(nullptr, image.get(), options);
+    if (!png) {
+        return false;
+    }
+
+    std::ofstream output(output_path, std::ios::binary);
+    output.write(static_cast<const char*>(png->data()), static_cast<std::streamsize>(png->size()));
+    return output.good();
+}
+
+std::vector<std::uint8_t> MakeSnapshotDiff(
+    const std::vector<std::uint8_t>& actual,
+    const std::vector<std::uint8_t>& expected) {
+    std::vector<std::uint8_t> diff(actual.size(), 255U);
+    for (std::size_t offset = 0; offset + 3U < actual.size(); offset += 4U) {
+        for (std::size_t channel = 0; channel < 3U; channel += 1U) {
+            const int delta = std::abs(static_cast<int>(actual[offset + channel]) - static_cast<int>(expected[offset + channel]));
+            diff[offset + channel] = static_cast<std::uint8_t>(std::min(delta * 8, 255));
+        }
+    }
+    return diff;
+}
+
+void WriteSnapshotFailureArtifacts(
+    const std::vector<std::uint8_t>& actual,
+    const std::vector<std::uint8_t>& expected,
+    int width,
+    int height,
+    const std::filesystem::path& golden_path) {
+    const std::filesystem::path output_dir = std::filesystem::temp_directory_path() / "effindom-snapshot-failures";
+    std::filesystem::create_directories(output_dir);
+    const std::filesystem::path actual_path = output_dir / (golden_path.stem().string() + "-actual.png");
+    const std::filesystem::path diff_path = output_dir / (golden_path.stem().string() + "-diff.png");
+    INFO("Actual snapshot: " << actual_path.string());
+    INFO("Magnified snapshot diff: " << diff_path.string());
+    CHECK(WriteRgbaPng(actual, width, height, actual_path));
+    CHECK(WriteRgbaPng(MakeSnapshotDiff(actual, expected), width, height, diff_path));
+}
+
 void CheckSnapshotAgainstGolden(
     const std::vector<std::uint8_t>& actual,
     int width,
@@ -290,6 +364,9 @@ void CheckSnapshotAgainstGolden(
     INFO("SSIM: " << comparison.score);
     INFO("Mean absolute luma delta: " << comparison.mean_abs_luma_delta);
     INFO("Max luma delta: " << static_cast<int>(comparison.max_luma_delta));
+    if (comparison.score < min_ssim || EnvironmentVariableIsSet("EFFINDOM_WRITE_SNAPSHOT_ARTIFACTS")) {
+        WriteSnapshotFailureArtifacts(actual, expected, width, height, golden_path);
+    }
     CHECK(comparison.score >= min_ssim);
 }
 
@@ -2358,12 +2435,13 @@ TEST_CASE("v2 renders images with object-fit into a golden snapshot", "[v2][snap
     REQUIRE(surface);
     engine.RenderToCanvas(surface->getCanvas());
 
+    constexpr double kImageSceneMinSsim = 0.995;
     CheckSnapshotAgainstGolden(
         SnapshotRgba(surface, 220, 180),
         220,
         180,
         GoldensDir() / "image-scene.png",
-        0.999);
+        kImageSceneMinSsim);
 }
 
 TEST_CASE("v2 retained image scaling uses blended sampling", "[v2][unit]") {

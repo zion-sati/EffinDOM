@@ -95,6 +95,18 @@ fi
 OUTPUT_DIR="$(resolve_path "${EFFINDOM_BROWSER_OUTPUT_DIR:-public/v2/ui}")"
 ensure_cmake_build_dir "${BUILD_DIR}"
 
+WASM_DEPS_CMAKE_ARGS=()
+if [ -n "${EFFINDOM_WASM_DEPS_ROOT:-}" ]; then
+  WASM_DEPS_CMAKE_ARGS+=("-DEFFINDOM_WASM_DEPS_ROOT=${EFFINDOM_WASM_DEPS_ROOT}")
+fi
+SKIA_CMAKE_ARGS=()
+if [ -n "${SKIA_GRAPHITE_WASM_DIR:-}" ]; then
+  SKIA_CMAKE_ARGS+=("-DSKIA_GRAPHITE_WASM_DIR=${SKIA_GRAPHITE_WASM_DIR}")
+fi
+if [ -n "${SKIA_GANESH_WASM_DIR:-}" ]; then
+  SKIA_CMAKE_ARGS+=("-DSKIA_GANESH_WASM_DIR=${SKIA_GANESH_WASM_DIR}")
+fi
+
 if ! cmake_output="$(
   emcmake cmake -S . -B "${BUILD_DIR}" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -107,6 +119,8 @@ if ! cmake_output="$(
     "-DEFFINDOM_WASM_ARCH_SUFFIX=${OUTPUT_SUFFIX}" \
     "-DEFFINDOM_SIMD=${SIMD_ENABLED}" \
     "-DEFFINDOM_V2_UI_BROWSER_OUTPUT_DIR=${OUTPUT_DIR}" \
+    "${WASM_DEPS_CMAKE_ARGS[@]}" \
+    "${SKIA_CMAKE_ARGS[@]}" \
     "${MEMORY64_FLAGS[@]}" 2>&1
 )"; then
   printf '%s\n' "${cmake_output}"

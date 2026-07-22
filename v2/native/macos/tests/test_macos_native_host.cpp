@@ -1,6 +1,10 @@
-#include "MacosNativeHost.h"
-#include "input/MacosInputRouter.h"
+#include "NativeHost.h"
+#include "NativeHostCharacterization.h"
+#include "fui_host_abi.h"
+#include "NativeInputTypes.h"
+#include "graphics/MacosMetalSurface.h"
 #include "input/MacosScrollWheelBridge.h"
+#include "platform/MacosSystemThemeBridge.h"
 #include "effindom_ui.h"
 #include "SDL3/SDL.h"
 
@@ -11,17 +15,30 @@
 #include <chrono>
 #include <cmath>
 #include <fstream>
+#include <limits>
+#include <optional>
 #include <thread>
+#include <vector>
 
-using effindom::v2::native::MacosNativeHost;
+using effindom::v2::native::NativeHost;
+
+TEST_CASE("macOS native host satisfies the shared characterization contract", "[v2][native][macos][characterization]") {
+    effindom::v2::native::tests::CharacterizeNativeHost<NativeHost>();
+}
 
 extern "C" std::uint64_t __fui_native_action_handle();
 extern "C" std::uint64_t __fui_native_application_root_handle();
 extern "C" std::uint64_t __fui_native_scroll_handle();
 extern "C" std::uint64_t __fui_native_body_text_handle();
+extern "C" std::uint64_t __fui_native_selection_text_handle();
 extern "C" std::uint64_t __fui_native_click_text_handle();
+extern "C" std::uint64_t __fui_native_context_link_handle();
+extern "C" std::uint64_t __fui_native_context_image_handle();
+extern "C" std::uint64_t __fui_native_context_svg_handle();
+extern "C" std::uint64_t __fui_native_context_editor_handle();
 extern "C" std::uint64_t __fui_native_scroll_view_handle();
 extern "C" std::uint64_t __fui_native_drop_zone_handle();
+extern "C" bool __fui_native_context_menu_visible();
 extern "C" void __fui_native_schedule_ui_dispatch();
 extern "C" void __fui_native_schedule_cancelled_ui_dispatch();
 extern "C" std::uint32_t __fui_native_ui_dispatch_count();
@@ -40,6 +57,9 @@ extern "C" void __fui_native_clear_test_image();
 extern "C" void fui_load_font(std::uint32_t font_id, std::uintptr_t source, std::uint32_t length);
 extern "C" void fui_load_svg(std::uint32_t svg_id, std::uintptr_t source, std::uint32_t length);
 extern "C" void fui_release_svg(std::uint32_t svg_id);
+extern "C" std::uint32_t fui_get_host_environment();
+extern "C" std::uint32_t fui_get_host_capabilities();
+extern "C" std::uint32_t fui_get_accent_color();
 
 namespace {
 
@@ -51,7 +71,7 @@ std::string NativeFileDialogResult() {
     return result;
 }
 
-bool PumpUntilFileDialogCompletes(MacosNativeHost& host) {
+bool PumpUntilFileDialogCompletes(NativeHost& host) {
     for (std::size_t attempt = 0U; attempt < 32U; ++attempt) {
         host.PumpEvent(false);
         if (!NativeFileDialogResult().empty()) return true;
@@ -80,8 +100,68 @@ std::string TextDocument(std::uint64_t handle) {
 
 } // namespace
 
+TEST_CASE("macOS sRGB accent components are packed as opaque EffinDOM RGBA",
+    "[v2][native][macos][theme]") {
+    using effindom::v2::native::detail::PackMacosAccentColor;
+
+    CHECK(PackMacosAccentColor(0.0, 0.5, 1.0) == 0x0080FFFFU);
+    CHECK(PackMacosAccentColor(-1.0, 2.0, 0.25) == 0x00FF40FFU);
+    CHECK_FALSE(PackMacosAccentColor(
+        std::numeric_limits<double>::quiet_NaN(), 0.0, 0.0).has_value());
+}
+
+TEST_CASE("macOS accent state falls back and suppresses duplicate changes",
+    "[v2][native][macos][theme]") {
+    using effindom::v2::native::detail::kMacosAccentColorFallback;
+    using effindom::v2::native::detail::MacosAccentColorState;
+
+    std::optional<std::uint32_t> source;
+    std::vector<std::uint32_t> changes;
+    MacosAccentColorState state(
+        [&source] { return source; },
+        [&changes](std::uint32_t color) { changes.push_back(color); });
+
+    CHECK(state.Current() == kMacosAccentColorFallback);
+    CHECK_FALSE(state.Refresh());
+    source = kMacosAccentColorFallback;
+    CHECK_FALSE(state.Refresh());
+    source = 0x123456FFU;
+    CHECK(state.Refresh());
+    CHECK(state.Current() == 0x123456FFU);
+    REQUIRE(changes.size() == 1U);
+    CHECK(changes.front() == 0x123456FFU);
+    CHECK_FALSE(state.Refresh());
+    CHECK(changes.size() == 1U);
+    source.reset();
+    CHECK_FALSE(state.Refresh());
+    CHECK(state.Current() == 0x123456FFU);
+}
+
+TEST_CASE("macOS native accent host service reflects the AppKit source",
+    "[v2][native][macos][theme]") {
+    using effindom::v2::native::detail::kMacosAccentColorFallback;
+    using effindom::v2::native::detail::ReadMacosAccentColor;
+
+    NativeHost host(false);
+    const std::uint32_t expected = ReadMacosAccentColor().value_or(kMacosAccentColorFallback);
+    CHECK(fui_get_accent_color() == expected);
+    CHECK((fui_get_accent_color() & 0xFFU) == 0xFFU);
+}
+
+TEST_CASE("macOS native host reports desktop operation capabilities", "[v2][native][macos][host]") {
+    CHECK(fui_get_host_environment() == FUI_HOST_ENVIRONMENT_DESKTOP);
+    const auto capabilities = fui_get_host_capabilities();
+    CHECK((capabilities & FUI_HOST_CAPABILITY_OPEN_EXTERNAL_URI) != 0U);
+    CHECK((capabilities & FUI_HOST_CAPABILITY_CLIPBOARD_READ) != 0U);
+    CHECK((capabilities & FUI_HOST_CAPABILITY_CLIPBOARD_WRITE) != 0U);
+    CHECK((capabilities & FUI_HOST_CAPABILITY_FILE_DIALOGS) != 0U);
+    CHECK((capabilities & FUI_HOST_CAPABILITY_BROWSER_HISTORY) == 0U);
+    CHECK((capabilities & (1U << 1U)) == 0U);
+    CHECK((capabilities & (1U << 2U)) == 0U);
+}
+
 TEST_CASE("native FUI-RS mounts remounts and disposes one application", "[v2][native][macos][n3a]") {
-    MacosNativeHost host(false);
+    NativeHost host(false);
     const auto baseline = host.State();
     host.MountApplication();
     host.DrainFrames();
@@ -102,7 +182,7 @@ TEST_CASE("native FUI-RS mounts remounts and disposes one application", "[v2][na
 }
 
 TEST_CASE("SDL3 raster presentation is demand driven", "[v2][native][macos][n3b]") {
-    MacosNativeHost host(false);
+    NativeHost host(false);
     host.MountApplication();
     host.DrainFrames();
     const auto rendered = host.State();
@@ -119,21 +199,23 @@ TEST_CASE("SDL3 raster presentation is demand driven", "[v2][native][macos][n3b]
 }
 
 TEST_CASE("visible macOS presentation uses demand-driven Skia Metal", "[v2][native][macos][n4]") {
-    MacosNativeHost host(true);
+    NativeHost host(true);
     host.MountApplication();
     for (std::uint32_t attempt = 0U; attempt < 120U && host.State().frame_count == 0U; ++attempt) {
         host.PumpEvent(false);
         host.RunNextFrame();
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
-    CHECK(host.State().gpu_backed);
+    if (!host.State().gpu_backed) {
+        SKIP("Metal is unavailable; visible software fallback is covered separately");
+    }
     CHECK(host.State().frame_count > 0U);
     host.DrainFrames();
     CHECK(host.IsIdle());
 }
 
 TEST_CASE("macOS Metal presentation recreates graphics state", "[v2][native][macos][n4]") {
-    MacosNativeHost host(true);
+    NativeHost host(true);
     host.MountApplication();
     for (std::uint32_t attempt = 0U; attempt < 120U && host.State().frame_count == 0U; ++attempt) {
         host.PumpEvent(false);
@@ -141,7 +223,9 @@ TEST_CASE("macOS Metal presentation recreates graphics state", "[v2][native][mac
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     const auto before = host.State();
-    REQUIRE(before.gpu_backed);
+    if (!before.gpu_backed) {
+        SKIP("Metal is unavailable; visible software fallback is covered separately");
+    }
     REQUIRE(before.frame_count > 0U);
 
     host.RecreateGraphicsSurface();
@@ -155,7 +239,7 @@ TEST_CASE("macOS Metal presentation recreates graphics state", "[v2][native][mac
 }
 
 TEST_CASE("macOS Metal lifecycle suspends and recovers through SDL window events", "[v2][native][macos][n4]") {
-    MacosNativeHost host(true);
+    NativeHost host(true);
     host.MountApplication();
     for (std::uint32_t attempt = 0U; attempt < 120U && host.State().frame_count == 0U; ++attempt) {
         host.PumpEvent(false);
@@ -163,7 +247,9 @@ TEST_CASE("macOS Metal lifecycle suspends and recovers through SDL window events
         std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
     const auto initial = host.State();
-    REQUIRE(initial.gpu_backed);
+    if (!initial.gpu_backed) {
+        SKIP("Metal is unavailable; visible software fallback is covered separately");
+    }
 
     SDL_Event minimized{};
     minimized.type = SDL_EVENT_WINDOW_MINIMIZED;
@@ -188,8 +274,52 @@ TEST_CASE("macOS Metal lifecycle suspends and recovers through SDL window events
 
 }
 
+TEST_CASE("visible macOS presentation falls back to explicit software rendering when Metal initialization fails",
+    "[v2][native][macos][fallback]") {
+    effindom::v2::native::MacosMetalSurface::FailNextInitializationForTesting();
+    NativeHost host(true);
+    host.MountApplication();
+    host.DrainFrames();
+
+    CHECK_FALSE(host.State().gpu_backed);
+    CHECK(host.State().frame_count > 0U);
+    CHECK_FALSE(host.SnapshotRgba().empty());
+
+    host.Resize(640U, 420U);
+    host.DrainFrames();
+    CHECK(host.State().logical_width == 640.0f);
+    CHECK(host.State().logical_height == 420.0f);
+    CHECK(host.IsIdle());
+}
+
+TEST_CASE("macOS retries Metal when a runtime recovery attempt fails",
+    "[v2][native][macos][recovery]") {
+    NativeHost host(true);
+    host.MountApplication();
+    for (std::uint32_t attempt = 0U; attempt < 120U && host.State().frame_count == 0U; ++attempt) {
+        host.PumpEvent(false);
+        host.RunNextFrame();
+        std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    if (!host.State().gpu_backed) {
+        SKIP("Metal is unavailable; startup fallback is covered separately");
+    }
+
+    const auto before = host.State();
+    effindom::v2::native::MacosMetalSurface::FailNextRecoveryForTesting();
+    host.RecreateGraphicsSurface();
+    host.DrainFrames();
+
+    const auto recovered = host.State();
+    CHECK(recovered.gpu_backed);
+    CHECK(recovered.graphics_recovery_count > before.graphics_recovery_count);
+    CHECK(recovered.frame_count > before.frame_count);
+    CHECK_FALSE(host.SnapshotRgba().empty());
+    CHECK(host.IsIdle());
+}
+
 TEST_CASE("native input, resize, density, and clipboard services are live", "[v2][native][macos][n3c]") {
-    MacosNativeHost host(false);
+    NativeHost host(false);
     host.MountApplication();
     host.DrainFrames();
     const auto baseline_activations = host.State().activation_count;
@@ -211,6 +341,11 @@ TEST_CASE("native input, resize, density, and clipboard services are live", "[v2
     host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, false, 2, 0U);
     host.DrainFrames();
     CHECK(host.State().activation_count == baseline_activations);
+    CHECK(__fui_native_context_menu_visible());
+
+    host.DispatchWindowFocusLost();
+    host.DrainFrames();
+    CHECK_FALSE(__fui_native_context_menu_visible());
 
     host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, true);
     host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, false);
@@ -218,6 +353,33 @@ TEST_CASE("native input, resize, density, and clipboard services are live", "[v2
     CHECK(host.State().activation_count == baseline_activations + 1U);
     CHECK(TextDocument(__fui_native_click_text_handle()) ==
           "Button clicks: " + std::to_string(baseline_activations + 1U));
+
+    SDL_SetModState(SDL_KMOD_CTRL);
+    host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, true, 0, 1U);
+    host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, false, 0, 0U);
+    SDL_SetModState(SDL_KMOD_NONE);
+    host.DrainFrames();
+    CHECK(__fui_native_context_menu_visible());
+
+    host.DispatchPointer(2.0f, 2.0f, true, 0, 1U);
+    host.DispatchPointer(2.0f, 2.0f, false, 0, 0U);
+    host.DrainFrames();
+    CHECK_FALSE(__fui_native_context_menu_visible());
+
+    host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, true, 1, 4U);
+    host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, false, 1, 0U);
+    host.DrainFrames();
+    CHECK_FALSE(__fui_native_context_menu_visible());
+
+    host.DispatchKey("F10", true, UI_KEY_MOD_SHIFT);
+    host.DispatchKey("F10", false, UI_KEY_MOD_SHIFT);
+    host.DrainFrames();
+    CHECK(__fui_native_context_menu_visible());
+
+    host.DispatchPointer(2.0f, 2.0f, true, 0, 1U);
+    host.DispatchPointer(2.0f, 2.0f, false, 0, 0U);
+    host.DrainFrames();
+    CHECK_FALSE(__fui_native_context_menu_visible());
 
     host.DispatchKey("Tab", true);
     host.DispatchKey("Tab", false);
@@ -274,6 +436,63 @@ TEST_CASE("native input, resize, density, and clipboard services are live", "[v2
     CHECK(host.ClipboardText() == "native clipboard");
 }
 
+TEST_CASE("native retained context menus cover desktop target policy", "[v2][native][macos][context-menu]") {
+    NativeHost host(false);
+    host.MountApplication();
+    host.DrainFrames();
+
+    float target_x = 0.0f;
+    float target_y = 0.0f;
+    float target_width = 0.0f;
+    float target_height = 0.0f;
+    REQUIRE(ui_get_bounds(
+        __fui_native_context_link_handle(),
+        &target_x,
+        &target_y,
+        &target_width,
+        &target_height));
+    ui_set_scroll_offset(
+        __fui_native_scroll_view_handle(),
+        0.0f,
+        std::max(0.0f, target_y - 120.0f));
+    host.RequestFrame();
+    host.DrainFrames();
+
+    const auto verify_target_menu = [&](std::uint64_t handle) {
+        INFO("context-menu target handle=" << handle);
+        REQUIRE(ui_get_visible_bounds(
+            handle, &target_x, &target_y, &target_width, &target_height));
+        REQUIRE(target_width > 0.0f);
+        REQUIRE(target_height > 0.0f);
+        const float x = target_x + target_width * 0.5f;
+        const float y = target_y + target_height * 0.5f;
+        host.DispatchPointer(x, y, true, 2, 2U);
+        host.DispatchPointer(x, y, false, 2, 0U);
+        host.DrainFrames();
+        CHECK(__fui_native_context_menu_visible());
+        host.DispatchPointer(2.0f, 2.0f, true, 0, 1U);
+        host.DispatchPointer(2.0f, 2.0f, false, 0, 0U);
+        host.DrainFrames();
+        CHECK_FALSE(__fui_native_context_menu_visible());
+    };
+
+    const auto link_handle = __fui_native_context_link_handle();
+    const auto image_handle = __fui_native_context_image_handle();
+    const auto svg_handle = __fui_native_context_svg_handle();
+    const auto editor_handle = __fui_native_context_editor_handle();
+    INFO("link=" << link_handle << " image=" << image_handle
+         << " svg=" << svg_handle << " editor=" << editor_handle);
+    verify_target_menu(link_handle);
+    verify_target_menu(image_handle);
+    verify_target_menu(svg_handle);
+    verify_target_menu(editor_handle);
+
+    host.DispatchPointer(2.0f, 2.0f, true, 2, 2U);
+    host.DispatchPointer(2.0f, 2.0f, false, 2, 0U);
+    host.DrainFrames();
+    CHECK_FALSE(__fui_native_context_menu_visible());
+}
+
 TEST_CASE("SDL wheel units use one device-independent UI scroll step", "[v2][native][macos][input]") {
     using effindom::v2::native::detail::WheelDeltaToLogicalPixels;
     CHECK(WheelDeltaToLogicalPixels(1.0f) == Catch::Approx(96.0f));
@@ -287,7 +506,7 @@ TEST_CASE("SDL wheel units use one device-independent UI scroll step", "[v2][nat
 }
 
 TEST_CASE("mouse drag selection renders before pointer up", "[v2][native][macos][input]") {
-    MacosNativeHost host(false);
+    NativeHost host(false);
     host.MountApplication();
     host.DrainFrames();
 
@@ -333,10 +552,116 @@ TEST_CASE("mouse drag selection renders before pointer up", "[v2][native][macos]
 
     host.DispatchPointer(x + std::min(width - 4.0f, 240.0f), pointer_y, false);
     host.DrainFrames();
+
+    host.DispatchPointer(x + 80.0f, pointer_y, true, 2, 2U);
+    host.DispatchPointer(x + 80.0f, pointer_y, false, 2, 0U);
+    host.DrainFrames();
+    CHECK(__fui_native_context_menu_visible());
+    host.DispatchPointer(2.0f, 2.0f, true, 0, 1U);
+    host.DispatchPointer(2.0f, 2.0f, false, 0, 0U);
+    host.DrainFrames();
+    CHECK_FALSE(__fui_native_context_menu_visible());
+}
+
+TEST_CASE("native text editor commands use Tier 2 and Apple shortcuts",
+          "[v2][native][macos][input][keyboard]") {
+    NativeHost host(false);
+    host.MountApplication();
+    host.DrainFrames();
+
+    const auto editor = __fui_native_context_editor_handle();
+    REQUIRE(editor != 0U);
+    ui_set_scroll_offset(__fui_native_scroll_view_handle(), 0.0f, 10000.0f);
+    host.RequestFrame();
+    host.DrainFrames();
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    REQUIRE(ui_get_bounds(editor, &x, &y, &width, &height));
+    host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, true);
+    host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, false);
+    const auto focused_editor = ui_get_focused_handle();
+    REQUIRE(focused_editor != 0U);
+    ui_set_text_selection_range(focused_editor, 0U, 0U);
+
+    host.DispatchKey("ArrowRight", true, UI_KEY_MOD_SHIFT);
+    host.DispatchKey("ArrowRight", false, UI_KEY_MOD_SHIFT);
+    ui_copy_text_selection(focused_editor);
+    CHECK(host.ClipboardText().size() == 1U);
+
+    host.DispatchKey("a", true, UI_KEY_MOD_META);
+    host.DispatchKey("a", false, UI_KEY_MOD_META);
+    host.DispatchKey("c", true, UI_KEY_MOD_META);
+    host.DispatchKey("c", false, UI_KEY_MOD_META);
+    CHECK(host.ClipboardText().size() > 1U);
+}
+
+TEST_CASE("empty native text input keeps its retained Paste context menu",
+          "[v2][native][macos][input][context-menu]") {
+    NativeHost host(false);
+    host.MountApplication();
+    host.DrainFrames();
+
+    const auto editor = __fui_native_context_editor_handle();
+    REQUIRE(editor != 0U);
+    ui_set_scroll_offset(__fui_native_scroll_view_handle(), 0.0f, 10000.0f);
+    host.RequestFrame();
+    host.DrainFrames();
+
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    REQUIRE(ui_get_bounds(editor, &x, &y, &width, &height));
+    const float pointer_x = x + width * 0.5f;
+    const float pointer_y = y + height * 0.5f;
+    host.DispatchPointer(pointer_x, pointer_y, true);
+    host.DispatchPointer(pointer_x, pointer_y, false);
+    host.DispatchKey("a", true, UI_KEY_MOD_META);
+    host.DispatchKey("a", false, UI_KEY_MOD_META);
+    host.DispatchKey("Backspace", true);
+    host.DispatchKey("Backspace", false);
+    host.DrainFrames();
+
+    host.SetClipboardText("paste me");
+    host.DispatchPointer(pointer_x, pointer_y, true, 2, 2U);
+    host.DispatchPointer(pointer_x, pointer_y, false, 2, 0U);
+    host.DrainFrames();
+    CHECK(__fui_native_context_menu_visible());
+}
+
+TEST_CASE("native SelectionArea text copies with the Apple primary shortcut",
+          "[v2][native][macos][input][selection]") {
+    NativeHost host(false);
+    host.MountApplication();
+    host.DrainFrames();
+
+    const auto text = __fui_native_selection_text_handle();
+    REQUIRE(text != 0U);
+    REQUIRE(ui_reveal_text_range(text, 0U, 0U));
+    host.RequestFrame();
+    host.DrainFrames();
+
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    REQUIRE(ui_get_bounds(text, &x, &y, &width, &height));
+    const float pointer_y = y + height * 0.5f;
+    host.DispatchPointer(x + 4.0f, pointer_y, true);
+    host.DispatchPointerMove(x + std::min(width - 4.0f, 220.0f), pointer_y);
+    host.DispatchPointer(x + std::min(width - 4.0f, 220.0f), pointer_y, false);
+    host.DrainFrames();
+
+    host.SetClipboardText("");
+    host.DispatchKey("c", true, UI_KEY_MOD_META);
+    host.DispatchKey("c", false, UI_KEY_MOD_META);
+    CHECK_FALSE(host.ClipboardText().empty());
 }
 
 TEST_CASE("native UI dispatch wakes the UI thread and cancellation is safe", "[v2][native][macos][n5a]") {
-    MacosNativeHost host(false);
+    NativeHost host(false);
     host.MountApplication();
     host.DrainFrames();
     while (host.PumpEvent(false)) host.DrainFrames();
@@ -357,7 +682,7 @@ TEST_CASE("native UI dispatch wakes the UI thread and cancellation is safe", "[v
 }
 
 TEST_CASE("native clipboard and external targets use OS platform services", "[v2][native][macos][n5b]") {
-    MacosNativeHost host(false);
+    NativeHost host(false);
     host.MountApplication();
     host.DrainFrames();
 
@@ -386,7 +711,7 @@ TEST_CASE("native clipboard and external targets use OS platform services", "[v2
 }
 
 TEST_CASE("native file dialogs marshal selection cancellation and errors to FUI-RS", "[v2][native][macos][n5c]") {
-    MacosNativeHost host(false);
+    NativeHost host(false);
     host.MountApplication();
     host.DrainFrames();
 
@@ -416,7 +741,7 @@ TEST_CASE("native file dialogs marshal selection cancellation and errors to FUI-
 }
 
 TEST_CASE("native SDL drops preserve routing sequence and multi-item payloads", "[v2][native][macos][n5d]") {
-    MacosNativeHost host(false);
+    NativeHost host(false);
     host.MountApplication();
     host.DrainFrames();
     __fui_native_clear_drop_result();
@@ -473,7 +798,7 @@ TEST_CASE("native SDL drops preserve routing sequence and multi-item payloads", 
 }
 
 TEST_CASE("native assets load offline report failures release and resolve fallback fonts", "[v2][native][macos][n5e]") {
-    MacosNativeHost host(false);
+    NativeHost host(false);
     host.MountApplication();
     host.DrainFrames();
 
@@ -607,7 +932,7 @@ TEST_CASE("native assets load offline report failures release and resolve fallba
 }
 
 TEST_CASE("native application remount is deterministic and lifecycle remains idle", "[v2][native][macos][n3d]") {
-    MacosNativeHost host(false);
+    NativeHost host(false);
     host.MountApplication();
     host.DrainFrames();
     const auto first = host.SnapshotRgba();

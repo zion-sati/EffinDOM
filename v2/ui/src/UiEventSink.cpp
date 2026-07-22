@@ -8,8 +8,8 @@ void UiEventSink::FocusChanged(std::uint64_t handle, bool focused) const {
     as_on_focus_changed(handle, focused);
 }
 
-void UiEventSink::PointerEvent(std::uint64_t handle, std::uint32_t event_type) const {
-    as_on_pointer_event(handle, static_cast<UiEvent>(event_type));
+bool UiEventSink::PointerEvent(std::uint64_t handle, std::uint32_t event_type) const {
+    return as_on_pointer_event(handle, static_cast<UiEvent>(event_type));
 }
 
 void UiEventSink::ScrollChanged(std::uint64_t handle, const ScrollMetrics& metrics) const {

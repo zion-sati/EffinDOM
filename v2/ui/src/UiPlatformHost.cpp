@@ -59,6 +59,10 @@ void SetGlobalUiPlatformHost(UiPlatformHost& host) {
     g_global_platform_host = &host;
 }
 
+void ClearGlobalUiPlatformHost(UiPlatformHost& host) {
+    if (g_global_platform_host == &host) g_global_platform_host = nullptr;
+}
+
 UiPlatformHost& GetGlobalUiPlatformHost() {
     return g_global_platform_host == nullptr ? GetAbiUiPlatformHost() : *g_global_platform_host;
 }

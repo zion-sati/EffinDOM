@@ -15,6 +15,13 @@ export default defineConfig({
       name: 'chromium',
       use: {
         browserName: 'chromium',
+        launchOptions: {
+          // Headless Chromium's default Linux ANGLE selection can expose a
+          // WebGL2 context that immediately loses its stencil attachment.
+          // Select Chromium's supported software GL backend explicitly so
+          // the renderer smoke lane exercises a stable WebGL2 device.
+          args: ['--use-angle=swiftshader', '--enable-unsafe-swiftshader'],
+        },
       },
     },
   ],

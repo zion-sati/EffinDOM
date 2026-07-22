@@ -175,6 +175,31 @@ std::uint64_t ScrollCoordinator::FindScrollableAncestor(std::uint64_t start_hand
     return UI_INVALID_HANDLE;
 }
 
+std::uint64_t ScrollCoordinator::FindCommonScrollableAncestor(
+    std::uint64_t first_handle,
+    std::uint64_t second_handle) const {
+    for (std::uint64_t first = first_handle; first != UI_INVALID_HANDLE;) {
+        const UINode* first_node = nodes_.Resolve(first);
+        if (first_node == nullptr) {
+            break;
+        }
+        if (first_node->is_scroll_view) {
+            for (std::uint64_t second = second_handle; second != UI_INVALID_HANDLE;) {
+                if (second == first) {
+                    return first;
+                }
+                const UINode* second_node = nodes_.Resolve(second);
+                if (second_node == nullptr) {
+                    break;
+                }
+                second = second_node->parent_handle;
+            }
+        }
+        first = first_node->parent_handle;
+    }
+    return UI_INVALID_HANDLE;
+}
+
 bool ScrollCoordinator::UpdateAutoScrollFor(
     std::uint64_t start_handle,
     float logical_x,
@@ -395,8 +420,12 @@ void ScrollCoordinator::BeginTouch(std::uint64_t handle, double timestamp_ms) {
         node->smooth_scroll_active = false;
         node->smooth_scroll_target_x = node->scroll_offset_x;
         node->smooth_scroll_target_y = node->scroll_offset_y;
-        active_touch_x_handle_ = CanScrollOnAxis(*node, true) ? handle : UI_INVALID_HANDLE;
-        active_touch_y_handle_ = CanScrollOnAxis(*node, false) ? handle : UI_INVALID_HANDLE;
+        active_touch_x_handle_ = CanScrollOnAxis(*node, true)
+            ? handle
+            : static_cast<std::uint64_t>(UI_INVALID_HANDLE);
+        active_touch_y_handle_ = CanScrollOnAxis(*node, false)
+            ? handle
+            : static_cast<std::uint64_t>(UI_INVALID_HANDLE);
     }
 }
 
@@ -444,8 +473,14 @@ void ScrollCoordinator::EndTouch(double timestamp_ms) {
     clear_if_needed(active_handle_);
     if (active_touch_x_handle_ != active_handle_) clear_if_needed(active_touch_x_handle_);
     if (active_touch_y_handle_ != active_handle_ && active_touch_y_handle_ != active_touch_x_handle_) clear_if_needed(active_touch_y_handle_);
-    momentum_x_handle_ = active_dragged_ ? (active_touch_x_handle_ != active_handle_ ? active_touch_x_handle_ : active_handle_) : UI_INVALID_HANDLE;
-    momentum_y_handle_ = active_dragged_ ? (active_touch_y_handle_ != active_handle_ && active_touch_y_handle_ != active_touch_x_handle_ ? active_touch_y_handle_ : active_handle_) : UI_INVALID_HANDLE;
+    momentum_x_handle_ = active_dragged_
+        ? (active_touch_x_handle_ != active_handle_ ? active_touch_x_handle_ : active_handle_)
+        : static_cast<std::uint64_t>(UI_INVALID_HANDLE);
+    momentum_y_handle_ = active_dragged_
+        ? (active_touch_y_handle_ != active_handle_ && active_touch_y_handle_ != active_touch_x_handle_
+              ? active_touch_y_handle_
+              : active_handle_)
+        : static_cast<std::uint64_t>(UI_INVALID_HANDLE);
     CancelActiveDrag();
 }
 

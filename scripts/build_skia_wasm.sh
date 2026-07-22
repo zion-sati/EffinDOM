@@ -40,14 +40,14 @@
 #   SKIA_WASM_DIR        Staging destination  (default: <repo>/skia/wasm or <repo>/skia/wasm64)
 #   SKIA_REVISION        Skia git ref         (default: chrome/m136)
 #   DEPOT_TOOLS_COMMIT   depot_tools commit   (default: empty = HEAD)
-#   SKIA_BUILD_WORKDIR   Scratch space        (default: /tmp/effindom-skia-build)
+#   SKIA_BUILD_WORKDIR   Scratch space        (default: ~/.cache/effindom-skia-build/wasm)
 #   SKIA_SOURCE_MIRROR    Local mirror path    (optional, clone from mirror)
 #   SKIA_DEPOT_TOOLS_DIR  Shared depot_tools   (optional, reuse one clone)
 
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-WORK_DIR_BASE_DEFAULT="/tmp/effindom-skia-build"
+WORK_DIR_BASE_DEFAULT="${HOME}/.cache/effindom-skia-build/wasm"
 
 # ── Pinned dependency versions ────────────────────────────────────────────────
 # SKIA_REVISION: newest available chrome/mXXX branch.  Bump whenever a newer
@@ -164,8 +164,22 @@ for arg in "$@"; do
   esac
 done
 
+if [ -z "${EFFINDOM_WASM_DEPS_ROOT:-}" ] && [ "${EFFINDOM_WASM_DEPS_MODE:-prebuilt}" != "source" ] && [ -f "${REPO_ROOT}/WasmDeps.lock.json" ]; then
+  EFFINDOM_WASM_DEPS_ROOT="$(node "${REPO_ROOT}/scripts/wasm-deps/prepare.mjs")"
+  export EFFINDOM_WASM_DEPS_ROOT
+fi
+
+if [ -n "${EFFINDOM_WASM_DEPS_ROOT:-}" ]; then
+  if [ "$FORCE" = true ]; then
+    red "ERROR: --force cannot rebuild a verified prebuilt WASM dependency SDK. Set EFFINDOM_WASM_DEPS_MODE=source first."
+    exit 1
+  fi
+  green "=== Using verified prebuilt WASM dependencies at ${EFFINDOM_WASM_DEPS_ROOT} ==="
+  exit 0
+fi
+
 # ── Skip if the staged archive is already present ─────────────────────────────
-if [ "$FORCE" = false ] && [ -f "$STAGING/libskia.a" ] && [ -f "$STAGING/libsvg.a" ] && [ -f "$STAGING/libskshaper.a" ] && [ -f "$STAGING/modules/svg/include/SkSVGDOM.h" ] && [ -f "$STAGING/modules/skresources/include/SkResources.h" ] && [ -f "$STAGING/modules/skshaper/include/SkShaper_factory.h" ] && [ -f "$STAGING/src/core/SkTHash.h" ] && [ -f "$STAGING/src/base/SkMathPriv.h" ] && [ -f "$STAGING/third_party/externals/expat/expat/lib/expat.h" ] && [ -f "$STAGING/third_party/expat/include/expat_config/expat_config.h" ]; then
+if [ "${SKIA_PREP_ONLY:-0}" != "1" ] && [ "$FORCE" = false ] && [ -f "$STAGING/libskia.a" ] && [ -f "$STAGING/libsvg.a" ] && [ -f "$STAGING/libskshaper.a" ] && [ -f "$STAGING/modules/svg/include/SkSVGDOM.h" ] && [ -f "$STAGING/modules/skresources/include/SkResources.h" ] && [ -f "$STAGING/modules/skshaper/include/SkShaper_factory.h" ] && [ -f "$STAGING/src/core/SkTHash.h" ] && [ -f "$STAGING/src/base/SkMathPriv.h" ] && [ -f "$STAGING/third_party/externals/expat/expat/lib/expat.h" ] && [ -f "$STAGING/third_party/expat/include/expat_config/expat_config.h" ]; then
   green "=== Skia already built at $STAGING (libskia.a) — skipping (use --force to rebuild) ==="
   exit 0
 fi

@@ -1,11 +1,11 @@
 #pragma once
 
 #include "UiPlatformHost.h"
+#include "NativeAssetService.h"
 
 #include <cstdint>
 #include <filesystem>
 #include <functional>
-#include <memory>
 #include <string>
 #include <string_view>
 
@@ -17,11 +17,10 @@ class Engine;
 
 namespace effindom::v2::native {
 
-class NativeAssetLoader;
-
 class MacosPlatformServices final : public ui::UiPlatformHost {
 public:
-    MacosPlatformServices(Engine& engine, std::function<void()> request_frame, bool allow_external_launch);
+    MacosPlatformServices(Engine& engine, std::function<void()> request_frame,
+        std::function<void(std::uint64_t)> announce, bool allow_external_launch);
     ~MacosPlatformServices() override;
 
     void WriteClipboard(std::string_view plain_text, std::string_view html) override;
@@ -51,8 +50,9 @@ private:
 
     Engine& engine_;
     std::function<void()> request_frame_;
+    std::function<void(std::uint64_t)> announce_;
     bool allow_external_launch_;
-    std::unique_ptr<NativeAssetLoader> assets_;
+    NativeAssetService assets_;
     SDL_Cursor* cursor_ = nullptr;
 };
 

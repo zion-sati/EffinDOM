@@ -11,6 +11,12 @@
 
 class SkCanvas;
 
+#if defined(__GNUC__) || defined(__clang__)
+#define EFFINDOM_V2_CORE_INTERNAL_API __attribute__((visibility("default")))
+#else
+#define EFFINDOM_V2_CORE_INTERNAL_API
+#endif
+
 namespace effindom::v2 {
 
 struct Rect {
@@ -163,7 +169,7 @@ struct GlyphRenderStats {
     std::uint64_t styled_run_glyph_copies = 0;
 };
 
-class Engine {
+class EFFINDOM_V2_CORE_INTERNAL_API Engine {
 public:
     Engine();
     ~Engine();

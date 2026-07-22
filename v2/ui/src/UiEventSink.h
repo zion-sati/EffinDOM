@@ -18,7 +18,7 @@ struct ScrollMetrics {
 class UiEventSink {
 public:
     void FocusChanged(std::uint64_t handle, bool focused) const;
-    void PointerEvent(std::uint64_t handle, std::uint32_t event_type) const;
+    bool PointerEvent(std::uint64_t handle, std::uint32_t event_type) const;
     void ScrollChanged(std::uint64_t handle, const ScrollMetrics& metrics) const;
     void SelectionChanged(std::uint64_t handle, std::uint32_t start, std::uint32_t end) const;
     void CrossSelectionChanged(std::uint64_t area_handle, std::string_view utf8_text) const;

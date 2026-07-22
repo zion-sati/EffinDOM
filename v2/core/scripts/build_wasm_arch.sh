@@ -141,6 +141,11 @@ else
   SKIA_WASM_DIR="${GRAPHITE_DIR}" ./scripts/build_skia_wasm.sh
 fi
 
+WASM_DEPS_CMAKE_ARGS=()
+if [ -n "${EFFINDOM_WASM_DEPS_ROOT:-}" ]; then
+  WASM_DEPS_CMAKE_ARGS+=("-DEFFINDOM_WASM_DEPS_ROOT=${EFFINDOM_WASM_DEPS_ROOT}")
+fi
+
 if ! cmake_output="$(
   emcmake cmake -S . -B "${BUILD_DIR}" \
     -DCMAKE_BUILD_TYPE=Release \
@@ -155,6 +160,7 @@ if ! cmake_output="$(
     "-DEFFINDOM_V2_CORE_BROWSER_OUTPUT_DIR=${OUTPUT_DIR}" \
     "-DSKIA_GRAPHITE_WASM_DIR=${GRAPHITE_DIR}" \
     "-DSKIA_GANESH_WASM_DIR=${GANESH_DIR}" \
+    "${WASM_DEPS_CMAKE_ARGS[@]}" \
     "${MEMORY64_FLAGS[@]}" 2>&1
 )"; then
   printf '%s\n' "${cmake_output}"

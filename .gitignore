@@ -35,9 +35,8 @@ Testing/
 *.js.map
 *.sym
 
-# /skia/ holds local Skia support caches (libskia.a, headers, modules,
-# skia.version) staged by the Skia build scripts. They are intentionally local
-# build caches, not versioned browser artifacts.
+# /skia/ holds staged linkable Skia libraries and headers. The source checkout
+# and build intermediates live in the user cache by default.
 /skia/
 
 # public/ is a generated staging directory for local serving and test runs.

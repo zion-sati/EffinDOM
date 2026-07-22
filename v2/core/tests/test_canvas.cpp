@@ -384,15 +384,16 @@ TEST_CASE("Offscreen surfaces", "[offscreen]") {
 TEST_CASE("RenderNodeToRgba validation", "[canvas]") {
     Engine engine;
     std::array<uint8_t, 64> buffer{};
+    constexpr std::uint32_t buffer_capacity = static_cast<std::uint32_t>(buffer.size());
     engine.Init(100, 100, 2.0f);
 
     SECTION("null handle returns 0") {
-        REQUIRE(engine.RenderNodeToRgba(0, 10, 10, buffer.data(), buffer.size(), 1.0f, 0.0f, 0.0f) == 0);
+        REQUIRE(engine.RenderNodeToRgba(0, 10, 10, buffer.data(), buffer_capacity, 1.0f, 0.0f, 0.0f) == 0);
     }
 
     SECTION("zero dimensions return 0") {
-        REQUIRE(engine.RenderNodeToRgba(1, 0, 10, buffer.data(), buffer.size(), 1.0f, 0.0f, 0.0f) == 0);
-        REQUIRE(engine.RenderNodeToRgba(1, 10, 0, buffer.data(), buffer.size(), 1.0f, 0.0f, 0.0f) == 0);
+        REQUIRE(engine.RenderNodeToRgba(1, 0, 10, buffer.data(), buffer_capacity, 1.0f, 0.0f, 0.0f) == 0);
+        REQUIRE(engine.RenderNodeToRgba(1, 10, 0, buffer.data(), buffer_capacity, 1.0f, 0.0f, 0.0f) == 0);
     }
 
     SECTION("null output buffer returns 0") {
@@ -404,6 +405,6 @@ TEST_CASE("RenderNodeToRgba validation", "[canvas]") {
     }
 
     SECTION("unknown handle returns 0") {
-        REQUIRE(engine.RenderNodeToRgba(9999, 10, 10, buffer.data(), buffer.size(), 1.0f, 0.0f, 0.0f) == 0);
+        REQUIRE(engine.RenderNodeToRgba(9999, 10, 10, buffer.data(), buffer_capacity, 1.0f, 0.0f, 0.0f) == 0);
     }
 }

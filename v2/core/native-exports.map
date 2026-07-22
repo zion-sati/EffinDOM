@@ -1,0 +1,9 @@
+EFFINDOM_CORE_1 {
+    global:
+        ed_*;
+        _ZN8effindom*;
+        _ZNK8effindom*;
+        _ZT*N8effindom*;
+    local:
+        *;
+};

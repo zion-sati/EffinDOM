@@ -1,6 +1,7 @@
 #include "UiRuntime.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace effindom::v2::ui {
 

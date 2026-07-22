@@ -13,7 +13,14 @@ else()
     set(EFFINDOM_V2_CORE_LIBRARY_TYPE SHARED)
 endif()
 add_library(effindom_v2_core ${EFFINDOM_V2_CORE_LIBRARY_TYPE} ${EFFINDOM_V2_CORE_SOURCES})
-set_target_properties(effindom_v2_core PROPERTIES OUTPUT_NAME "effindom_core")
+set_target_properties(effindom_v2_core PROPERTIES
+    OUTPUT_NAME "effindom_core")
+if(EFFINDOM_V2_CORE_LIBRARY_TYPE STREQUAL "SHARED")
+    target_compile_definitions(effindom_v2_core PRIVATE EFFINDOM_V2_CORE_BUILDING_DLL=1)
+    if(WIN32)
+        set_target_properties(effindom_v2_core PROPERTIES WINDOWS_EXPORT_ALL_SYMBOLS ON)
+    endif()
+endif()
 target_include_directories(effindom_v2_core
     PUBLIC
         "${CMAKE_CURRENT_SOURCE_DIR}/include"
@@ -22,6 +29,18 @@ target_include_directories(effindom_v2_core
 target_link_libraries(effindom_v2_core
     PRIVATE effindom_compile_flags
 )
+if(UNIX AND NOT APPLE AND EFFINDOM_V2_CORE_LIBRARY_TYPE STREQUAL "SHARED")
+    target_link_options(effindom_v2_core PRIVATE
+        "LINKER:--exclude-libs,ALL"
+        "LINKER:--version-script=${CMAKE_CURRENT_SOURCE_DIR}/native-exports.map")
+    set_property(TARGET effindom_v2_core APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/native-exports.map")
+elseif(APPLE AND EFFINDOM_V2_CORE_LIBRARY_TYPE STREQUAL "SHARED")
+    target_link_options(effindom_v2_core PRIVATE
+        "LINKER:-exported_symbols_list,${CMAKE_CURRENT_SOURCE_DIR}/native-exports.apple")
+    set_property(TARGET effindom_v2_core APPEND PROPERTY LINK_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/native-exports.apple")
+endif()
 
 if(EMSCRIPTEN)
     set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/exports.txt")
@@ -119,8 +138,10 @@ else()
     )
     target_compile_definitions(effindom_v2_core_generate_goldens PRIVATE EFFINDOM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
-    include(Catch)
-    catch_discover_tests(effindom_v2_core_tests)
+    if(EFFINDOM_TARGET_RUNNABLE)
+        include(Catch)
+        catch_discover_tests(effindom_v2_core_tests)
+    endif()
 
     if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
         add_executable(effindom_v2_core_fuzz
@@ -142,5 +163,6 @@ else()
             NAME effindom_v2_core_fuzz_smoke
             COMMAND effindom_v2_core_fuzz --iterations 2500 --max-words 256
         )
+        add_dependencies(effindom_v2_core_tests effindom_v2_core_fuzz)
     endif()
 endif()

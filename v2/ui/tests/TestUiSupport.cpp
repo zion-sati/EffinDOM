@@ -54,10 +54,11 @@ void RecordScrollChange(
 
 } // namespace test_ui_support
 
-extern "C" void as_on_pointer_event(ui_handle_t handle, UiEvent event_enum) {
+extern "C" bool as_on_pointer_event(ui_handle_t handle, UiEvent event_enum) {
     if (test_ui_support::g_pointer_event_callback != nullptr) {
         test_ui_support::g_pointer_event_callback(handle, event_enum);
     }
+    return false;
 }
 
 extern "C" void as_on_focus_changed(ui_handle_t handle, bool is_focused) {
@@ -131,3 +132,25 @@ extern "C" void as_on_missing_font_coverage(uint32_t font_id, uint32_t coverage_
             : std::string(reinterpret_cast<const char*>(utf8_sample), static_cast<std::size_t>(len)),
     });
 }
+
+#if defined(_WIN32)
+namespace {
+struct WindowsHostCallbackRegistration {
+    WindowsHostCallbackRegistration() {
+        UiHostCallbacks callbacks{};
+        callbacks.on_focus_changed = &as_on_focus_changed;
+        callbacks.on_pointer_event = &as_on_pointer_event;
+        callbacks.on_text_changed = &as_on_text_changed;
+        callbacks.on_scroll = &as_on_scroll;
+        callbacks.on_selection_changed = &as_on_selection_changed;
+        callbacks.on_cross_selection_changed = &as_on_cross_selection_changed;
+        callbacks.on_clipboard_write = &as_on_clipboard_write;
+        callbacks.on_request_clipboard_read = &as_on_request_clipboard_read;
+        callbacks.on_missing_font_coverage = &as_on_missing_font_coverage;
+        ui_set_host_callbacks(&callbacks);
+    }
+};
+
+WindowsHostCallbackRegistration g_windows_host_callback_registration{};
+} // namespace
+#endif

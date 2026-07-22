@@ -60,6 +60,21 @@ inline bool IsValidUtf8(std::string_view text) {
     return true;
 }
 
+inline bool IsFunctionKeyName(std::string_view key) {
+    if (key.size() < 2U || key.size() > 3U || key.front() != 'F') {
+        return false;
+    }
+    std::uint32_t number = 0U;
+    for (std::size_t index = 1U; index < key.size(); index += 1U) {
+        const char digit = key[index];
+        if (digit < '0' || digit > '9') {
+            return false;
+        }
+        number = number * 10U + static_cast<std::uint32_t>(digit - '0');
+    }
+    return number >= 1U && number <= 24U;
+}
+
 struct TextEdit {
     std::uint32_t start = 0U;
     std::uint32_t removed_end = 0U;

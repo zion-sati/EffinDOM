@@ -33,10 +33,26 @@ xcode-select --install
 
 ```bash
 sudo apt-get update
-sudo apt-get install -y cmake ninja-build python3 python3-pip git build-essential curl bash binaryen
+sudo apt-get install -y \
+  cmake ninja-build python3 python3-pip git build-essential pkg-config curl bash binaryen \
+  libx11-dev libxext-dev libxrandr-dev libxcursor-dev libxfixes-dev \
+  libxi-dev libxss-dev libxtst-dev libxkbcommon-dev libxkbcommon-x11-dev \
+  libwayland-dev wayland-protocols libdecor-0-dev libdecor-0-plugin-1-cairo \
+  libegl1-mesa-dev libvulkan-dev \
+  libfontconfig1-dev libdbus-1-dev libasound2-dev
 curl -fsSL https://deb.nodesource.com/setup_24.x | sudo -E bash -
 sudo apt-get install -y nodejs
 ```
+
+The desktop development packages let the source-built SDL3 dependency provide
+both X11 and Wayland backends. The Cairo libdecor plugin supplies client-side
+caption and resize borders on Wayland compositors that need them. Vulkan
+supplies the accelerated Skia Ganesh surface; EGL remains an SDL desktop-video
+prerequisite. The build pins current Khronos Vulkan headers for optional
+present modes while continuing to use the distro Vulkan loader and installed
+GPU driver at runtime. Fontconfig supplies Linux fallback-font discovery,
+while D-Bus supplies freedesktop file-manager integration. They do not
+introduce a GTK, GNOME, or Ubuntu-specific runtime dependency.
 
 ### Emscripten SDK (required)
 

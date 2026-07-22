@@ -330,27 +330,26 @@ UiRuntime::ParagraphLayout UiRuntime::LayoutParagraphImpl(const UINode& node, st
         mutable_node.line_height = mutable_node.line_heights.front();
         mutable_node.text_layout_cache_max_line_width = 0.0f;
         mutable_node.visual_line_shape_cache_valid = !disable_soft_wrap;
-        mutable_node.visual_line_shapes = disable_soft_wrap
-            ? std::vector<CachedVisualLineShape>{}
-            : std::vector<CachedVisualLineShape>{
-                  CachedVisualLineShape{
-                      0U,
-                      0U,
-                      0U,
-                      0U,
-                      0U,
-                      0U,
-                      0.0f,
-                      empty_line.height,
-                      empty_line.baseline,
-                      true,
-                      false,
-                      empty_line.glyphs,
-                      BuildTextClusterStops(empty_line.glyphs, 0.0f, 0U),
-                      empty_line.ascent,
-                      empty_line.descent,
-                  },
-              };
+        mutable_node.visual_line_shapes.clear();
+        if (!disable_soft_wrap) {
+            mutable_node.visual_line_shapes.push_back(CachedVisualLineShape{
+                0U,
+                0U,
+                0U,
+                0U,
+                0U,
+                0U,
+                0.0f,
+                empty_line.height,
+                empty_line.baseline,
+                true,
+                false,
+                empty_line.glyphs,
+                BuildTextClusterStops(empty_line.glyphs, 0.0f, 0U),
+                empty_line.ascent,
+                empty_line.descent,
+            });
+        }
         mutable_node.nonwrap_fragment_cache_valid = disable_soft_wrap;
         mutable_node.nonwrap_fragment_line_offsets = {0U, 0U};
         mutable_node.nonwrap_fragments.clear();
@@ -360,8 +359,10 @@ UiRuntime::ParagraphLayout UiRuntime::LayoutParagraphImpl(const UINode& node, st
         populate_from_node(mutable_node);
         return paragraph;
     }
-    if (kRequiresRegisteredIcuData && !icu_data_registered_) {
-        return paragraph;
+    if constexpr (kRequiresRegisteredIcuData) {
+        if (!icu_data_registered_) {
+            return paragraph;
+        }
     }
     if (font == nullptr || font->font == nullptr) {
         return paragraph;

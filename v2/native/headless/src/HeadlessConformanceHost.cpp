@@ -55,7 +55,9 @@ std::string ReadText(const std::filesystem::path& path) {
     if (!input) {
         return {};
     }
-    return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
+    std::string text{std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()};
+    text.erase(std::remove(text.begin(), text.end(), '\r'), text.end());
+    return text;
 }
 
 bool WriteText(const std::filesystem::path& path, std::string_view text) {

@@ -716,7 +716,7 @@ void ui_register_icu_data(const uint8_t* bytes, uint32_t len) {
     (void)effindom::v2::ui::GetRuntime().RegisterIcuData(bytes, len);
 }
 
-void ui_on_pointer_event(
+bool ui_on_pointer_event(
     UiEvent event_enum,
     ui_handle_t handle,
     float logical_x,
@@ -730,7 +730,7 @@ void ui_on_pointer_event(
     float height,
     int32_t click_count,
     uint32_t modifiers) {
-    effindom::v2::ui::GetRuntime().HandlePointerEvent(
+    return effindom::v2::ui::GetRuntime().HandlePointerEvent(
         event_enum,
         handle,
         logical_x,
@@ -882,6 +882,10 @@ bool ui_get_bounds(
         *out_height = node->layout_height;
     }
     return true;
+}
+
+ui_handle_t ui_get_focused_handle(void) {
+    return effindom::v2::ui::GetRuntime().FocusedHandle();
 }
 
 bool ui_get_visible_bounds(

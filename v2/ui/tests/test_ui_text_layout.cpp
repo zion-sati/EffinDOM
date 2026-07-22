@@ -2538,7 +2538,9 @@ TEST_CASE("v2 ui non-wrap incremental edits shrink stale tall cached line height
 
     const std::string previous_text = node.text_content;
     const std::size_t beta_offset = node.text_content.find("beta");
-    const auto edit = effindom::v2::ui::TextEdit::Create(previous_text, beta_offset, beta_offset + 4U, "bet");
+    REQUIRE(beta_offset <= std::numeric_limits<std::uint32_t>::max() - 4U);
+    const auto beta_offset_u32 = static_cast<std::uint32_t>(beta_offset);
+    const auto edit = effindom::v2::ui::TextEdit::Create(previous_text, beta_offset_u32, beta_offset_u32 + 4U, "bet");
     REQUIRE(edit.has_value());
     node.logical_line_shapes[1].height += 7.0f;
     node.line_height = node.logical_line_shapes[1].height;

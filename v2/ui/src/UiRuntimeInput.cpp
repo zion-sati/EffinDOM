@@ -502,7 +502,11 @@ bool UiRuntime::RequestFocus(std::uint64_t handle) {
     return true;
 }
 
-void UiRuntime::HandlePointerEvent(
+std::uint64_t UiRuntime::FocusedHandle() const {
+    return focus_coordinator_->FocusedHandle();
+}
+
+bool UiRuntime::HandlePointerEvent(
     std::uint32_t event_enum,
     std::uint64_t handle,
     float logical_x,
@@ -516,7 +520,7 @@ void UiRuntime::HandlePointerEvent(
     float height,
     std::int32_t click_count,
     std::uint32_t modifiers) {
-    Input().HandlePointerEvent(
+    return Input().HandlePointerEvent(
         event_enum,
         handle,
         logical_x,

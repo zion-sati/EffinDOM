@@ -96,6 +96,7 @@ _ui_needs_animation_frame
 _ui_has_pointer_autoscroll
 _ui_selection_autoscroll
 _ui_get_bounds
+_ui_get_focused_handle
 _ui_get_visible_bounds
 _ui_get_text_metrics
 _ui_set_selectable

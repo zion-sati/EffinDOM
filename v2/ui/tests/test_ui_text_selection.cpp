@@ -3733,6 +3733,359 @@ TEST_CASE("v2 ui selectable single-line drag emits selection callback and highli
     CHECK(highlights.at(text).color == 0x40007AFFU);
 }
 
+TEST_CASE("v2 ui selectable single-line drag keeps tracking x outside its vertical bounds", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(240.0f, 80.0f);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("Hello"), 5U);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_interactive(text, true);
+    ui_node_add_child(root, text);
+
+    const auto font_bytes = ReadFileBytes(
+        std::string(EFFINDOM_SOURCE_DIR) + "/v2/fonts/DejaVuSans.ttf");
+    ui_register_font(1U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [start_x, start_line] = GetRuntime().GetLocalPositionFromIndex(*node, 0U);
+    const auto [middle_x, middle_line] = GetRuntime().GetLocalPositionFromIndex(*node, 2U);
+    const auto [end_x, end_line] = GetRuntime().GetLocalPositionFromIndex(*node, 5U);
+    REQUIRE(start_line == 0);
+    REQUIRE(middle_line == 0);
+    REQUIRE(end_line == 0);
+
+    const float row_y = node->abs_y + node->line_height * 0.5f;
+    UiTestPointerEvent(UI_EVENT_POINTER_DOWN, text, node->abs_x + start_x + 0.5f, row_y);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, root, node->abs_x + end_x, node->abs_y - 40.0f);
+    CHECK(node->selection_start == 0U);
+    CHECK(node->selection_end == 5U);
+
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_MOVE,
+        root,
+        node->abs_x + middle_x,
+        node->abs_y + node->layout_height + 40.0f);
+    CHECK(node->selection_start == 0U);
+    CHECK(node->selection_end == 2U);
+
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_UP,
+        root,
+        node->abs_x + middle_x,
+        node->abs_y + node->layout_height + 40.0f);
+    REQUIRE(g_selection_changes.size() == 1U);
+    CHECK(g_selection_changes[0].handle == text);
+    CHECK(g_selection_changes[0].start == 0U);
+    CHECK(g_selection_changes[0].end == 2U);
+}
+
+TEST_CASE("v2 ui multiline drag above the text keeps live x and fully selects lower rows", "[v2][ui][text-edit]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+
+    static constexpr char kText[] = "ABCDE\nFGHIJ";
+    ui_set_root(root);
+    ui_resize_window(240.0f, 100.0f);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>(kText), static_cast<std::uint32_t>(std::strlen(kText)));
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_node_add_child(root, text);
+    ui_commit_frame();
+
+    const auto* node = GetRuntime().Resolve(text);
+    REQUIRE(node != nullptr);
+    const auto [end_x, end_line] = GetRuntime().GetLocalPositionFromIndex(*node, 11U);
+    const auto [first_x, first_line] = GetRuntime().GetLocalPositionFromIndex(*node, 1U);
+    const auto [fourth_x, fourth_line] = GetRuntime().GetLocalPositionFromIndex(*node, 4U);
+    REQUIRE(end_line == 1);
+    REQUIRE(first_line == 0);
+    REQUIRE(fourth_line == 0);
+
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_DOWN,
+        text,
+        node->abs_x + end_x,
+        node->abs_y + node->line_height * 1.5f);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, root, node->abs_x + first_x, node->abs_y - 30.0f);
+    CHECK(node->selection_end == 1U);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, root, node->abs_x + fourth_x, node->abs_y - 30.0f);
+    CHECK(node->selection_start == 11U);
+    CHECK(node->selection_end == 4U);
+}
+
+TEST_CASE("v2 ui selection area drag uses nearest text row and live x outside text bounds", "[v2][ui][cross-selection]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterTestFont();
+
+    const std::uint64_t area = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t top = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t bottom = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(area != UI_INVALID_HANDLE);
+    REQUIRE(top != UI_INVALID_HANDLE);
+    REQUIRE(bottom != UI_INVALID_HANDLE);
+
+    ui_set_root(area);
+    ui_resize_window(240.0f, 120.0f);
+    ui_set_width(area, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(area, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_selection_area(area, true);
+    for (const auto& item : {std::pair{top, "ABCDE"}, std::pair{bottom, "FGHIJ"}}) {
+        ui_set_width(item.first, 180.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_height(item.first, 32.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_font(item.first, 1U, 20.0f);
+        ui_set_text(item.first, reinterpret_cast<const std::uint8_t*>(item.second), 5U);
+        ui_set_selectable(item.first, true, 0x40007AFFU);
+        ui_node_add_child(area, item.first);
+    }
+    ui_commit_frame();
+
+    const auto* top_node = GetRuntime().Resolve(top);
+    const auto* bottom_node = GetRuntime().Resolve(bottom);
+    REQUIRE(top_node != nullptr);
+    REQUIRE(bottom_node != nullptr);
+    const auto [bottom_end_x, bottom_line] = GetRuntime().GetLocalPositionFromIndex(*bottom_node, 5U);
+    const auto [top_first_x, top_first_line] = GetRuntime().GetLocalPositionFromIndex(*top_node, 1U);
+    const auto [top_fourth_x, top_fourth_line] = GetRuntime().GetLocalPositionFromIndex(*top_node, 4U);
+    REQUIRE(bottom_line == 0);
+    REQUIRE(top_first_line == 0);
+    REQUIRE(top_fourth_line == 0);
+
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_DOWN,
+        bottom,
+        bottom_node->abs_x + bottom_end_x,
+        bottom_node->abs_y + bottom_node->line_height * 0.5f);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, area, top_node->abs_x + top_first_x, top_node->abs_y - 20.0f);
+    CHECK(GetRuntime().Selection().state().end_node_handle == top);
+    CHECK(GetRuntime().Selection().state().end_index == 1U);
+    UiTestPointerEvent(UI_EVENT_POINTER_MOVE, area, top_node->abs_x + top_fourth_x, top_node->abs_y - 20.0f);
+    CHECK(GetRuntime().Selection().state().end_index == 4U);
+    CHECK(GetRuntime().BuildCrossSelectionText() == "E\nFGHIJ");
+}
+
+TEST_CASE("v2 ui selection area drag ignores selectable descendants of hidden subtrees", "[v2][ui][cross-selection]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterTestFont();
+
+    const std::uint64_t area = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t spacer = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t title = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t description = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t hidden_container = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t hidden_text = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(area != UI_INVALID_HANDLE);
+    REQUIRE(spacer != UI_INVALID_HANDLE);
+    REQUIRE(title != UI_INVALID_HANDLE);
+    REQUIRE(description != UI_INVALID_HANDLE);
+    REQUIRE(hidden_container != UI_INVALID_HANDLE);
+    REQUIRE(hidden_text != UI_INVALID_HANDLE);
+
+    ui_set_root(area);
+    ui_resize_window(320.0f, 180.0f);
+    ui_set_width(area, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(area, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_selection_area(area, true);
+    ui_set_height(spacer, 40.0f, UI_SIZE_UNIT_PIXEL);
+    for (const auto& item : {std::pair{title, "Advanced controls"}, std::pair{description, "Explore advanced controls"}}) {
+        ui_set_width(item.first, 280.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_height(item.first, 32.0f, UI_SIZE_UNIT_PIXEL);
+        ui_set_font(item.first, 1U, 20.0f);
+        ui_set_text(
+            item.first,
+            reinterpret_cast<const std::uint8_t*>(item.second),
+            static_cast<std::uint32_t>(std::strlen(item.second)));
+        ui_set_selectable(item.first, true, 0x40007AFFU);
+    }
+    ui_set_visibility(hidden_container, UI_VISIBILITY_HIDDEN);
+    ui_set_font(hidden_text, 1U, 20.0f);
+    ui_set_text(hidden_text, reinterpret_cast<const std::uint8_t*>("Hidden late text"), 16U);
+    ui_set_selectable(hidden_text, true, 0x40007AFFU);
+    ui_node_add_child(area, spacer);
+    ui_node_add_child(area, title);
+    ui_node_add_child(area, description);
+    ui_node_add_child(area, hidden_container);
+    ui_node_add_child(hidden_container, hidden_text);
+    ui_commit_frame();
+
+    const auto* title_node = GetRuntime().Resolve(title);
+    REQUIRE(title_node != nullptr);
+    const auto [title_end_x, title_line] = GetRuntime().GetLocalPositionFromIndex(*title_node, 17U);
+    REQUIRE(title_line == 0);
+
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_DOWN,
+        title,
+        title_node->abs_x + title_end_x,
+        title_node->abs_y + title_node->line_height * 0.5f);
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_MOVE,
+        area,
+        title_node->abs_x,
+        title_node->abs_y - 80.0f);
+
+    CHECK(GetRuntime().Selection().state().end_node_handle == title);
+    CHECK(GetRuntime().BuildCrossSelectionText() == "Advanced controls");
+}
+
+TEST_CASE("v2 ui cross selection auto scroll uses the endpoints common scroll ancestor", "[v2][ui][cross-selection][scroll]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    RegisterTestFont();
+
+    const std::uint64_t outer_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t area = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t anchor = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t nested_scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t nested_content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t endpoint = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(outer_scroll != UI_INVALID_HANDLE);
+    REQUIRE(area != UI_INVALID_HANDLE);
+    REQUIRE(anchor != UI_INVALID_HANDLE);
+    REQUIRE(nested_scroll != UI_INVALID_HANDLE);
+    REQUIRE(nested_content != UI_INVALID_HANDLE);
+    REQUIRE(endpoint != UI_INVALID_HANDLE);
+
+    ui_set_root(outer_scroll);
+    ui_resize_window(240.0f, 120.0f);
+    ui_set_width(outer_scroll, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_enabled(outer_scroll, false, true);
+    ui_set_width(area, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(area, 300.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_selection_area(area, true);
+    ui_set_width(anchor, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(anchor, 32.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(nested_scroll, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(nested_scroll, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_scroll_enabled(nested_scroll, false, true);
+    ui_set_width(nested_content, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(nested_content, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(endpoint, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(endpoint, 32.0f, UI_SIZE_UNIT_PIXEL);
+    for (const auto& item : {std::pair{anchor, "Preview state"}, std::pair{endpoint, "Animation sample rows"}}) {
+        ui_set_font(item.first, 1U, 20.0f);
+        ui_set_text(
+            item.first,
+            reinterpret_cast<const std::uint8_t*>(item.second),
+            static_cast<std::uint32_t>(std::strlen(item.second)));
+        ui_set_selectable(item.first, true, 0x40007AFFU);
+    }
+    ui_node_add_child(outer_scroll, area);
+    ui_node_add_child(area, anchor);
+    ui_node_add_child(area, nested_scroll);
+    ui_node_add_child(nested_scroll, nested_content);
+    ui_node_add_child(nested_content, endpoint);
+    ui_commit_frame();
+
+    GetRuntime().Selection().BeginCrossSelection(
+        GetRuntime(),
+        area,
+        anchor,
+        0U,
+        endpoint,
+        1U,
+        false);
+    GetRuntime().Selection().state().cross_dragged = true;
+
+    const std::uint64_t auto_scroll_handle = GetRuntime().SelectionAutoScroll(120.0f, 119.0f, 24.0f);
+    CHECK(auto_scroll_handle == outer_scroll);
+    CHECK(auto_scroll_handle != nested_scroll);
+}
+
+TEST_CASE("v2 ui mouse selection capture suppresses unrelated control hover and move events", "[v2][ui][input][selection]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    UseRecordingInteractionCallbacks();
+    RegisterTestFont();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t text = ui_create_node(UI_NODE_TEXT);
+    const std::uint64_t control = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(text != UI_INVALID_HANDLE);
+    REQUIRE(control != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_resize_window(240.0f, 100.0f);
+    ui_set_width(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(text, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(text, 32.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_font(text, 1U, 20.0f);
+    ui_set_text(text, reinterpret_cast<const std::uint8_t*>("Hello"), 5U);
+    ui_set_selectable(text, true, 0x40007AFFU);
+    ui_set_interactive(text, true);
+    ui_set_width(control, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(control, 32.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_interactive(control, true);
+    ui_node_add_child(root, text);
+    ui_node_add_child(root, control);
+    ui_commit_frame();
+
+    const auto* text_node = GetRuntime().Resolve(text);
+    const auto* control_node = GetRuntime().Resolve(control);
+    REQUIRE(text_node != nullptr);
+    REQUIRE(control_node != nullptr);
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_DOWN,
+        text,
+        text_node->abs_x + 1.0f,
+        text_node->abs_y + text_node->line_height * 0.5f);
+    ResetInteractionLogs();
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_MOVE,
+        control,
+        control_node->abs_x + 40.0f,
+        control_node->abs_y + 16.0f);
+
+    CHECK(std::none_of(g_pointer_events.begin(), g_pointer_events.end(), [control](const auto& event) {
+        return event.handle == control;
+    }));
+
+    UiTestPointerEvent(
+        UI_EVENT_POINTER_UP,
+        control,
+        control_node->abs_x + 40.0f,
+        control_node->abs_y + 16.0f);
+    CHECK(std::none_of(g_pointer_events.begin(), g_pointer_events.end(), [control](const auto& event) {
+        return event.handle == control && (event.event == UI_EVENT_POINTER_MOVE || event.event == UI_EVENT_POINTER_UP);
+    }));
+    CHECK(std::any_of(g_pointer_events.begin(), g_pointer_events.end(), [control](const auto& event) {
+        return event.handle == control && event.event == UI_EVENT_POINTER_ENTER;
+    }));
+}
+
 TEST_CASE("v2 ui selectable multiline drag emits multi-rect highlight", "[v2][ui][text-edit]") {
     using effindom::v2::ui::GetRuntime;
 

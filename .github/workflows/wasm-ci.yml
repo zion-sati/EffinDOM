@@ -1,0 +1,42 @@
+name: WASM CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 5.0.6
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake meson ninja-build python3 zstd xvfb libxkbcommon-x11-0 libvulkan1 mesa-vulkan-drivers
+      - name: Install package dependencies
+        run: npm ci
+      - name: Install Playwright Chromium
+        run: npx playwright install --with-deps chromium
+      - name: Cache verified WASM dependency SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/effindom/wasm-deps
+          key: ${{ runner.os }}-wasm-deps-${{ hashFiles('WasmDeps.lock.json') }}
+      - name: Download and verify WASM dependency SDK
+        run: node scripts/wasm-deps/prepare.mjs
+      - name: Build browser runtime
+        run: npm run build
+      - name: Run browser runtime tests
+        run: npm test

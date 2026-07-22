@@ -84,7 +84,9 @@ std::uint64_t FocusCoordinator::PendingRestoreCandidate(
     const auto it = node_ids.find(pending_node_id_);
     if (it == node_ids.end()) return UI_INVALID_HANDLE;
     const UINode* node = nodes_.Resolve(it->second);
-    return node != nullptr && node->is_focusable ? it->second : UI_INVALID_HANDLE;
+    return node != nullptr && node->is_focusable
+        ? it->second
+        : static_cast<std::uint64_t>(UI_INVALID_HANDLE);
 }
 
 } // namespace effindom::v2::ui

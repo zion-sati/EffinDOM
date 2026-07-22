@@ -12,7 +12,9 @@ namespace {
 
 std::uint32_t DecodeClipMode(std::uint32_t bounds_flags) {
     const std::uint32_t clip_mode = (bounds_flags & ED_BOUNDS_CLIP_MODE_MASK) >> ED_BOUNDS_CLIP_MODE_SHIFT;
-    return clip_mode == ED_CLIP_MODE_STRICT_CONTENT ? clip_mode : ED_CLIP_MODE_RASTER_SAFE_VISUAL;
+    return clip_mode == ED_CLIP_MODE_STRICT_CONTENT
+        ? clip_mode
+        : static_cast<std::uint32_t>(ED_CLIP_MODE_RASTER_SAFE_VISUAL);
 }
 
 } // namespace
@@ -356,7 +358,9 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
             node->has_svg = false;
             node->texture_id = texture_id;
             node->object_fit = object_fit;
-            node->image_sampling = detail::IsValidImageSampling(sampling) ? sampling : ED_IMAGE_SAMPLING_LINEAR;
+            node->image_sampling = detail::IsValidImageSampling(sampling)
+                ? sampling
+                : static_cast<std::uint32_t>(ED_IMAGE_SAMPLING_LINEAR);
             node->image_max_aniso = detail::NormalizeImageMaxAniso(max_aniso);
             stats_.parsed_commands += 1;
             return true;
@@ -385,7 +389,9 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
             };
             const std::uint32_t sampling = reader_.ReadWord();
             const std::uint32_t max_aniso = reader_.ReadWord();
-            node->image_nine_sampling = detail::IsValidImageSampling(sampling) ? sampling : ED_IMAGE_SAMPLING_LINEAR;
+            node->image_nine_sampling = detail::IsValidImageSampling(sampling)
+                ? sampling
+                : static_cast<std::uint32_t>(ED_IMAGE_SAMPLING_LINEAR);
             node->image_nine_max_aniso = detail::NormalizeImageMaxAniso(max_aniso);
             stats_.parsed_commands += 1;
             return true;
@@ -462,7 +468,9 @@ CommandBufferStats Engine::ExecuteCommandBuffer(const std::uint32_t* buffer, std
             node->svg_id = reader_.ReadWord();
             node->svg_tint_color = reader_.ReadWord();
             const std::uint32_t sampling = reader_.ReadWord();
-            node->svg_sampling = detail::IsValidImageSampling(sampling) ? sampling : ED_IMAGE_SAMPLING_LINEAR;
+            node->svg_sampling = detail::IsValidImageSampling(sampling)
+                ? sampling
+                : static_cast<std::uint32_t>(ED_IMAGE_SAMPLING_LINEAR);
             node->svg_max_aniso = detail::NormalizeImageMaxAniso(reader_.ReadWord());
             stats_.parsed_commands += 1;
             return true;

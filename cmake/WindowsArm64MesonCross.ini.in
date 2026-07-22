@@ -1,0 +1,13 @@
+[binaries]
+c = '@EFFINDOM_HARFBUZZ_MSVC_COMPILER@'
+cpp = '@EFFINDOM_HARFBUZZ_MSVC_COMPILER@'
+ar = '@EFFINDOM_HARFBUZZ_MSVC_ARCHIVER@'
+
+[host_machine]
+system = 'windows'
+cpu_family = 'aarch64'
+cpu = 'arm64'
+endian = 'little'
+
+[properties]
+needs_exe_wrapper = true

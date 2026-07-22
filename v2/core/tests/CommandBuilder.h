@@ -104,7 +104,7 @@ public:
         words_.push_back(FloatBits(clip_width));
         words_.push_back(FloatBits(clip_height));
         const std::uint32_t bounds_flags =
-            (interactive ? ED_BOUNDS_FLAG_INTERACTIVE : 0U) |
+            (interactive ? static_cast<std::uint32_t>(ED_BOUNDS_FLAG_INTERACTIVE) : 0U) |
             ((clip_mode << ED_BOUNDS_CLIP_MODE_SHIFT) & ED_BOUNDS_CLIP_MODE_MASK);
         words_.push_back(bounds_flags);
     }
