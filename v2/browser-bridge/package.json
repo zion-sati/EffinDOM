@@ -4,6 +4,7 @@
   "private": false,
   "license": "MIT",
   "description": "EffinDom browser runtime bridge, manifest assets, and runtime URL helpers",
+  "repository": "https://github.com/zion-sati/EffinDOM",
   "type": "commonjs",
   "publishConfig": {
     "access": "public"
