@@ -1,0 +1,31 @@
+name: Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  readiness:
+    if: startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Validate release tag
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          test -n "$RELEASE_TAG"
+          test "${RELEASE_TAG#v}" != "$RELEASE_TAG"
+      - name: Report release CD readiness
+        run: |
+          {
+            echo '## Release CD is staged'
+            echo
+            echo 'This safe initial workflow intentionally does not publish npm packages, runtime assets, or GitHub Release artifacts.'
+            echo 'After npm trusted publishing and the runtime-assets repository secret are configured, this workflow becomes the release gate and publisher.'
+          } >> "$GITHUB_STEP_SUMMARY"
