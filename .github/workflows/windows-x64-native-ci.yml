@@ -23,7 +23,12 @@ jobs:
           arch: x64
       - name: Verify MSVC toolchain
         shell: pwsh
-        run: cl /Bv
+        run: |
+          $compiler = (Get-Command cl -ErrorAction Stop).Source
+          if ($compiler -notlike '*Microsoft Visual Studio*') {
+            throw "Expected the MSVC cl.exe, got $compiler"
+          }
+          Write-Host "Using MSVC compiler: $compiler"
       - name: Verify x64 runner
         shell: pwsh
         run: if ($env:PROCESSOR_ARCHITECTURE -ne 'AMD64') { throw "Expected AMD64, got $env:PROCESSOR_ARCHITECTURE" }
