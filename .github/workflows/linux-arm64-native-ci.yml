@@ -3,7 +3,21 @@ name: Linux ARM64 Native CI
 on:
   push:
     branches: [main]
+    paths: &linux_arm64_paths
+      - '.github/workflows/linux-arm64-native-ci.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'cmake/**'
+      - 'NativeDeps.lock.json'
+      - 'scripts/build-native-runtime.mjs'
+      - 'v2/core/**'
+      - 'v2/ui/**'
+      - 'v2/native/common/**'
+      - 'v2/native/linux/**'
   pull_request:
+    paths: *linux_arm64_paths
   workflow_call:
 
 permissions:

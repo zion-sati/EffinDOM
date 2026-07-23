@@ -3,7 +3,22 @@ name: WASM CI
 on:
   push:
     branches: [main]
+    paths: &wasm_runtime_paths
+      - '.github/workflows/wasm-ci.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'cmake/**'
+      - 'WasmDeps.lock.json'
+      - 'scripts/wasm-deps/**'
+      - 'v2/abi/**'
+      - 'v2/core/**'
+      - 'v2/hostgen/**'
+      - 'v2/ui/**'
+      - 'v2/browser-bridge/**'
   pull_request:
+    paths: *wasm_runtime_paths
   workflow_call:
 
 permissions:

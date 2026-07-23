@@ -13,7 +13,7 @@ jobs:
     runs-on: ubuntu-24.04
     outputs:
       npm_dist_tag: ${{ steps.version.outputs.npm_dist_tag }}
-      package_version: ${{ steps.version.outputs.package_version }}
+      release_version: ${{ steps.version.outputs.release_version }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -22,7 +22,7 @@ jobs:
         with:
           node-version: 24
           package-manager-cache: false
-      - name: Validate release tag and package version
+      - name: Validate release tag
         id: version
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
@@ -30,15 +30,17 @@ jobs:
         run: |
           test -n "$RELEASE_TAG"
           case "$RELEASE_TAG" in v*) ;; *) exit 1 ;; esac
-          package_version="$(node -p "require('./v2/browser-bridge/package.json').version")"
           tag_version="$(printf '%s' "$RELEASE_TAG" | sed 's/^v//')"
-          test "$tag_version" = "$package_version"
+          if [[ -z "$tag_version" ]]; then
+            echo "Release tag must include a version after v." >&2
+            exit 1
+          fi
           if [[ "$RELEASE_TAG" == *-* || "$RELEASE_PRERELEASE" == 'true' ]]; then
             npm_dist_tag=next
           else
             npm_dist_tag=latest
           fi
-          echo "package_version=$package_version" >> "$GITHUB_OUTPUT"
+          echo "release_version=$tag_version" >> "$GITHUB_OUTPUT"
           echo "npm_dist_tag=$npm_dist_tag" >> "$GITHUB_OUTPUT"
 
   wasm:
@@ -94,6 +96,18 @@ jobs:
           package-manager-cache: false
       - name: Install dependencies
         run: npm ci
+      - name: Stamp runtime package version from the release tag
+        env:
+          RUNTIME_VERSION: ${{ needs.validate.outputs.release_version }}
+        run: |
+          node - "$RUNTIME_VERSION" <<'NODE'
+          const fs = require('node:fs');
+          const version = process.argv[2];
+          const packagePath = 'v2/browser-bridge/package.json';
+          const packageJson = JSON.parse(fs.readFileSync(packagePath, 'utf8'));
+          packageJson.version = version;
+          fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
+          NODE
       - name: Build release package
         run: npm run build
       - name: Pack the verified runtime
@@ -111,7 +125,7 @@ jobs:
         env:
           NPM_CONFIG_PROVENANCE: 'true'
           NPM_DIST_TAG: ${{ needs.validate.outputs.npm_dist_tag }}
-          RUNTIME_VERSION: ${{ needs.validate.outputs.package_version }}
+          RUNTIME_VERSION: ${{ needs.validate.outputs.release_version }}
         run: |
           if published_version="$(npm view "@effindomv2/runtime@$RUNTIME_VERSION" version 2>/dev/null)"; then
             test "$published_version" = "$RUNTIME_VERSION"
@@ -131,7 +145,7 @@ jobs:
           path: .release/EffinDOM-Runtimes
       - name: Publish immutable runtime assets
         env:
-          RUNTIME_VERSION: ${{ needs.validate.outputs.package_version }}
+          RUNTIME_VERSION: ${{ needs.validate.outputs.release_version }}
           RUNTIME_TARBALL: ${{ steps.package.outputs.tarball }}
         run: |
           node scripts/publish/runtime-assets.mjs \
@@ -150,7 +164,7 @@ jobs:
           {
             echo '## Runtime released'
             echo
-            echo "Package: @effindomv2/runtime${{ needs.validate.outputs.package_version }}"
+            echo "Package: @effindomv2/runtime@${{ needs.validate.outputs.release_version }}"
             echo "npm dist-tag: ${{ needs.validate.outputs.npm_dist_tag }}"
             echo 'All seven platform validation gates passed before publication.'
           } >> "$GITHUB_STEP_SUMMARY"

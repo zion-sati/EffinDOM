@@ -3,7 +3,22 @@ name: Windows x64 Native CI
 on:
   push:
     branches: [main]
+    paths: &windows_x64_paths
+      - '.github/workflows/windows-x64-native-ci.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'cmake/**'
+      - 'NativeDeps.lock.json'
+      - 'scripts/build-native-runtime.mjs'
+      - 'scripts/windows/**'
+      - 'v2/core/**'
+      - 'v2/ui/**'
+      - 'v2/native/common/**'
+      - 'v2/native/windows/**'
   pull_request:
+    paths: *windows_x64_paths
   workflow_call:
 
 permissions:
