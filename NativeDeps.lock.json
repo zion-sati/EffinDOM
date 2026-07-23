@@ -23,14 +23,14 @@
       "manifest_sha256": "22686585ded6577c1309dcbae49fec43173df8e1e3113dbcc632a3c123da63dd"
     },
     "windows-x64": {
-      "recipe_hash": "4cfbc350c424c5867f062680ba5e82c4079e9450f854723c495aca3646d532ef",
-      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/windows-x64/4cfbc350c424c5867f062680ba5e82c4079e9450f854723c495aca3646d532ef/manifest.json",
-      "manifest_sha256": "2aed49f1ae1f4b6ec1ad514d1d22665401fd6c08c43de16e6cd11b0545c0f59b"
+      "recipe_hash": "c6bb83ddd69c0939462f3e7b98cfd64c2e9f3764dd8b98ee0c7ad1b303799b06",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/windows-x64/c6bb83ddd69c0939462f3e7b98cfd64c2e9f3764dd8b98ee0c7ad1b303799b06/manifest.json",
+      "manifest_sha256": "b5114a5691f337bac348fa790dc1481f6dd9e7705fbe9cbb3bba923e4c6f362f"
     },
     "windows-arm64": {
-      "recipe_hash": "c4cd1ba6a9bb56a1218a7977cf470c5e8550a432d30857a1c921a94d5fd197c1",
-      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/windows-arm64/c4cd1ba6a9bb56a1218a7977cf470c5e8550a432d30857a1c921a94d5fd197c1/manifest.json",
-      "manifest_sha256": "5e6e464dedfade2b55e43ba06c027f0a1abf05c70d477e47a4d8cf087a5c74bb"
+      "recipe_hash": "98f19574cd11fad029fca9463d7fa2da726794aa153cae89e2534965d9372de9",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/windows-arm64/98f19574cd11fad029fca9463d7fa2da726794aa153cae89e2534965d9372de9/manifest.json",
+      "manifest_sha256": "8bd8f4c43b945d1914adc1c11f1b648c77c7c57e95b4cb13c3acb88d427a9641"
     }
   }
 }

@@ -18,6 +18,12 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: arm64
+      - name: Verify MSVC toolchain
+        shell: pwsh
+        run: cl /Bv
       - name: Verify ARM64 runner
         shell: pwsh
         run: if ($env:PROCESSOR_ARCHITECTURE -ne 'ARM64') { throw "Expected ARM64, got $env:PROCESSOR_ARCHITECTURE" }
