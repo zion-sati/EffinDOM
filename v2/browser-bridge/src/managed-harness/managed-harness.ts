@@ -1,5 +1,3 @@
-import { instantiate } from '@assemblyscript/loader';
-
 import type { BridgeRuntime,EffinDomCallbacks,WasmHandleLike } from '@effindomv2/runtime';
 import { listHostEventMethods,type HostEventsDefinition,type NormalizedHostEventMethod } from './host-events';
 import { createHostServiceImportModule,getHostServiceImportNames,type HostServicesDefinition } from './host-services';
@@ -1724,7 +1722,7 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
       hydrateCurrentPersistedEntries(restoredSnapshot);
       const wasmModule = await loadWasmModule(loadOptions.wasmPath);
       validateAppImports(wasmModule, loadOptions.hostServices);
-      const instance = await instantiate(wasmModule, createAppImports(loadOptions.hostServices));
+      const instance = await WebAssembly.instantiate(wasmModule, createAppImports(loadOptions.hostServices));
       const exports = instance.exports as unknown as Exports;
       const keyBufferPtr = exports.__fui_key_buffer();
       const textBufferPtr = exports.__fui_text_buffer();

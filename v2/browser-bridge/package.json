@@ -84,9 +84,7 @@
     "test": "playwright test -c playwright.config.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit"
   },
-  "dependencies": {
-    "@assemblyscript/loader": "^0.28.19"
-  },
+  "dependencies": {},
   "devDependencies": {
     "@playwright/test": "1.59.1",
     "@types/node": "^24.10.1",
