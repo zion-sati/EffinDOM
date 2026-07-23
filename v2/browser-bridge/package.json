@@ -4,6 +4,18 @@
   "private": false,
   "license": "MIT",
   "description": "EffinDom browser runtime bridge, manifest assets, and runtime URL helpers",
+  "keywords": [
+    "effindom",
+    "webassembly",
+    "wasm",
+    "retained-mode",
+    "ui-runtime",
+    "canvas-ui",
+    "skia",
+    "accessibility",
+    "assemblyscript",
+    "rust"
+  ],
   "repository": "https://github.com/zion-sati/EffinDOM",
   "type": "commonjs",
   "publishConfig": {
