@@ -26,7 +26,8 @@ jobs:
           sudo apt-get install --yes \
             clang cmake meson ninja-build pkg-config zstd \
             libdbus-1-dev libfontconfig1-dev libx11-dev libxext-dev \
-            libdecor-0-plugin-1-cairo libvulkan-dev mesa-vulkan-drivers xvfb
+            libdecor-0-dev libdecor-0-plugin-1-cairo \
+            libvulkan-dev mesa-vulkan-drivers xvfb
       - name: Install package dependencies
         run: npm ci
       - name: Cache verified native dependency SDK

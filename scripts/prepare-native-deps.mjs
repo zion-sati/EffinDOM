@@ -5,8 +5,9 @@ import { spawnSync } from 'node:child_process';
 import { appendFile, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const repoRoot = resolve(dirname(new URL(import.meta.url).pathname), '..');
+const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 function fail(message) {
   process.stderr.write(`ERROR: ${message}\n`);
