@@ -12,6 +12,7 @@ import {
   type HostServicesDefinition,
   type LoadingIndicatorOptions,
   type WorkerHostServicesBundleConfig,
+  type WasmAppInstantiator,
 } from './managed-harness';
 import type { RoutedHarnessRouteSpec } from './routed-app-conventions';
 
@@ -43,6 +44,7 @@ export interface RoutedHarnessConfig<
   readonly workerHostServices?: WorkerHostServicesBundleConfig;
   readonly recreateRuntimeOnWarmRouteSwap?: boolean;
   readonly loading?: false | LoadingIndicatorOptions;
+  readonly instantiateApp?: WasmAppInstantiator;
   readonly showLoadingOverlay?: (isWarmRouteSwap: boolean, route: TRoute) => boolean | undefined;
   readonly onBooting?: () => void;
   readonly onRouteLoading?: (route: TRoute) => void;
@@ -185,6 +187,7 @@ export function startRoutedHarness<
     ...(config.devToolsDomMirror === undefined ? {} : { devToolsDomMirror: config.devToolsDomMirror }),
     ...(config.pageZoom === undefined ? {} : { pageZoom: config.pageZoom }),
     ...(config.loading === undefined ? {} : { loading: config.loading }),
+    ...(config.instantiateApp === undefined ? {} : { instantiateApp: config.instantiateApp }),
     onReady: async (controller): Promise<void> => {
       controller.setSameOriginNavigationHandler((target, mode) => {
         navigationQueue = navigationQueue.then(() => navigateToRoute(controller, target, mode));

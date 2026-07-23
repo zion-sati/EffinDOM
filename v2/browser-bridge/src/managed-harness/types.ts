@@ -199,6 +199,18 @@ export interface HarnessContext<Exports extends HarnessExports> {
   waitForFrame(this: void): Promise<void>;
 }
 
+/**
+ * Framework-owned WASM instantiation hook.
+ *
+ * The runtime deliberately defaults to raw WebAssembly instantiation. A
+ * framework that requires language-specific imports may supply this hook
+ * without making the runtime depend on that framework or language.
+ */
+export type WasmAppInstantiator = (
+  module: WebAssembly.Module,
+  imports: WebAssembly.Imports,
+) => Promise<WebAssembly.Instance>;
+
 export interface HarnessOptions<Exports extends HarnessExports> {
   wasmPath: string;
   buildMode?: BuildMode;
@@ -215,6 +227,7 @@ export interface HarnessOptions<Exports extends HarnessExports> {
   hostServices?: HostServicesDefinition;
   workerHostServices?: WorkerHostServicesBundleConfig;
   persistedRestoreMode?: 'initial' | 'pop' | 'none';
+  instantiateApp?: WasmAppInstantiator;
 }
 
 export interface HarnessAppOptions<Exports extends HarnessExports> extends HarnessOptions<Exports> {
@@ -240,6 +253,7 @@ export interface ManagedHarnessOptions {
   devToolsDomMirror?: DevToolsDomMirrorMode;
   pageZoom?: PageZoomMode;
   loading?: false | LoadingIndicatorOptions;
+  instantiateApp?: WasmAppInstantiator;
   onReady?(this: void, controller: HarnessController): void | Promise<void>;
   onError?(this: void, error: unknown): void;
 }

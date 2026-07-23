@@ -42,7 +42,8 @@ HarnessExports,
 HarnessNavigationMode,
 HarnessOptions,
 HarnessState,
-ManagedHarnessOptions,
+  ManagedHarnessOptions,
+  WasmAppInstantiator,
 } from './types';
 import { HarnessUiChrome,waitForFrame } from './ui-chrome';
 import { createBrowserLoadingClock,HarnessLoadingController,type LoadingOperation } from './loading-controller';
@@ -141,6 +142,7 @@ export function startHarness<Exports extends HarnessExports>(options: HarnessOpt
   const onError = options.onError ?? defaultOnError;
   startManagedHarness({
     ...(options.loading === undefined ? {} : { loading: options.loading }),
+    ...(options.instantiateApp === undefined ? {} : { instantiateApp: options.instantiateApp }),
     async onReady(controller): Promise<void> {
       await controller.loadApp(loadOptions);
     },
@@ -150,6 +152,8 @@ export function startHarness<Exports extends HarnessExports>(options: HarnessOpt
 
 export function startManagedHarness(options: ManagedHarnessOptions): void {
   applyHarnessRuntimeOptions(options);
+  const instantiateApp: WasmAppInstantiator = options.instantiateApp
+    ?? ((module, imports) => WebAssembly.instantiate(module, imports));
   let cleanup = () => {
     delete window.__fui_debug;
   };
@@ -1722,7 +1726,10 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
       hydrateCurrentPersistedEntries(restoredSnapshot);
       const wasmModule = await loadWasmModule(loadOptions.wasmPath);
       validateAppImports(wasmModule, loadOptions.hostServices);
-      const instance = await WebAssembly.instantiate(wasmModule, createAppImports(loadOptions.hostServices));
+      const instance = await (loadOptions.instantiateApp ?? instantiateApp)(
+        wasmModule,
+        createAppImports(loadOptions.hostServices),
+      );
       const exports = instance.exports as unknown as Exports;
       const keyBufferPtr = exports.__fui_key_buffer();
       const textBufferPtr = exports.__fui_text_buffer();
