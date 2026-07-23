@@ -5,6 +5,7 @@ on:
     types: [published]
 
 permissions:
+  actions: read
   contents: read
   id-token: write
 
@@ -18,7 +19,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           package-manager-cache: false
@@ -43,59 +44,62 @@ jobs:
           echo "release_version=$tag_version" >> "$GITHUB_OUTPUT"
           echo "npm_dist_tag=$npm_dist_tag" >> "$GITHUB_OUTPUT"
 
-  wasm:
+  verify_ci:
     needs: validate
-    uses: ./.github/workflows/wasm-ci.yml
-
-  macos_arm64:
-    needs: validate
-    uses: ./.github/workflows/macos-native-ci.yml
-
-  macos_x64:
-    needs: validate
-    uses: ./.github/workflows/macos-x64-native-ci.yml
-
-  linux_x64:
-    needs: validate
-    uses: ./.github/workflows/linux-x64-native-ci.yml
-
-  linux_arm64:
-    needs: validate
-    uses: ./.github/workflows/linux-arm64-native-ci.yml
-
-  windows_x64:
-    needs: validate
-    uses: ./.github/workflows/windows-x64-native-ci.yml
-
-  windows_arm64:
-    needs: validate
-    uses: ./.github/workflows/windows-arm64-native-ci.yml
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: read
+    outputs:
+      runtime_ci_run_id: ${{ steps.attestation.outputs.runtime_ci_run_id }}
+      wasm_artifact_run_id: ${{ steps.attestation.outputs.wasm_artifact_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+      - name: Verify the release commit is merged to main
+        id: release_commit
+        run: |
+          git fetch origin main
+          git merge-base --is-ancestor HEAD origin/main
+          echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+      - name: Verify existing Runtime CI attestation and resolve WASM artifact
+        id: attestation
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ steps.release_commit.outputs.sha }}
+        run: node scripts/ci/verify-release-attestation.mjs
 
   publish:
     needs:
       - validate
-      - wasm
-      - macos_arm64
-      - macos_x64
-      - linux_x64
-      - linux_arm64
-      - windows_x64
-      - windows_arm64
+      - verify_ci
     runs-on: ubuntu-24.04
     permissions:
+      actions: read
       contents: read
       id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name }}
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           registry-url: https://registry.npmjs.org
           package-manager-cache: false
-      - name: Install dependencies
-        run: npm ci
+      - name: Download verified WASM package inputs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN_ID: ${{ needs.verify_ci.outputs.wasm_artifact_run_id }}
+        run: |
+          mkdir -p v2/browser-bridge/dist
+          gh run download "$ARTIFACT_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --name runtime-package-inputs \
+            --dir v2/browser-bridge/dist
+          test -f v2/browser-bridge/dist/effindom.v2.manifest.json
       - name: Stamp runtime package version from the release tag
         env:
           RUNTIME_VERSION: ${{ needs.validate.outputs.release_version }}
@@ -108,8 +112,6 @@ jobs:
           packageJson.version = version;
           fs.writeFileSync(packagePath, `${JSON.stringify(packageJson, null, 2)}\n`);
           NODE
-      - name: Build release package
-        run: npm run build
       - name: Pack the verified runtime
         id: package
         working-directory: v2/browser-bridge
@@ -124,14 +126,16 @@ jobs:
         working-directory: v2/browser-bridge
         env:
           NPM_CONFIG_PROVENANCE: 'true'
+          NPM_CONFIG_IGNORE_SCRIPTS: 'true'
           NPM_DIST_TAG: ${{ needs.validate.outputs.npm_dist_tag }}
           RUNTIME_VERSION: ${{ needs.validate.outputs.release_version }}
+          RUNTIME_TARBALL: ${{ steps.package.outputs.tarball }}
         run: |
           if published_version="$(npm view "@effindomv2/runtime@$RUNTIME_VERSION" version 2>/dev/null)"; then
             test "$published_version" = "$RUNTIME_VERSION"
             echo "@effindomv2/runtime@$RUNTIME_VERSION is already published; continuing with asset publication."
           else
-            npm publish --access public --tag "$NPM_DIST_TAG"
+            npm publish "$RUNTIME_TARBALL" --access public --tag "$NPM_DIST_TAG"
           fi
       - name: Validate runtime asset publisher credential
         env:
@@ -166,5 +170,6 @@ jobs:
             echo
             echo "Package: @effindomv2/runtime@${{ needs.validate.outputs.release_version }}"
             echo "npm dist-tag: ${{ needs.validate.outputs.npm_dist_tag }}"
-            echo 'All seven platform validation gates passed before publication.'
+            echo "Verified Runtime CI run: ${{ needs.verify_ci.outputs.runtime_ci_run_id }}"
+            echo "Reused WASM artifact run: ${{ needs.verify_ci.outputs.wasm_artifact_run_id }}"
           } >> "$GITHUB_STEP_SUMMARY"

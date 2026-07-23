@@ -1,24 +1,6 @@
 name: WASM CI
 
 on:
-  push:
-    branches: [main]
-    paths: &wasm_runtime_paths
-      - '.github/workflows/wasm-ci.yml'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'CMakeLists.txt'
-      - 'CMakePresets.json'
-      - 'cmake/**'
-      - 'WasmDeps.lock.json'
-      - 'scripts/wasm-deps/**'
-      - 'v2/abi/**'
-      - 'v2/core/**'
-      - 'v2/hostgen/**'
-      - 'v2/ui/**'
-      - 'v2/browser-bridge/**'
-  pull_request:
-    paths: *wasm_runtime_paths
   workflow_call:
 
 permissions:
@@ -30,7 +12,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
@@ -70,3 +52,10 @@ jobs:
           ccache --show-stats
       - name: Run browser runtime tests
         run: npm test
+      - name: Upload verified runtime package inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: runtime-package-inputs
+          path: v2/browser-bridge/dist
+          if-no-files-found: error
+          retention-days: 90

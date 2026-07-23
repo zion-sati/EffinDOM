@@ -1,0 +1,132 @@
+name: Runtime CI
+
+on:
+  push:
+    branches: [main]
+    paths: &runtime_ci_inputs
+      - '.github/workflows/runtime-ci.yml'
+      - '.github/workflows/wasm-ci.yml'
+      - '.github/workflows/macos-native-ci.yml'
+      - '.github/workflows/macos-x64-native-ci.yml'
+      - '.github/workflows/linux-x64-native-ci.yml'
+      - '.github/workflows/linux-arm64-native-ci.yml'
+      - '.github/workflows/windows-x64-native-ci.yml'
+      - '.github/workflows/windows-arm64-native-ci.yml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'CMakeLists.txt'
+      - 'CMakePresets.json'
+      - 'WasmDeps.lock.json'
+      - 'NativeDeps.lock.json'
+      - 'cmake/**'
+      - 'scripts/ci/**'
+      - 'scripts/wasm-deps/**'
+      - 'scripts/build-native-runtime.mjs'
+      - 'scripts/windows/**'
+      - 'v2/abi/**'
+      - 'v2/core/**'
+      - 'v2/hostgen/**'
+      - 'v2/ui/**'
+      - 'v2/fonts/**'
+      - 'v2/browser-bridge/**'
+      - 'v2/native/**'
+  pull_request:
+    paths: *runtime_ci_inputs
+
+permissions:
+  contents: read
+
+jobs:
+  changes:
+    runs-on: ubuntu-24.04
+    outputs:
+      wasm: ${{ steps.classify.outputs.wasm }}
+      macos_arm64: ${{ steps.classify.outputs.macos_arm64 }}
+      macos_x64: ${{ steps.classify.outputs.macos_x64 }}
+      linux_x64: ${{ steps.classify.outputs.linux_x64 }}
+      linux_arm64: ${{ steps.classify.outputs.linux_arm64 }}
+      windows_x64: ${{ steps.classify.outputs.windows_x64 }}
+      windows_arm64: ${{ steps.classify.outputs.windows_arm64 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - id: classify
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          node scripts/ci/runtime-dependency-scope.mjs classify --stdin --github-output \
+            < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+
+  wasm:
+    needs: changes
+    if: needs.changes.outputs.wasm == 'true'
+    uses: ./.github/workflows/wasm-ci.yml
+
+  macos_arm64:
+    needs: changes
+    if: needs.changes.outputs.macos_arm64 == 'true'
+    uses: ./.github/workflows/macos-native-ci.yml
+
+  macos_x64:
+    needs: changes
+    if: needs.changes.outputs.macos_x64 == 'true'
+    uses: ./.github/workflows/macos-x64-native-ci.yml
+
+  linux_x64:
+    needs: changes
+    if: needs.changes.outputs.linux_x64 == 'true'
+    uses: ./.github/workflows/linux-x64-native-ci.yml
+
+  linux_arm64:
+    needs: changes
+    if: needs.changes.outputs.linux_arm64 == 'true'
+    uses: ./.github/workflows/linux-arm64-native-ci.yml
+
+  windows_x64:
+    needs: changes
+    if: needs.changes.outputs.windows_x64 == 'true'
+    uses: ./.github/workflows/windows-x64-native-ci.yml
+
+  windows_arm64:
+    needs: changes
+    if: needs.changes.outputs.windows_arm64 == 'true'
+    uses: ./.github/workflows/windows-arm64-native-ci.yml
+
+  summary:
+    if: always()
+    needs: [changes, wasm, macos_arm64, macos_x64, linux_x64, linux_arm64, windows_x64, windows_arm64]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify required runtime checks
+        env:
+          WASM_REQUIRED: ${{ needs.changes.outputs.wasm }}
+          WASM_RESULT: ${{ needs.wasm.result }}
+          MACOS_ARM64_REQUIRED: ${{ needs.changes.outputs.macos_arm64 }}
+          MACOS_ARM64_RESULT: ${{ needs.macos_arm64.result }}
+          MACOS_X64_REQUIRED: ${{ needs.changes.outputs.macos_x64 }}
+          MACOS_X64_RESULT: ${{ needs.macos_x64.result }}
+          LINUX_X64_REQUIRED: ${{ needs.changes.outputs.linux_x64 }}
+          LINUX_X64_RESULT: ${{ needs.linux_x64.result }}
+          LINUX_ARM64_REQUIRED: ${{ needs.changes.outputs.linux_arm64 }}
+          LINUX_ARM64_RESULT: ${{ needs.linux_arm64.result }}
+          WINDOWS_X64_REQUIRED: ${{ needs.changes.outputs.windows_x64 }}
+          WINDOWS_X64_RESULT: ${{ needs.windows_x64.result }}
+          WINDOWS_ARM64_REQUIRED: ${{ needs.changes.outputs.windows_arm64 }}
+          WINDOWS_ARM64_RESULT: ${{ needs.windows_arm64.result }}
+        run: |
+          failed=0
+          for target in WASM MACOS_ARM64 MACOS_X64 LINUX_X64 LINUX_ARM64 WINDOWS_X64 WINDOWS_ARM64; do
+            required_name="${target}_REQUIRED"
+            result_name="${target}_RESULT"
+            required="${!required_name}"
+            result="${!result_name}"
+            if [[ "$required" == 'true' ]]; then
+              echo "$target: required, result=$result"
+              [[ "$result" == 'success' ]] || failed=1
+            else
+              echo "$target: unchanged, skipped"
+            fi
+          done
+          exit "$failed"

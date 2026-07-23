@@ -1,23 +1,6 @@
 name: macOS Native CI
 
 on:
-  push:
-    branches: [main]
-    paths: &macos_arm64_paths
-      - '.github/workflows/macos-native-ci.yml'
-      - 'package.json'
-      - 'package-lock.json'
-      - 'CMakeLists.txt'
-      - 'CMakePresets.json'
-      - 'cmake/**'
-      - 'NativeDeps.lock.json'
-      - 'scripts/build-native-runtime.mjs'
-      - 'v2/core/**'
-      - 'v2/ui/**'
-      - 'v2/native/common/**'
-      - 'v2/native/macos/**'
-  pull_request:
-    paths: *macos_arm64_paths
   workflow_call:
 
 permissions:
@@ -29,7 +12,7 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
