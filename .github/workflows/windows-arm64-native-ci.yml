@@ -1,0 +1,37 @@
+name: Windows ARM64 Native CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: windows-11-arm
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify ARM64 runner
+        shell: pwsh
+        run: if ($env:PROCESSOR_ARCHITECTURE -ne 'ARM64') { throw "Expected ARM64, got $env:PROCESSOR_ARCHITECTURE" }
+      - name: Install build dependencies
+        shell: pwsh
+        run: |
+          choco install --yes --no-progress ninja zstd
+          python -m pip install meson
+      - name: Install package dependencies
+        run: npm ci
+      - name: Cache verified native dependency SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/effindom/native-deps
+          key: ${{ runner.os }}-arm64-native-deps-${{ hashFiles('NativeDeps.lock.json') }}
+      - name: Build and test native runtime
+        run: node scripts/build-native-runtime.mjs --target windows-arm64 --with-tests

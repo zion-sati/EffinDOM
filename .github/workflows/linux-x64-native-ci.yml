@@ -1,0 +1,38 @@
+name: Linux x64 Native CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify x64 runner
+        run: test "$(uname -m)" = x86_64
+      - name: Install build and runtime dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --yes \
+            clang cmake meson ninja-build pkg-config zstd \
+            libdbus-1-dev libfontconfig1-dev libx11-dev libxext-dev \
+            libdecor-0-plugin-1-cairo libvulkan-dev mesa-vulkan-drivers xvfb
+      - name: Install package dependencies
+        run: npm ci
+      - name: Cache verified native dependency SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/effindom/native-deps
+          key: ${{ runner.os }}-x64-native-deps-${{ hashFiles('NativeDeps.lock.json') }}
+      - name: Build and test native runtime
+        run: xvfb-run --auto-servernum node scripts/build-native-runtime.mjs --target linux-x64 --with-tests

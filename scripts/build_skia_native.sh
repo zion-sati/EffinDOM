@@ -72,6 +72,8 @@ STAGING="${SKIA_NATIVE_DIR:-${REPO_ROOT}/skia/native/${PLATFORM_TOKEN}-${TARGET_
 BIN_DIR="out/${PLATFORM_TOKEN}-${TARGET_CPU}-${CONFIGURATION_TOKEN}-${BACKEND}"
 BACKEND_ID="native-ganesh-${PLATFORM_TOKEN}-${TARGET_CPU}-${CONFIGURATION_TOKEN}-${BACKEND}-${SKIA_REVISION}"
 BACKEND_STAMP="${STAGING}/.effindom-skia-backend"
+SKIA_CC="${CC:-clang}"
+SKIA_CXX="${CXX:-clang++}"
 
 if [ "$FORCE" = false ] && [ -f "${BACKEND_STAMP}" ] && [ "$(cat "${BACKEND_STAMP}")" = "${BACKEND_ID}" ] && [ -f "${STAGING}/libskia.a" ] && [ -f "${STAGING}/libsvg.a" ] && [ -f "${STAGING}/libskshaper.a" ] && [ -f "${STAGING}/modules/svg/include/SkSVGDOM.h" ] && [ -f "${STAGING}/modules/skresources/include/SkResources.h" ] && [ -f "${STAGING}/modules/skshaper/include/SkShaper_factory.h" ] && [ -f "${STAGING}/src/core/SkTHash.h" ] && [ -f "${STAGING}/src/base/SkMathPriv.h" ]; then
   green "=== Native Skia already staged at ${STAGING} — skipping ==="
@@ -135,6 +137,8 @@ gn gen "${BIN_DIR}" --args="
 is_official_build=${IS_OFFICIAL_BUILD}
 is_debug=${IS_DEBUG}
 target_cpu=\"${TARGET_CPU}\"
+cc=\"${SKIA_CC}\"
+cxx=\"${SKIA_CXX}\"
 skia_enable_gpu=${SKIA_ENABLE_GPU}
 skia_use_gl=false
 skia_use_vulkan=${SKIA_USE_VULKAN}

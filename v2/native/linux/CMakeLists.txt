@@ -85,15 +85,19 @@ set(EFFINDOM_NATIVE_OUTPUT_ROOT "${CMAKE_CURRENT_BINARY_DIR}/output")
 set(EFFINDOM_NATIVE_OUTPUT_BIN "${EFFINDOM_NATIVE_OUTPUT_ROOT}/bin")
 set(EFFINDOM_NATIVE_OUTPUT_LIB "${EFFINDOM_NATIVE_OUTPUT_ROOT}/lib")
 set(EFFINDOM_NATIVE_OUTPUT_RESOURCES "${EFFINDOM_NATIVE_OUTPUT_ROOT}/resources")
-pkg_get_variable(EFFINDOM_LIBDECOR_LIBDIR libdecor-0 libdir)
-find_file(EFFINDOM_LIBDECOR_CAIRO_PLUGIN
-    NAMES libdecor-cairo.so
-    HINTS "${EFFINDOM_LIBDECOR_LIBDIR}/libdecor/plugins-1"
-    PATH_SUFFIXES libdecor/plugins-1)
-if(NOT EFFINDOM_LIBDECOR_CAIRO_PLUGIN)
-    message(FATAL_ERROR
-        "The Linux native host requires the Cairo libdecor plugin for decorated Wayland windows. "
-        "On Ubuntu/Debian install it with: sudo apt install libdecor-0-plugin-1-cairo")
+option(EFFINDOM_LINUX_STAGE_RUNTIME
+    "Require and stage Linux runtime-only assets such as the Cairo libdecor plugin" ON)
+if(EFFINDOM_LINUX_STAGE_RUNTIME)
+    pkg_get_variable(EFFINDOM_LIBDECOR_LIBDIR libdecor-0 libdir)
+    find_file(EFFINDOM_LIBDECOR_CAIRO_PLUGIN
+        NAMES libdecor-cairo.so
+        HINTS "${EFFINDOM_LIBDECOR_LIBDIR}/libdecor/plugins-1"
+        PATH_SUFFIXES libdecor/plugins-1)
+    if(NOT EFFINDOM_LIBDECOR_CAIRO_PLUGIN)
+        message(FATAL_ERROR
+            "The Linux native host requires the Cairo libdecor plugin for decorated Wayland windows. "
+            "On Ubuntu/Debian install it with: sudo apt install libdecor-0-plugin-1-cairo")
+    endif()
 endif()
 function(effindom_stage_linux_native_target target_name)
     set_target_properties(${target_name} PROPERTIES

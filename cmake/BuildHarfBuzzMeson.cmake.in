@@ -34,7 +34,28 @@ execute_process(
     RESULT_VARIABLE _setup_status
 )
 if(NOT _setup_status EQUAL 0)
-    message(FATAL_ERROR "Failed to configure HarfBuzz with Meson.")
+    # A cancelled or failed setup can leave enough Meson metadata for the
+    # preflight above to look valid, while still being unusable by --wipe.
+    # Retry once from a known-empty build directory before failing.
+    file(REMOVE_RECURSE "${_build_dir}")
+    set(_setup_command
+        "${_meson}"
+        "setup"
+        "${_build_dir}"
+        "${_source_dir}"
+    )
+    if(NOT _cross_file STREQUAL "")
+        list(APPEND _setup_command "--cross-file=${_cross_file}")
+    endif()
+    list(APPEND _setup_command ${_setup_args})
+    execute_process(
+        COMMAND ${_setup_command}
+        COMMAND_ECHO STDOUT
+        RESULT_VARIABLE _setup_status
+    )
+    if(NOT _setup_status EQUAL 0)
+        message(FATAL_ERROR "Failed to configure HarfBuzz with Meson after clean recovery.")
+    endif()
 endif()
 
 execute_process(

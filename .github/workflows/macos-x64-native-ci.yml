@@ -1,0 +1,33 @@
+name: macOS x64 Native CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: macos-15-intel
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+      - name: Verify x64 runner
+        run: test "$(uname -m)" = x86_64
+      - name: Install build dependencies
+        run: brew install cmake meson ninja zstd
+      - name: Install package dependencies
+        run: npm ci
+      - name: Cache verified native dependency SDK
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/effindom/native-deps
+          key: ${{ runner.os }}-x64-native-deps-${{ hashFiles('NativeDeps.lock.json') }}
+      - name: Build and test native runtime
+        run: node scripts/build-native-runtime.mjs --target macos-x64 --with-tests
