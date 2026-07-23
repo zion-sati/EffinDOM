@@ -3,8 +3,9 @@
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const root = resolve(dirname(new URL(import.meta.url).pathname), '..');
+const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const targets = {
   'macos-arm64': { preset: 'macos-arm64-appleclang-release-metal', buildDir: 'build/native-macos-arm64-appleclang-release-metal' },
   'macos-x64': { preset: 'macos-x64-appleclang-release-metal', buildDir: 'build/native-macos-x64-appleclang-release-metal' },
