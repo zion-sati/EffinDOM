@@ -6,26 +6,151 @@ on:
 
 permissions:
   contents: read
+  id-token: write
 
 jobs:
-  readiness:
-    if: startsWith(github.event.release.tag_name, 'v')
+  validate:
     runs-on: ubuntu-24.04
+    outputs:
+      npm_dist_tag: ${{ steps.version.outputs.npm_dist_tag }}
+      package_version: ${{ steps.version.outputs.package_version }}
     steps:
       - uses: actions/checkout@v4
         with:
           ref: ${{ github.event.release.tag_name }}
-      - name: Validate release tag
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Validate release tag and package version
+        id: version
         env:
           RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_PRERELEASE: ${{ github.event.release.prerelease }}
         run: |
           test -n "$RELEASE_TAG"
-          test "${RELEASE_TAG#v}" != "$RELEASE_TAG"
-      - name: Report release CD readiness
+          case "$RELEASE_TAG" in v*) ;; *) exit 1 ;; esac
+          package_version="$(node -p "require('./v2/browser-bridge/package.json').version")"
+          tag_version="$(printf '%s' "$RELEASE_TAG" | sed 's/^v//')"
+          test "$tag_version" = "$package_version"
+          if [[ "$RELEASE_TAG" == *-* || "$RELEASE_PRERELEASE" == 'true' ]]; then
+            npm_dist_tag=next
+          else
+            npm_dist_tag=latest
+          fi
+          echo "package_version=$package_version" >> "$GITHUB_OUTPUT"
+          echo "npm_dist_tag=$npm_dist_tag" >> "$GITHUB_OUTPUT"
+
+  wasm:
+    needs: validate
+    uses: ./.github/workflows/wasm-ci.yml
+
+  macos_arm64:
+    needs: validate
+    uses: ./.github/workflows/macos-native-ci.yml
+
+  macos_x64:
+    needs: validate
+    uses: ./.github/workflows/macos-x64-native-ci.yml
+
+  linux_x64:
+    needs: validate
+    uses: ./.github/workflows/linux-x64-native-ci.yml
+
+  linux_arm64:
+    needs: validate
+    uses: ./.github/workflows/linux-arm64-native-ci.yml
+
+  windows_x64:
+    needs: validate
+    uses: ./.github/workflows/windows-x64-native-ci.yml
+
+  windows_arm64:
+    needs: validate
+    uses: ./.github/workflows/windows-arm64-native-ci.yml
+
+  publish:
+    needs:
+      - validate
+      - wasm
+      - macos_arm64
+      - macos_x64
+      - linux_x64
+      - linux_arm64
+      - windows_x64
+      - windows_arm64
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          registry-url: https://registry.npmjs.org
+          package-manager-cache: false
+      - name: Install dependencies
+        run: npm ci
+      - name: Build release package
+        run: npm run build
+      - name: Pack the verified runtime
+        id: package
+        working-directory: v2/browser-bridge
+        run: |
+          mkdir -p "$RUNNER_TEMP/runtime-package"
+          npm pack --json --ignore-scripts --pack-destination "$RUNNER_TEMP/runtime-package" > "$RUNNER_TEMP/runtime-package/pack.json"
+          filename="$(node -e "const item=require(process.argv[1])[0]; process.stdout.write(item.filename)" "$RUNNER_TEMP/runtime-package/pack.json")"
+          tarball="$RUNNER_TEMP/runtime-package/$filename"
+          test -f "$tarball"
+          echo "tarball=$tarball" >> "$GITHUB_OUTPUT"
+      - name: Publish to npm
+        working-directory: v2/browser-bridge
+        env:
+          NPM_CONFIG_PROVENANCE: 'true'
+          NPM_DIST_TAG: ${{ needs.validate.outputs.npm_dist_tag }}
+          RUNTIME_VERSION: ${{ needs.validate.outputs.package_version }}
+        run: |
+          if published_version="$(npm view "@effindomv2/runtime@$RUNTIME_VERSION" version 2>/dev/null)"; then
+            test "$published_version" = "$RUNTIME_VERSION"
+            echo "@effindomv2/runtime@$RUNTIME_VERSION is already published; continuing with asset publication."
+          else
+            npm publish --access public --tag "$NPM_DIST_TAG"
+          fi
+      - name: Validate runtime asset publisher credential
+        env:
+          RUNTIME_ASSETS_TOKEN: ${{ secrets.EFFINDOM_RUNTIMES_REPO_TOKEN }}
+        run: test -n "$RUNTIME_ASSETS_TOKEN"
+      - name: Check out runtime asset repository
+        uses: actions/checkout@v4
+        with:
+          repository: zion-sati/EffinDOM-Runtimes
+          token: ${{ secrets.EFFINDOM_RUNTIMES_REPO_TOKEN }}
+          path: .release/EffinDOM-Runtimes
+      - name: Publish immutable runtime assets
+        env:
+          RUNTIME_VERSION: ${{ needs.validate.outputs.package_version }}
+          RUNTIME_TARBALL: ${{ steps.package.outputs.tarball }}
+        run: |
+          node scripts/publish/runtime-assets.mjs \
+            --destination .release/EffinDOM-Runtimes \
+            --tarball "$RUNTIME_TARBALL"
+          cd .release/EffinDOM-Runtimes
+          if [[ -n "$(git status --porcelain)" ]]; then
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add README.md CNAME .gitignore v2
+            git commit -m "Publish @effindomv2/runtime@$RUNTIME_VERSION assets"
+            git push
+          fi
+      - name: Report release
         run: |
           {
-            echo '## Release CD is staged'
+            echo '## Runtime released'
             echo
-            echo 'This safe initial workflow intentionally does not publish npm packages, runtime assets, or GitHub Release artifacts.'
-            echo 'After npm trusted publishing and the runtime-assets repository secret are configured, this workflow becomes the release gate and publisher.'
+            echo "Package: @effindomv2/runtime${{ needs.validate.outputs.package_version }}"
+            echo "npm dist-tag: ${{ needs.validate.outputs.npm_dist_tag }}"
+            echo 'All seven platform validation gates passed before publication.'
           } >> "$GITHUB_STEP_SUMMARY"

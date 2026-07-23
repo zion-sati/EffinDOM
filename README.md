@@ -2,6 +2,16 @@
 
 > **Take the DOM off. Feel everything.**
 
+[![WASM CI](https://github.com/zion-sati/EffinDOM/actions/workflows/wasm-ci.yml/badge.svg)](https://github.com/zion-sati/EffinDOM/actions/workflows/wasm-ci.yml)
+[![macOS ARM64](https://github.com/zion-sati/EffinDOM/actions/workflows/macos-native-ci.yml/badge.svg)](https://github.com/zion-sati/EffinDOM/actions/workflows/macos-native-ci.yml)
+[![macOS x64](https://github.com/zion-sati/EffinDOM/actions/workflows/macos-x64-native-ci.yml/badge.svg)](https://github.com/zion-sati/EffinDOM/actions/workflows/macos-x64-native-ci.yml)
+[![Linux x64](https://github.com/zion-sati/EffinDOM/actions/workflows/linux-x64-native-ci.yml/badge.svg)](https://github.com/zion-sati/EffinDOM/actions/workflows/linux-x64-native-ci.yml)
+[![Linux ARM64](https://github.com/zion-sati/EffinDOM/actions/workflows/linux-arm64-native-ci.yml/badge.svg)](https://github.com/zion-sati/EffinDOM/actions/workflows/linux-arm64-native-ci.yml)
+[![Windows x64](https://github.com/zion-sati/EffinDOM/actions/workflows/windows-x64-native-ci.yml/badge.svg)](https://github.com/zion-sati/EffinDOM/actions/workflows/windows-x64-native-ci.yml)
+[![Windows ARM64](https://github.com/zion-sati/EffinDOM/actions/workflows/windows-arm64-native-ci.yml/badge.svg)](https://github.com/zion-sati/EffinDOM/actions/workflows/windows-arm64-native-ci.yml)
+[![npm](https://img.shields.io/npm/v/@effindomv2/runtime?label=runtime)](https://www.npmjs.com/package/@effindomv2/runtime)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 Let's be honest: nobody ever liked the feeling. Not you. Not the W3C. Not even
 Brendan Eich, who knocked JavaScript together in ten days and has been watching
 us fumble with it for three decades like a bad prophylactic that won't tear.
@@ -32,14 +42,22 @@ than anything the web has seen before:
    layout, HarfBuzz + ICU text shaping, input routing, semantics projection,
    focus management. Runs isolated from the GPU.
 
-3. **Tier 3 — SDK (FUI-AS, FUI-RS, FUI-KT):** Typed, zero-allocation app-facing APIs.
-   Declarative fluent syntax. Fine-grained reactivity. No HTML. No CSS. No
-   virtual DOM diffing.
+3. **Tier 3 — SDKs and language bindings:** Typed, retained-mode app-facing
+   APIs. FUI-AS and FUI-RS are available today; FUI-CS and FUI-KT have
+   smoke/runtime validation coverage. Declarative
+   fluent syntax. Fine-grained reactivity. No HTML. No CSS. No virtual DOM
+   diffing.
 
 Once the Tier 1 + Tier 2 engine DLLs are cached in your browser (CDN, forever),
 your actual app payload is tiny — the hello-world scaffold is **under 100 KB over the wire**, and
 real apps typically land in the low hundreds. Every app built on EffinDom shares the
 same cached runtime — no duplicate engine downloads, no framework tax.
+
+### Native host validation
+
+The shared Tier 1/Tier 2 runtime is continuously validated on macOS arm64/x64,
+Linux x64/arm64, and Windows x64/arm64. Native-host packaging remains separate
+from the browser runtime npm package.
 
 ---
 
@@ -142,12 +160,15 @@ same cached runtime — no duplicate engine downloads, no framework tax.
 - **C-ABI Command Buffer** — The runtime doesn't care what language you used.
 - **FUI-AS (AssemblyScript)** — Flagship web SDK with TypeScript-style
   architecture. **[→ fui-as repo](https://github.com/zion-sati/fui-as)**
-- **FUI-RS (Rust)** — On the roadmap. Basic smoke test renders.
-  [→ fui-rs repo](https://github.com/zion-sati/fui-rs)
-- **FUI-KT (Kotlin/Wasm)** — On the roadmap. Basic smoke test renders.
+- **FUI-RS (Rust)** — Supported web SDK with an idiomatic retained-mode Rust
+  API. **[→ fui-rs repo](https://github.com/zion-sati/fui-rs)**
+- **FUI-CS (C#)** — Public early-stage SDK with unit and browser-smoke
+  coverage. **[→ fui-cs repo](https://github.com/zion-sati/fui-cs)**
+- **FUI-KT (Kotlin/Wasm)** — Public early-stage SDK with smoke/runtime
+  coverage.
   **[→ fui-kt repo](https://github.com/zion-sati/fui-kt)**
-- **`npx` Scaffolding** — `npm create @effindomv2/fui-as-app` with `simple`
-  and `mvc` blueprints.
+- **`npx` Scaffolding** — `npm create @effindomv2/fui-as-app` and
+  `npm create @effindomv2/fui-rs-app`, each with `simple` and `mvc` blueprints.
   **[→ create-fui-as-app repo](https://github.com/zion-sati/create-fui-as-app)**
 
 ---
@@ -196,9 +217,11 @@ to the web, not built for it.
 |---|---|
 | **[EffinDOM](https://github.com/zion-sati/EffinDOM)** | Runtime, browser bridge, core engine, docs |
 | **[fui-as](https://github.com/zion-sati/fui-as)** | AssemblyScript SDK + controls + app surface |
-| **[fui-rs](https://github.com/zion-sati/fui-rs)** | Rust SDK — on the roadmap, smoke test renders |
-| **[fui-kt](https://github.com/zion-sati/fui-kt)** | Kotlin/Wasm SDK — on the roadmap, smoke test renders |
+| **[fui-rs](https://github.com/zion-sati/fui-rs)** | Rust SDK + controls + app surface |
+| **[fui-cs](https://github.com/zion-sati/fui-cs)** | Early-stage C# SDK with unit and browser-smoke coverage |
+| **[fui-kt](https://github.com/zion-sati/fui-kt)** | Early-stage Kotlin/Wasm SDK with smoke/runtime coverage |
 | **[create-fui-as-app](https://github.com/zion-sati/create-fui-as-app)** | `npx` scaffolder CLI |
+| **[create-fui-rs-app](https://github.com/zion-sati/create-fui-rs-app)** | `npx` scaffolder CLI |
 
 ---
 
@@ -207,10 +230,10 @@ to the web, not built for it.
 - **[Top-level quickstart](docs/QUICKSTART.md)** — prerequisites, full build
 - **[Browser bridge quickstart](docs/v2/browser-bridge/QUICKSTART.md)**
 - **[Core quickstart](docs/v2/core/QUICKSTART.md)**
-- **[FUI-RS quickstart](docs/v2/fui-rs/QUICKSTART.md)**
-- **[FUI-KT quickstart](docs/v2/fui-kt/QUICKSTART.md)**
-- **[FUI-AS quickstart](docs/v2/fui-as/QUICKSTART.md)**
-- **[FUI-AS SDK docs index](docs/v2/fui-as/SDK_INDEX.md)**
+- **[FUI-AS SDK and quickstart](https://github.com/zion-sati/fui-as)**
+- **[FUI-RS SDK and quickstart](https://github.com/zion-sati/fui-rs)**
+- **[FUI-CS SDK and quickstart](https://github.com/zion-sati/fui-cs)**
+- **[FUI-KT SDK and quickstart](https://github.com/zion-sati/fui-kt)**
 - **[Why EffinDom (detailed)](docs/WHY_EFFINDOM.md)**
 - **[Who is zion-sati?](docs/WHO_IS_ZION_SATI.md)**
 
@@ -223,6 +246,7 @@ to the web, not built for it.
 | `@effindomv2/runtime` | MIT |
 | `@effindomv2/fui-as` | AGPL-3.0-only or commercial |
 | `@effindomv2/fui-rs` | AGPL-3.0-only or commercial |
+| `@effindomv2/fui-cs` | AGPL-3.0-only or commercial |
 | `@effindomv2/fui-kt` | AGPL-3.0-only or commercial |
 | `@effindomv2/create-fui-as-app` | MIT |
 
