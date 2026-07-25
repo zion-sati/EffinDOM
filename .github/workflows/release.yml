@@ -6,7 +6,7 @@ on:
 
 permissions:
   actions: read
-  contents: read
+  contents: write
   id-token: write
 
 jobs:
@@ -172,4 +172,49 @@ jobs:
             echo "npm dist-tag: ${{ needs.validate.outputs.npm_dist_tag }}"
             echo "Verified Runtime CI run: ${{ needs.verify_ci.outputs.runtime_ci_run_id }}"
             echo "Reused WASM artifact run: ${{ needs.verify_ci.outputs.wasm_artifact_run_id }}"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  publish_native:
+    needs:
+      - validate
+      - verify_ci
+    runs-on: ubuntu-24.04
+    permissions:
+      actions: read
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+      - name: Download all verified native runtime artifacts
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          ARTIFACT_RUN_ID: ${{ needs.verify_ci.outputs.runtime_ci_run_id }}
+        run: |
+          mkdir -p .release/native-inputs
+          gh run download "$ARTIFACT_RUN_ID" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern 'native-runtime-*' \
+            --dir .release/native-inputs
+      - name: Verify and assemble native release assets
+        env:
+          RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
+        run: |
+          node scripts/assemble-native-runtime-release.mjs \
+            --release "$RELEASE_VERSION" \
+            --source-commit "$(git rev-parse HEAD)" \
+            --input .release/native-inputs \
+            --output .release/native-assets
+      - name: Attach native runtimes to the GitHub release
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" .release/native-assets/* --clobber
+      - name: Report native release
+        run: |
+          {
+            echo '## Native runtimes released'
+            echo
+            echo 'Targets: macOS ARM64/x64, Windows ARM64/x64, Linux ARM64/x64'
+            echo "Verified Runtime CI run: ${{ needs.verify_ci.outputs.runtime_ci_run_id }}"
           } >> "$GITHUB_STEP_SUMMARY"

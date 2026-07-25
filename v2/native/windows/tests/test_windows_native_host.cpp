@@ -1,5 +1,6 @@
 #include "NativeHost.h"
 #include "NativeHostCharacterization.h"
+#include "NativeFuiBridge.h"
 #include "NativeInputTypes.h"
 #include "UiRuntime.h"
 #include "input/WindowsScrollWheelBridge.h"
@@ -489,6 +490,15 @@ TEST_CASE("Windows input resize density and clipboard services are live", "[v2][
     host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, false, 2, 0U);
     host.DrainFrames();
     CHECK(host.State().activation_count == baseline_activations);
+    REQUIRE(__fui_native_context_menu_visible());
+
+    // Secondary input correctly opens the button's context menu. Dismiss it
+    // before checking primary activation so the menu overlay cannot consume
+    // the following click.
+    __fui_hide_active_context_menu();
+    host.RequestFrame();
+    host.DrainFrames();
+    CHECK_FALSE(__fui_native_context_menu_visible());
 
     host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, true);
     host.DispatchPointer(x + width * 0.5f, y + height * 0.5f, false);

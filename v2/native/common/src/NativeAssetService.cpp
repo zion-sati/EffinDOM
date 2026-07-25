@@ -168,6 +168,31 @@ std::uint32_t ResolveCollectionFaceIndex(
 
 } // namespace
 
+std::vector<std::filesystem::path> BuildNativeAssetSearchRoots(
+    const std::filesystem::path& executable_directory,
+    NativePackagePlatform platform) {
+    if (executable_directory.empty()) return {};
+    std::vector<std::filesystem::path> roots{executable_directory};
+    switch (platform) {
+        case NativePackagePlatform::MacOs:
+            roots.push_back(executable_directory / "../Resources");
+            roots.push_back(executable_directory / "../Resources/effindom");
+            break;
+        case NativePackagePlatform::Windows:
+            roots.push_back(executable_directory / "assets");
+            roots.push_back(executable_directory / "assets/effindom");
+            break;
+        case NativePackagePlatform::Linux:
+            roots.push_back(executable_directory / "../share");
+            roots.push_back(executable_directory / "../share/effindom");
+            break;
+    }
+    roots.push_back(executable_directory / "../resources");
+    roots.push_back(executable_directory / "../resources/effindom");
+    for (std::filesystem::path& root : roots) root = root.lexically_normal();
+    return roots;
+}
+
 std::filesystem::path ResolveNativeAssetPath(
     const NativeAssetEnvironment& environment,
     std::string_view source) {
@@ -182,9 +207,20 @@ std::filesystem::path ResolveNativeAssetPath(
         : std::filesystem::path(decoded_source);
     std::error_code error;
     if (path.is_absolute()) return std::filesystem::is_regular_file(path, error) ? path : std::filesystem::path{};
+    for (const auto& component : path) {
+        if (component == "..") return {};
+    }
     for (const std::filesystem::path& root : environment.search_roots) {
-        const std::filesystem::path candidate = root / path;
-        if (std::filesystem::is_regular_file(candidate, error)) return candidate;
+        const std::filesystem::path canonical_root = std::filesystem::weakly_canonical(root, error);
+        if (error) {
+            error.clear();
+            continue;
+        }
+        const std::filesystem::path candidate = std::filesystem::weakly_canonical(canonical_root / path, error);
+        const std::filesystem::path relative = candidate.lexically_relative(canonical_root);
+        const bool contained = !relative.empty() && relative != "." &&
+            relative.begin() != relative.end() && *relative.begin() != "..";
+        if (!error && contained && std::filesystem::is_regular_file(candidate, error)) return candidate;
         error.clear();
     }
     return {};

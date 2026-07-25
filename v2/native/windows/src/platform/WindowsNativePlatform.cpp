@@ -1,4 +1,5 @@
 #include "WindowsNativePlatform.h"
+#include "NativeWindowIcon.h"
 #include "NativeFuiBridge.h"
 #include "NativeGraphicsCoordinator.h"
 #include "NativeHostCore.h"
@@ -391,6 +392,12 @@ std::uint32_t WindowsNativePlatform::HostCapabilities() const {
 bool WindowsNativePlatform::IsCoarsePointer() const { return false; }
 void WindowsNativePlatform::SetApplicationCaption(const std::string& caption) {
     SDL_SetWindowTitle(impl_->window, caption.c_str());
+}
+bool WindowsNativePlatform::SetApplicationIcon(const std::filesystem::path& path) {
+    std::string error;
+    const bool applied = ApplySdlWindowIcon(impl_->window, path, error);
+    if (!applied) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s", error.c_str());
+    return applied;
 }
 void WindowsNativePlatform::SetNativePointerCapture(bool captured) {
     // The Win32 subclass consumes primary-button messages before SDL sees

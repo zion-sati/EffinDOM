@@ -32,27 +32,27 @@ const scopes = {
   },
   macos_arm64: {
     exact: new Set(['.github/workflows/macos-native-ci.yml']),
-    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'v2/native/common/', 'v2/native/macos/'],
+    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'scripts/package-native-runtime.mjs', 'v2/native/common/', 'v2/native/macos/'],
   },
   macos_x64: {
     exact: new Set(['.github/workflows/macos-x64-native-ci.yml']),
-    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'v2/native/common/', 'v2/native/macos/'],
+    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'scripts/package-native-runtime.mjs', 'v2/native/common/', 'v2/native/macos/'],
   },
   linux_x64: {
     exact: new Set(['.github/workflows/linux-x64-native-ci.yml']),
-    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'v2/native/common/', 'v2/native/linux/'],
+    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'scripts/package-native-runtime.mjs', 'v2/native/common/', 'v2/native/linux/'],
   },
   linux_arm64: {
     exact: new Set(['.github/workflows/linux-arm64-native-ci.yml']),
-    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'v2/native/common/', 'v2/native/linux/'],
+    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'scripts/package-native-runtime.mjs', 'v2/native/common/', 'v2/native/linux/'],
   },
   windows_x64: {
     exact: new Set(['.github/workflows/windows-x64-native-ci.yml']),
-    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'scripts/windows/', 'v2/native/common/', 'v2/native/windows/'],
+    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'scripts/package-native-runtime.mjs', 'scripts/windows/', 'v2/native/common/', 'v2/native/windows/'],
   },
   windows_arm64: {
     exact: new Set(['.github/workflows/windows-arm64-native-ci.yml']),
-    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'scripts/windows/', 'v2/native/common/', 'v2/native/windows/'],
+    prefixes: [...sharedPrefixes, 'scripts/build-native-runtime.mjs', 'scripts/package-native-runtime.mjs', 'scripts/windows/', 'v2/native/common/', 'v2/native/windows/'],
   },
 };
 

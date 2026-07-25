@@ -16,6 +16,7 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      - uses: actions-rust-lang/setup-rust-toolchain@v1
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64
@@ -44,3 +45,11 @@ jobs:
           key: ${{ runner.os }}-arm64-native-deps-${{ hashFiles('NativeDeps.lock.json') }}
       - name: Build and test native runtime
         run: node scripts/build-native-runtime.mjs --target windows-arm64 --with-tests
+      - name: Package verified native runtime SDK
+        shell: pwsh
+        run: node scripts/package-native-runtime.mjs --target windows-arm64 --source-commit "$env:GITHUB_SHA" --destination "$env:RUNNER_TEMP/native-runtime-windows-arm64"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: native-runtime-windows-arm64
+          path: ${{ runner.temp }}/native-runtime-windows-arm64
+          if-no-files-found: error

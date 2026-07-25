@@ -70,44 +70,38 @@ endif()
 
 if(EFFINDOM_WINDOWS_DEMO_AVAILABLE)
     set(EFFINDOM_WINDOWS_OUTPUT_ROOT "${CMAKE_CURRENT_BINARY_DIR}/output")
-    set(EFFINDOM_WINDOWS_OUTPUT_BIN "${EFFINDOM_WINDOWS_OUTPUT_ROOT}/bin")
-    set(EFFINDOM_WINDOWS_OUTPUT_LIB "${EFFINDOM_WINDOWS_OUTPUT_ROOT}/lib")
-    set(EFFINDOM_WINDOWS_OUTPUT_RESOURCES "${EFFINDOM_WINDOWS_OUTPUT_ROOT}/resources")
+    set(EFFINDOM_WINDOWS_OUTPUT_BIN "${EFFINDOM_WINDOWS_OUTPUT_ROOT}")
+    set(EFFINDOM_WINDOWS_OUTPUT_RESOURCES "${EFFINDOM_WINDOWS_OUTPUT_ROOT}/assets")
+    set(EFFINDOM_WINDOWS_TEST_OUTPUT_BIN "${EFFINDOM_WINDOWS_OUTPUT_ROOT}/tests")
+    set(EFFINDOM_WINDOWS_TEST_OUTPUT_RESOURCES "${EFFINDOM_WINDOWS_TEST_OUTPUT_BIN}/assets")
     set(EFFINDOM_WINDOWS_OUTPUT_SYMBOLS "${EFFINDOM_WINDOWS_OUTPUT_ROOT}/symbols")
 
-    function(effindom_stage_windows_native_target target_name)
+    function(effindom_stage_windows_native_target target_name output_bin output_resources)
         set_target_properties(${target_name} PROPERTIES
-            RUNTIME_OUTPUT_DIRECTORY "${EFFINDOM_WINDOWS_OUTPUT_BIN}")
+            RUNTIME_OUTPUT_DIRECTORY "${output_bin}")
         add_custom_command(TARGET ${target_name} POST_BUILD
             COMMAND ${CMAKE_COMMAND} -E make_directory
-                "${EFFINDOM_WINDOWS_OUTPUT_BIN}"
-                "${EFFINDOM_WINDOWS_OUTPUT_LIB}"
-                "${EFFINDOM_WINDOWS_OUTPUT_RESOURCES}/effindom/fonts"
-                "${EFFINDOM_WINDOWS_OUTPUT_RESOURCES}/app"
+                "${output_bin}"
+                "${output_resources}/effindom/fonts"
+                "${output_resources}/app"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:effindom_v2_core>"
-                "${EFFINDOM_WINDOWS_OUTPUT_BIN}/$<TARGET_FILE_NAME:effindom_v2_core>"
+                "${output_bin}/$<TARGET_FILE_NAME:effindom_v2_core>"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:effindom_v2_ui>"
-                "${EFFINDOM_WINDOWS_OUTPUT_BIN}/$<TARGET_FILE_NAME:effindom_v2_ui>"
+                "${output_bin}/$<TARGET_FILE_NAME:effindom_v2_ui>"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "$<TARGET_FILE:SDL3::SDL3>"
-                "${EFFINDOM_WINDOWS_OUTPUT_BIN}/$<TARGET_FILE_NAME:SDL3::SDL3>"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:effindom_v2_core>"
-                "${EFFINDOM_WINDOWS_OUTPUT_LIB}/$<TARGET_FILE_NAME:effindom_v2_core>"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:effindom_v2_ui>"
-                "${EFFINDOM_WINDOWS_OUTPUT_LIB}/$<TARGET_FILE_NAME:effindom_v2_ui>"
-            COMMAND ${CMAKE_COMMAND} -E copy_if_different
-                "$<TARGET_FILE:SDL3::SDL3>"
-                "${EFFINDOM_WINDOWS_OUTPUT_LIB}/$<TARGET_FILE_NAME:SDL3::SDL3>"
+                "${output_bin}/$<TARGET_FILE_NAME:SDL3::SDL3>"
             COMMAND ${CMAKE_COMMAND} -E copy_directory
                 "${CMAKE_SOURCE_DIR}/v2/fonts"
-                "${EFFINDOM_WINDOWS_OUTPUT_RESOURCES}/effindom/fonts"
+                "${output_resources}/effindom/fonts"
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 "${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}/resources/app/demo-texture.png"
-                "${EFFINDOM_WINDOWS_OUTPUT_RESOURCES}/app/demo-texture.png"
+                "${output_resources}/app/demo-texture.png"
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                "${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}/resources/app/application-icon.png"
+                "${output_resources}/app/application-icon.png"
             COMMENT "[EffinDOM native] Staging Windows runtime and application assets"
             VERBATIM)
 
@@ -163,8 +157,10 @@ if(EFFINDOM_WINDOWS_DEMO_AVAILABLE)
         COMMENT "[EffinDOM native] Staging Windows contract-test runtime libraries"
         VERBATIM)
 
-    effindom_stage_windows_native_target(effindom_v2_windows_native)
-    effindom_stage_windows_native_target(effindom_v2_windows_native_tests)
+    effindom_stage_windows_native_target(effindom_v2_windows_native
+        "${EFFINDOM_WINDOWS_OUTPUT_BIN}" "${EFFINDOM_WINDOWS_OUTPUT_RESOURCES}")
+    effindom_stage_windows_native_target(effindom_v2_windows_native_tests
+        "${EFFINDOM_WINDOWS_TEST_OUTPUT_BIN}" "${EFFINDOM_WINDOWS_TEST_OUTPUT_RESOURCES}")
 
     include(Catch)
     if(EFFINDOM_TARGET_RUNNABLE)

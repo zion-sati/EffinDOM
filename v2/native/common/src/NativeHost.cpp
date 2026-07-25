@@ -3,6 +3,8 @@
 #include "NativePlatformFactory.h"
 #include "NativePlatformHost.h"
 #include "NativeHostCore.h"
+#include "NativeWindowIcon.h"
+#include "NativeFuiBridge.h"
 #include "NativeFuiRuntimeBridge.h"
 #include "Engine.h"
 #include "effindom_ui.h"
@@ -17,6 +19,8 @@ NativeHost::NativeHost(bool visible) {
     if (factory == nullptr) throw std::runtime_error("native platform factory is unavailable");
     platform_ = factory->CreateHost(visible);
     if (platform_ == nullptr) throw std::runtime_error("native platform host creation failed");
+    const std::filesystem::path icon = FindPackagedApplicationIcon();
+    if (!icon.empty()) platform_->SetApplicationIcon(icon);
     SetActiveNativePlatformHost(platform_.get());
 }
 
@@ -77,6 +81,11 @@ void NativeHost::DispatchKey(const std::string& key, bool down, std::uint32_t mo
     RequestFrame();
 }
 void NativeHost::DispatchWindowFocusLost() { platform_->DispatchWindowFocusLost(); }
+void NativeHost::SetSystemDarkModeForTesting(bool dark_mode) {
+    platform_->Core().SetSystemDarkMode(dark_mode);
+    __fui_on_system_dark_mode_changed(dark_mode);
+    RequestFrame();
+}
 void NativeHost::SetClipboardText(const std::string& text) { platform_->SetClipboardText(text); }
 std::string NativeHost::ClipboardText() const { return platform_->ClipboardText(); }
 bool NativeHost::OpenExternalUrl(const std::string& url) const { return platform_->OpenExternalUrl(url); }
@@ -123,6 +132,9 @@ void NativeHost::RequestMissingFontCoverageForTesting(
     platform_->RequestMissingFontCoverageForTesting(primary_font_id, coverage_kind, sample_text);
 }
 NativeHostState NativeHost::State() const { return platform_->Core().State(); }
+const NativeAccessibilitySnapshot& NativeHost::AccessibilitySnapshotForTesting() const {
+    return platform_->Core().Accessibility().Snapshot();
+}
 std::vector<std::uint8_t> NativeHost::SnapshotRgba() const { return platform_->Core().SnapshotRgba(); }
 bool NativeHost::WriteScreenshot(const std::filesystem::path& path, std::string& error) const {
     return platform_->Core().WriteScreenshot(path, error);

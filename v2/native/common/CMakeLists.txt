@@ -23,6 +23,7 @@ add_library(effindom_v2_native_common STATIC
     src/NativeFuiRuntimeBridge.cpp
     src/NativeFuiHostStubs.cpp
     src/NativeInputRouter.cpp
+    src/NativeWindowIcon.cpp
     src/NativeRasterSurface.cpp
     src/SdlDropTarget.cpp
     src/SdlEventAdapter.cpp

@@ -1,15 +1,12 @@
 set(required_files
-    "${OUTPUT_ROOT}/bin/${EXECUTABLE_NAME}"
-    "${OUTPUT_ROOT}/bin/${SDL_LIBRARY_NAME}"
-    "${OUTPUT_ROOT}/bin/${CORE_LIBRARY_NAME}"
-    "${OUTPUT_ROOT}/bin/${UI_LIBRARY_NAME}"
-    "${OUTPUT_ROOT}/lib/${SDL_LIBRARY_NAME}"
-    "${OUTPUT_ROOT}/lib/${CORE_LIBRARY_NAME}"
-    "${OUTPUT_ROOT}/lib/${UI_LIBRARY_NAME}"
-    "${OUTPUT_ROOT}/resources/effindom/fonts/NotoSans-Regular.ttf"
-    "${OUTPUT_ROOT}/resources/effindom/fonts/NotoSans-Bold.ttf"
-    "${OUTPUT_ROOT}/resources/effindom/fonts/NotoSansMono-Regular.ttf"
-    "${OUTPUT_ROOT}/resources/app/demo-texture.png"
+    "${OUTPUT_ROOT}/${EXECUTABLE_NAME}"
+    "${OUTPUT_ROOT}/${SDL_LIBRARY_NAME}"
+    "${OUTPUT_ROOT}/${CORE_LIBRARY_NAME}"
+    "${OUTPUT_ROOT}/${UI_LIBRARY_NAME}"
+    "${OUTPUT_ROOT}/assets/effindom/fonts/NotoSans-Regular.ttf"
+    "${OUTPUT_ROOT}/assets/effindom/fonts/NotoSans-Bold.ttf"
+    "${OUTPUT_ROOT}/assets/effindom/fonts/NotoSansMono-Regular.ttf"
+    "${OUTPUT_ROOT}/assets/app/demo-texture.png"
 )
 
 foreach(required_file IN LISTS required_files)
@@ -45,7 +42,7 @@ if(RUN_EXECUTABLE)
     file(COPY "${OUTPUT_ROOT}/" DESTINATION "${relocated_root}")
     set(screenshot "${relocated_root}/native-screenshot.png")
     execute_process(
-        COMMAND "${relocated_root}/bin/${EXECUTABLE_NAME}" --hidden --screenshot "${screenshot}"
+        COMMAND "${relocated_root}/${EXECUTABLE_NAME}" --hidden --screenshot "${screenshot}"
         WORKING_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}"
         RESULT_VARIABLE run_result
         OUTPUT_VARIABLE run_output

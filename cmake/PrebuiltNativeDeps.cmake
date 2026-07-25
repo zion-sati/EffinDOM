@@ -112,7 +112,9 @@ function(effindom_use_prebuilt_native_deps)
     else()
         _effindom_prebuilt_require("lib/libSDL3.so")
         add_library(SDL3::SDL3 SHARED IMPORTED GLOBAL)
-        set_target_properties(SDL3::SDL3 PROPERTIES IMPORTED_LOCATION "${EFFINDOM_NATIVE_DEPS_ROOT}/lib/libSDL3.so")
+        set_target_properties(SDL3::SDL3 PROPERTIES
+            IMPORTED_LOCATION "${EFFINDOM_NATIVE_DEPS_ROOT}/lib/libSDL3.so"
+            IMPORTED_SONAME "libSDL3.so.0")
     endif()
     target_include_directories(SDL3::SDL3 SYSTEM INTERFACE "${EFFINDOM_NATIVE_DEPS_ROOT}/include")
 endfunction()

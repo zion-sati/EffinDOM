@@ -11,7 +11,7 @@ $destination = [IO.Path]::GetFullPath($RelocatedRoot)
 if ($destination -eq $source -or $destination -eq [IO.Path]::GetPathRoot($destination)) {
     throw "Refusing unsafe relocation directory: $destination"
 }
-if (-not (Test-Path -LiteralPath (Join-Path $source "bin/$ExecutableName"))) {
+if (-not (Test-Path -LiteralPath (Join-Path $source $ExecutableName))) {
     throw "Native executable is missing from $source"
 }
 
@@ -21,7 +21,7 @@ if (Test-Path -LiteralPath $destination) {
 New-Item -ItemType Directory -Path $destination | Out-Null
 Copy-Item -Path (Join-Path $source '*') -Destination $destination -Recurse -Force
 
-$executable = Join-Path $destination "bin/$ExecutableName"
+$executable = Join-Path $destination $ExecutableName
 $screenshot = Join-Path $destination 'shell-launch-screenshot.png'
 $workingDirectory = [IO.Path]::GetTempPath()
 $process = Start-Process -FilePath $executable `

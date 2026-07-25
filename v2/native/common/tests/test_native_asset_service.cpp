@@ -39,10 +39,12 @@ TEST_CASE("native asset locator resolves roots and encoded file sources", "[v2][
         return std::filesystem::path(std::string(value));
     };
 
-    CHECK(ResolveNativeAssetPath(environment, "assets/sample file.txt") ==
-          root.Path() / "assets" / "sample file.txt");
-    CHECK(ResolveNativeAssetPath(environment, "file://assets/sample%20file.txt") ==
-          root.Path() / "assets" / "sample file.txt");
+    CHECK(std::filesystem::equivalent(
+        ResolveNativeAssetPath(environment, "assets/sample file.txt"),
+        root.Path() / "assets" / "sample file.txt"));
+    CHECK(std::filesystem::equivalent(
+        ResolveNativeAssetPath(environment, "file://assets/sample%20file.txt"),
+        root.Path() / "assets" / "sample file.txt"));
     CHECK(ResolveNativeAssetPath(environment, "assets/missing.txt").empty());
     CHECK(ResolveNativeAssetPath(environment, "https://effindom.dev/asset").empty());
     CHECK(ResolveNativeAssetPath(environment, "data:text/plain,asset").empty());
@@ -60,6 +62,40 @@ TEST_CASE("native asset environment delegates system-font discovery", "[v2][nati
     const NativeSystemFontSource resolved = environment.resolve_system_font("sample");
     CHECK(resolved.path == std::filesystem::path("font.ttc"));
     CHECK(resolved.postscript_name == "ExpectedFace");
+}
+
+TEST_CASE("native packaged asset roots survive relocation without current-directory fallback", "[v2][native][common][assets]") {
+    const auto root = std::filesystem::temp_directory_path() / "effindom-native-relocated-assets";
+    const auto moved = std::filesystem::temp_directory_path() / "effindom-native-relocated-assets-moved";
+    std::error_code error;
+    std::filesystem::remove_all(root, error);
+    std::filesystem::remove_all(moved, error);
+
+    const auto mac_executable = root / "Sample.app/Contents/MacOS";
+    std::filesystem::create_directories(root / "Sample.app/Contents/Resources/effindom/fonts");
+    std::filesystem::create_directories(root / "Sample.app/Contents/Resources/app");
+    std::ofstream(root / "Sample.app/Contents/Resources/effindom/fonts/default.ttf") << "font";
+    std::ofstream(root / "Sample.app/Contents/Resources/app/texture.png") << "texture";
+    std::filesystem::rename(root, moved);
+
+    NativeAssetEnvironment environment;
+    environment.search_roots = BuildNativeAssetSearchRoots(
+        moved / "Sample.app/Contents/MacOS", NativePackagePlatform::MacOs);
+    CHECK(std::filesystem::equivalent(
+        ResolveNativeAssetPath(environment, "fonts/default.ttf"),
+        moved / "Sample.app/Contents/Resources/effindom/fonts/default.ttf"));
+    CHECK(std::filesystem::equivalent(
+        ResolveNativeAssetPath(environment, "app/texture.png"),
+        moved / "Sample.app/Contents/Resources/app/texture.png"));
+    CHECK(ResolveNativeAssetPath(environment, "../outside.txt").empty());
+
+    const auto windows = BuildNativeAssetSearchRoots(
+        moved / "Sample", NativePackagePlatform::Windows);
+    CHECK(windows[1] == moved / "Sample/assets");
+    const auto linux = BuildNativeAssetSearchRoots(
+        moved / "Sample/bin", NativePackagePlatform::Linux);
+    CHECK(linux[1] == moved / "Sample/share");
+    std::filesystem::remove_all(moved, error);
 }
 
 } // namespace effindom::v2::native::tests

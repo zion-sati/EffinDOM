@@ -28,6 +28,16 @@ struct NativeAssetEnvironment {
     bool use_symbol_font_for_non_emoji_supplemental = true;
 };
 
+enum class NativePackagePlatform {
+    MacOs,
+    Windows,
+    Linux,
+};
+
+std::vector<std::filesystem::path> BuildNativeAssetSearchRoots(
+    const std::filesystem::path& executable_directory,
+    NativePackagePlatform platform);
+
 std::filesystem::path ResolveNativeAssetPath(
     const NativeAssetEnvironment& environment,
     std::string_view source);

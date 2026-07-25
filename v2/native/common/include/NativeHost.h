@@ -1,5 +1,6 @@
 #pragma once
 
+#include "NativeAccessibility.h"
 #include "NativeHostState.h"
 
 #include <cstdint>
@@ -42,6 +43,7 @@ public:
     void DispatchWheel(float delta_x, float delta_y);
     void DispatchKey(const std::string& key, bool down, std::uint32_t modifiers = 0U);
     void DispatchWindowFocusLost();
+    void SetSystemDarkModeForTesting(bool dark_mode);
     void SetClipboardText(const std::string& text);
     std::string ClipboardText() const;
     bool OpenExternalUrl(const std::string& url) const;
@@ -70,6 +72,7 @@ public:
         std::uint32_t coverage_kind,
         const std::string& sample_text);
     NativeHostState State() const;
+    const NativeAccessibilitySnapshot& AccessibilitySnapshotForTesting() const;
     std::vector<std::uint8_t> SnapshotRgba() const;
     bool WriteScreenshot(const std::filesystem::path& path, std::string& error) const;
     bool IsIdle() const;

@@ -2,6 +2,7 @@ function(effindom_add_native_common_contract_tests native_app_target)
     add_executable(effindom_v2_native_common_contract_tests
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_accessibility.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_platform_factory.cpp"
+        "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_window_icon.cpp"
     )
     target_include_directories(effindom_v2_native_common_contract_tests PRIVATE
         "${CMAKE_SOURCE_DIR}/v2/native/common/include"

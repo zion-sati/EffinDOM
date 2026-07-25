@@ -49,6 +49,7 @@ public:
     std::uint32_t HostCapabilities() const override;
     bool IsCoarsePointer() const override;
     void SetApplicationCaption(const std::string& caption) override;
+    bool SetApplicationIcon(const std::filesystem::path& path) override;
     void SetNativePointerCapture(bool captured) override;
     void SetCursor(std::uint32_t style) override;
     void RequestFontLoad(std::uint32_t font_id, const std::string& source) override;

@@ -44,6 +44,7 @@ public:
     virtual std::uint32_t HostCapabilities() const = 0;
     virtual bool IsCoarsePointer() const = 0;
     virtual void SetApplicationCaption(const std::string& caption) = 0;
+    virtual bool SetApplicationIcon(const std::filesystem::path& path) = 0;
     virtual void SetNativePointerCapture(bool captured) = 0;
     virtual void SetCursor(std::uint32_t style) = 0;
     virtual void RequestFontLoad(std::uint32_t font_id, const std::string& source) = 0;

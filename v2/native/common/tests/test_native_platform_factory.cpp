@@ -242,6 +242,7 @@ public:
     }
     bool IsCoarsePointer() const override { return false; }
     void SetApplicationCaption(const std::string& caption) override { state_->caption = caption; }
+    bool SetApplicationIcon(const std::filesystem::path&) override { return true; }
     void SetNativePointerCapture(bool captured) override { state_->pointer_captured = captured; }
     void SetCursor(std::uint32_t style) override { state_->cursor = style; }
     void RequestFontLoad(std::uint32_t font_id, const std::string& source) override {

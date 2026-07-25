@@ -84,7 +84,8 @@ endif()
 set(EFFINDOM_NATIVE_OUTPUT_ROOT "${CMAKE_CURRENT_BINARY_DIR}/output")
 set(EFFINDOM_NATIVE_OUTPUT_BIN "${EFFINDOM_NATIVE_OUTPUT_ROOT}/bin")
 set(EFFINDOM_NATIVE_OUTPUT_LIB "${EFFINDOM_NATIVE_OUTPUT_ROOT}/lib")
-set(EFFINDOM_NATIVE_OUTPUT_RESOURCES "${EFFINDOM_NATIVE_OUTPUT_ROOT}/resources")
+set(EFFINDOM_NATIVE_OUTPUT_RESOURCES "${EFFINDOM_NATIVE_OUTPUT_ROOT}/share")
+set(EFFINDOM_NATIVE_TEST_OUTPUT_ROOT "${CMAKE_CURRENT_BINARY_DIR}/test-output")
 option(EFFINDOM_LINUX_STAGE_RUNTIME
     "Require and stage Linux runtime-only assets such as the Cairo libdecor plugin" ON)
 if(EFFINDOM_LINUX_STAGE_RUNTIME)
@@ -99,35 +100,43 @@ if(EFFINDOM_LINUX_STAGE_RUNTIME)
             "On Ubuntu/Debian install it with: sudo apt install libdecor-0-plugin-1-cairo")
     endif()
 endif()
-function(effindom_stage_linux_native_target target_name)
+function(effindom_stage_linux_native_target target_name output_root)
+    set(output_bin "${output_root}/bin")
+    set(output_lib "${output_root}/lib")
+    set(output_resources "${output_root}/share")
     set_target_properties(${target_name} PROPERTIES
-        RUNTIME_OUTPUT_DIRECTORY "${EFFINDOM_NATIVE_OUTPUT_BIN}"
-        BUILD_RPATH "$ORIGIN/../lib"
+        RUNTIME_OUTPUT_DIRECTORY "${output_bin}"
+        BUILD_WITH_INSTALL_RPATH TRUE
+        INSTALL_RPATH "$ORIGIN/../lib"
+        INSTALL_RPATH_USE_LINK_PATH FALSE
     )
     add_custom_command(TARGET ${target_name} POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E make_directory
-            "${EFFINDOM_NATIVE_OUTPUT_LIB}"
-            "${EFFINDOM_NATIVE_OUTPUT_LIB}/libdecor/plugins-1"
-            "${EFFINDOM_NATIVE_OUTPUT_RESOURCES}/effindom/fonts"
-            "${EFFINDOM_NATIVE_OUTPUT_RESOURCES}/app"
+            "${output_lib}"
+            "${output_lib}/libdecor/plugins-1"
+            "${output_resources}/effindom/fonts"
+            "${output_resources}/app"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${EFFINDOM_LIBDECOR_CAIRO_PLUGIN}"
-            "${EFFINDOM_NATIVE_OUTPUT_LIB}/libdecor/plugins-1/libdecor-cairo.so"
+            "${output_lib}/libdecor/plugins-1/libdecor-cairo.so"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_FILE:SDL3::SDL3>"
-            "${EFFINDOM_NATIVE_OUTPUT_LIB}/$<TARGET_FILE_NAME:SDL3::SDL3>"
+            "${output_lib}/$<TARGET_SONAME_FILE_NAME:SDL3::SDL3>"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_FILE:effindom_v2_core>"
-            "${EFFINDOM_NATIVE_OUTPUT_LIB}/$<TARGET_FILE_NAME:effindom_v2_core>"
+            "${output_lib}/$<TARGET_FILE_NAME:effindom_v2_core>"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "$<TARGET_FILE:effindom_v2_ui>"
-            "${EFFINDOM_NATIVE_OUTPUT_LIB}/$<TARGET_FILE_NAME:effindom_v2_ui>"
+            "${output_lib}/$<TARGET_FILE_NAME:effindom_v2_ui>"
         COMMAND ${CMAKE_COMMAND} -E copy_directory
             "${CMAKE_SOURCE_DIR}/v2/fonts"
-            "${EFFINDOM_NATIVE_OUTPUT_RESOURCES}/effindom/fonts"
+            "${output_resources}/effindom/fonts"
         COMMAND ${CMAKE_COMMAND} -E copy_if_different
             "${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}/resources/app/demo-texture.png"
-            "${EFFINDOM_NATIVE_OUTPUT_RESOURCES}/app/demo-texture.png"
+            "${output_resources}/app/demo-texture.png"
+        COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            "${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}/resources/app/application-icon.png"
+            "${output_resources}/app/application-icon.png"
         COMMENT "[EffinDOM Linux native] Staging runtime and application assets"
         VERBATIM
     )
@@ -139,7 +148,8 @@ if(EFFINDOM_NATIVE_FUI_RS_DEMO_AVAILABLE)
     target_link_libraries(effindom_v2_linux_native PRIVATE
         effindom_v2_native_common effindom_v2_linux_native_host
         effindom_native_fui_rs_app effindom_compile_flags)
-    effindom_stage_linux_native_target(effindom_v2_linux_native)
+    effindom_stage_linux_native_target(
+        effindom_v2_linux_native "${EFFINDOM_NATIVE_OUTPUT_ROOT}")
 
     add_executable(effindom_v2_linux_native_tests
         tests/test_linux_native_host.cpp
@@ -156,10 +166,13 @@ if(EFFINDOM_NATIVE_FUI_RS_DEMO_AVAILABLE)
     target_link_libraries(effindom_v2_linux_native_tests PRIVATE
         effindom_v2_native_common effindom_v2_linux_native_host effindom_native_fui_rs_app
         Catch2::Catch2WithMain effindom_compile_flags)
-    effindom_stage_linux_native_target(effindom_v2_linux_native_tests)
+    effindom_stage_linux_native_target(
+        effindom_v2_linux_native_tests "${EFFINDOM_NATIVE_TEST_OUTPUT_ROOT}")
 
     include("${CMAKE_SOURCE_DIR}/v2/native/common/NativeCommonContractTests.cmake")
     effindom_add_native_common_contract_tests(effindom_native_fui_rs_app)
+    effindom_stage_linux_native_target(
+        effindom_v2_native_common_contract_tests "${EFFINDOM_NATIVE_TEST_OUTPUT_ROOT}")
 
     include(Catch)
     catch_discover_tests(effindom_v2_linux_native_tests)
@@ -167,4 +180,23 @@ if(EFFINDOM_NATIVE_FUI_RS_DEMO_AVAILABLE)
     add_test(NAME effindom_v2_linux_native_cli
         COMMAND effindom_v2_linux_native --hidden --screenshot
             "${CMAKE_CURRENT_BINARY_DIR}/native-fui-rs.png")
+    add_test(
+        NAME effindom_v2_linux_native_dependencies
+        COMMAND ${CMAKE_COMMAND}
+            -DREADELF_EXECUTABLE=${CMAKE_READELF}
+            -DEXECUTABLE=$<TARGET_FILE:effindom_v2_linux_native>
+            -DLIBRARY_DIR=${EFFINDOM_NATIVE_OUTPUT_LIB}
+            -DSDL_LIBRARY_NAME=$<TARGET_SONAME_FILE_NAME:SDL3::SDL3>
+            -DCORE_LIBRARY_NAME=$<TARGET_FILE_NAME:effindom_v2_core>
+            -DUI_LIBRARY_NAME=$<TARGET_FILE_NAME:effindom_v2_ui>
+            -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
+            -DBUILD_ROOT=${CMAKE_BINARY_DIR}
+            -P ${CMAKE_CURRENT_SOURCE_DIR}/cmake/VerifyLinuxNativeDependencies.cmake)
+    add_test(
+        NAME effindom_v2_linux_native_relocated_launch
+        COMMAND ${CMAKE_COMMAND}
+            -DSOURCE_ROOT=${EFFINDOM_NATIVE_OUTPUT_ROOT}
+            -DRELOCATED_ROOT=${CMAKE_CURRENT_BINARY_DIR}/relocated-linux-output
+            -DEXECUTABLE_RELATIVE=bin/$<TARGET_FILE_NAME:effindom_v2_linux_native>
+            -P ${CMAKE_SOURCE_DIR}/v2/native/common/cmake/VerifyRelocatedNativeLaunch.cmake)
 endif()

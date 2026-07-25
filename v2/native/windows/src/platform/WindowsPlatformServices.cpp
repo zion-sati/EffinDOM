@@ -114,13 +114,8 @@ NativeSystemFontSource FindSystemFontForScalar(std::uint32_t scalar) {
 NativeAssetEnvironment CreateWindowsAssetEnvironment() {
     NativeAssetEnvironment environment;
     const std::filesystem::path executable = ExecutableDirectory();
-    if (!executable.empty()) {
-        environment.search_roots.push_back(executable);
-        environment.search_roots.push_back(executable.parent_path() / "resources");
-        environment.search_roots.push_back(executable.parent_path() / "resources" / "effindom");
-    }
-    std::error_code error;
-    environment.search_roots.push_back(std::filesystem::current_path(error));
+    environment.search_roots = BuildNativeAssetSearchRoots(
+        executable, NativePackagePlatform::Windows);
     environment.path_from_utf8 = [](std::string_view value) {
         std::string normalized(value);
         if (normalized.size() >= 3U && normalized[0] == '/' && normalized[2] == ':') {

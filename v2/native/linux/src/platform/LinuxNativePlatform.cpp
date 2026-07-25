@@ -1,4 +1,5 @@
 #include "LinuxNativePlatform.h"
+#include "NativeWindowIcon.h"
 #include "LinuxResizeSyncBridge.h"
 #include "LinuxSystemThemeBridge.h"
 #include "NativeFuiBridge.h"
@@ -462,6 +463,12 @@ std::uint32_t LinuxNativePlatform::HostCapabilities() const {
 bool LinuxNativePlatform::IsCoarsePointer() const { return false; }
 void LinuxNativePlatform::SetApplicationCaption(const std::string& caption) {
     SDL_SetWindowTitle(impl_->window, caption.c_str());
+}
+bool LinuxNativePlatform::SetApplicationIcon(const std::filesystem::path& path) {
+    std::string error;
+    const bool applied = ApplySdlWindowIcon(impl_->window, path, error);
+    if (!applied) SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "%s", error.c_str());
+    return applied;
 }
 void LinuxNativePlatform::SetNativePointerCapture(bool captured) { SDL_CaptureMouse(captured); }
 void LinuxNativePlatform::SetCursor(std::uint32_t style) { impl_->platform_services.SetCursor(style); }

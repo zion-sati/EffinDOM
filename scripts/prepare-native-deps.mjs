@@ -2,7 +2,7 @@
 
 import { createHash } from 'node:crypto';
 import { spawnSync } from 'node:child_process';
-import { appendFile, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { appendFile, cp, mkdir, mkdtemp, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { homedir, tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -102,7 +102,15 @@ async function main() {
     await verifyFiles(extracted, manifest.files);
     await rm(cacheRoot, { recursive: true, force: true });
     await mkdir(cacheRoot, { recursive: true });
-    await rename(extracted, join(cacheRoot, 'effindom-native-deps'));
+    const published = join(cacheRoot, 'effindom-native-deps');
+    try {
+      await rename(extracted, published);
+    } catch (error) {
+      if (error?.code !== 'EXDEV') throw error;
+      const staged = join(cacheRoot, '.effindom-native-deps-staging');
+      await cp(extracted, staged, { recursive: true, preserveTimestamps: true });
+      await rename(staged, published);
+    }
     await writeFile(ready, `${JSON.stringify({ manifest_sha256: pinned.manifest_sha256 })}\n`);
   } finally {
     await rm(temporary, { recursive: true, force: true });

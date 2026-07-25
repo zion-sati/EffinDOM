@@ -9,6 +9,13 @@
 // NativeFuiRuntimeBridge.cpp; unsupported browser facilities remain explicit.
 extern "C" {
 
+#if defined(_MSC_VER)
+std::uint32_t __effindom_default_fui_native_activation_count() { return 0U; }
+#pragma comment(linker, "/alternatename:__fui_native_activation_count=__effindom_default_fui_native_activation_count")
+#else
+__attribute__((weak)) std::uint32_t __fui_native_activation_count() { return 0U; }
+#endif
+
 void fui_register_text_input_metadata(std::uint64_t, bool, std::uintptr_t, std::uint32_t) {}
 bool fui_has_text_selection_snapshot(std::uint64_t) { return false; }
 void fui_freeze_text_selection_snapshot(std::uint64_t) {}

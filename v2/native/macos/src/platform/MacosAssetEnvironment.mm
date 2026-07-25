@@ -116,13 +116,8 @@ NativeSystemFontSource ResolveSystemFont(std::string_view sample_text) {
 NativeAssetEnvironment CreateMacosAssetEnvironment() {
     NativeAssetEnvironment environment;
     const std::filesystem::path executable = ExecutableDirectory();
-    if (!executable.empty()) {
-        environment.search_roots.push_back(executable);
-        environment.search_roots.push_back(executable.parent_path() / "resources");
-        environment.search_roots.push_back(executable.parent_path() / "resources" / "effindom");
-    }
-    std::error_code error;
-    environment.search_roots.push_back(std::filesystem::current_path(error));
+    environment.search_roots = BuildNativeAssetSearchRoots(
+        executable, NativePackagePlatform::MacOs);
     environment.path_from_utf8 = [](std::string_view value) {
         return std::filesystem::path(std::string(value));
     };
