@@ -8,12 +8,15 @@ const exactPaths = new Set([
   'CMakePresets.json',
   'WasmDeps.lock.json',
   'NativeDeps.lock.json',
+]);
+
+const orchestrationPaths = new Set([
   '.github/workflows/runtime-ci.yml',
+  'scripts/ci/runtime-dependency-scope.mjs',
 ]);
 
 const sharedPrefixes = [
   'cmake/',
-  'scripts/ci/',
   'v2/core/',
   'v2/ui/',
 ];
@@ -62,7 +65,7 @@ function normalize(path) {
   return path.replaceAll('\\', '/').replace(/^\.\//, '');
 }
 
-export function affectsScope(path, scopeName) {
+export function affectsArtifactScope(path, scopeName) {
   const scope = scopes[scopeName];
   if (scope === undefined) {
     throw new Error(`Unknown runtime CI scope: ${scopeName}`);
@@ -71,6 +74,11 @@ export function affectsScope(path, scopeName) {
   return exactPaths.has(normalized)
     || scope.exact.has(normalized)
     || scope.prefixes.some((prefix) => normalized.startsWith(prefix));
+}
+
+export function affectsScope(path, scopeName) {
+  const normalized = normalize(path);
+  return orchestrationPaths.has(normalized) || affectsArtifactScope(normalized, scopeName);
 }
 
 export function classifyPaths(paths) {

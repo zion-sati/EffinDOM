@@ -1,6 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
-import { affectsScope, scopeNames } from './runtime-dependency-scope.mjs';
+import { affectsArtifactScope, affectsScope, scopeNames } from './runtime-dependency-scope.mjs';
 
 const repository = process.env.GITHUB_REPOSITORY;
 const releaseSha = process.env.RELEASE_SHA;
@@ -42,7 +42,7 @@ function changedPaths(base, head) {
 }
 
 function changesWasmInputs(base, head) {
-  return changedPaths(base, head).some((path) => affectsScope(path, 'wasm'));
+  return changedPaths(base, head).some((path) => affectsArtifactScope(path, 'wasm'));
 }
 
 async function successfulRuntimeCiRuns() {
