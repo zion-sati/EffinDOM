@@ -36,6 +36,8 @@ jobs:
           key: ${{ runner.os }}-arm64-native-deps-${{ hashFiles('NativeDeps.lock.json') }}
       - name: Build and test native runtime
         run: xvfb-run --auto-servernum node scripts/build-native-runtime.mjs --target linux-arm64 --with-tests
+      - name: Test native runtime package layout
+        run: node --test scripts/tests/native-runtime-package-layout.test.mjs
       - name: Package verified native runtime SDK
         run: node scripts/package-native-runtime.mjs --target linux-arm64 --source-commit "$GITHUB_SHA" --destination "$RUNNER_TEMP/native-runtime-linux-arm64"
       - uses: actions/upload-artifact@v4
