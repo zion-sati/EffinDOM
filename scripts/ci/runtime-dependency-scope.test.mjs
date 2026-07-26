@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { existsSync, readFileSync } from 'node:fs';
 import test from 'node:test';
 
 import {
@@ -31,6 +32,16 @@ test('native packaging changes rerun native targets without invalidating WASM ar
   for (const scope of scopeNames.filter((scope) => scope !== 'wasm')) {
     assert.equal(affectsArtifactScope(path, scope), true);
   }
+});
+
+test('runtime CI is triggered by native packaging changes', () => {
+  const workflowPath = [
+    '.github/workflows/runtime-ci.yml',
+    'scripts/oss-export/templates/runtime/.github/workflows/runtime-ci.yml',
+  ].find(existsSync);
+  assert.notEqual(workflowPath, undefined);
+  const workflow = readFileSync(workflowPath, 'utf8');
+  assert.match(workflow, /^\s+- 'scripts\/package-native-runtime\.mjs'$/m);
 });
 
 test('target workflow changes invalidate only that target artifact', () => {
