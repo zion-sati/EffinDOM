@@ -136,6 +136,8 @@ const targets = {
       "ws2_32",
       "ntdll",
       "userenv",
+      "user32",
+      "oleaut32",
     ],
   },
   "windows-x64": {
@@ -164,6 +166,8 @@ const targets = {
       "ws2_32",
       "ntdll",
       "userenv",
+      "user32",
+      "oleaut32",
     ],
   },
 };
@@ -284,6 +288,15 @@ const files = [
   ),
   input(packager, `tools/${executableName}`, "packager", true),
 ];
+if (target.platform === "linux") {
+  files.push(
+    input(
+      fromDeps(target.sdl),
+      "runtime/lib/libSDL3.so.0",
+      "runtime-library",
+    ),
+  );
+}
 for (const [name, output, buildOutput] of [
   [target.coreImport, "sdk/lib", "core"],
   [target.uiImport, "sdk/lib", "ui"],
@@ -356,7 +369,7 @@ const runtimeLibrary = (name, importName) =>
   importName ? `sdk/lib/${importName}` : `runtime/lib/${name}`;
 writeFileSync(
   linkMetadata,
-  `${JSON.stringify({ schemaVersion: 1, target: targetName, cxxStandard: 17, libraries: [`sdk/lib/${target.host}`, "<application-static-library>", `sdk/lib/${target.common}`, runtimeLibrary(target.core, target.coreImport), ...orderedDependencies.slice(0, 3), runtimeLibrary(target.ui, target.uiImport), ...orderedDependencies.slice(3), runtimeLibrary(target.sdl, target.sdlImport)], systemLibraries: target.system, runtimeLibraryDirectory: "runtime/lib", includeDirectory: "sdk/include", launcher: "sdk/launcher/NativeApplicationMain.cpp" }, null, 2)}\n`,
+  `${JSON.stringify({ schemaVersion: 1, target: targetName, cxxStandard: 17, libraries: [`sdk/lib/${target.common}`, `sdk/lib/${target.host}`, "<application-static-library>", runtimeLibrary(target.core, target.coreImport), ...orderedDependencies.slice(0, 3), runtimeLibrary(target.ui, target.uiImport), ...orderedDependencies.slice(3), runtimeLibrary(target.sdl, target.sdlImport)], systemLibraries: target.system, runtimeLibraryDirectory: "runtime/lib", includeDirectory: "sdk/include", launcher: "sdk/launcher/NativeApplicationMain.cpp" }, null, 2)}\n`,
 );
 files.push(input(linkMetadata, "sdk/link.json", "link-metadata"));
 mkdirSync(dirname(destination), { recursive: true });
