@@ -12,6 +12,9 @@
 [![npm](https://img.shields.io/npm/v/@effindomv2/runtime?label=runtime)](https://www.npmjs.com/package/@effindomv2/runtime)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
+Rust Demo: https://fui-rs-demo.effindom.dev/
+AssemblyScript Demo: https://fui-as-demo.effindom.dev/
+
 Let's be honest: nobody ever liked the feeling. Not you. Not the W3C. Not even
 Brendan Eich, who knocked JavaScript together in ten days and has been watching
 us fumble with it for three decades like a bad prophylactic that won't tear.
@@ -25,6 +28,13 @@ fundamental problem: you're still wearing one.
 **EffinDom is what happens when you stop pretending the DOM is fine and build
 a real runtime instead. Go raw. Feel the performance. The browser was always
 a display server — we just forgot.**
+
+EffinDom was born on the web, which is the harder direction. A runtime designed
+around browser and WebAssembly constraints is inherently easier to carry onto
+native operating systems than a native-first runtime is to force back through
+the browser. The same retained runtime now runs directly on macOS, Windows, and
+Linux without Chromium or a system WebView. Android and iOS are the next
+targets.
 
 ---
 
