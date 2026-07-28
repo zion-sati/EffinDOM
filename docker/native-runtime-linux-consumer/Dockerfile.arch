@@ -1,0 +1,8 @@
+FROM archlinux:base
+
+RUN pacman --disable-sandbox -Syu --noconfirm \
+        binutils dbus file fontconfig libx11 libxext vulkan-icd-loader \
+    && pacman -Scc --noconfirm
+
+COPY validate-runtime.sh /usr/local/bin/validate-effindom-runtime
+ENTRYPOINT ["/usr/local/bin/validate-effindom-runtime"]

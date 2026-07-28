@@ -15,7 +15,7 @@ fn minimum(target: NativeRuntimeTarget) -> NativeRuntimeMinimumOs {
         NativeRuntimeTarget::WindowsArm64 | NativeRuntimeTarget::WindowsX64 => {
             ("windows", "10.0.17763")
         }
-        NativeRuntimeTarget::LinuxArm64 | NativeRuntimeTarget::LinuxX64 => ("glibc", "2.36"),
+        NativeRuntimeTarget::LinuxArm64 | NativeRuntimeTarget::LinuxX64 => ("glibc", "2.28"),
     };
     NativeRuntimeMinimumOs {
         family: family.to_string(),

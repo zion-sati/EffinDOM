@@ -64,12 +64,17 @@ target_include_directories(effindom_v2_ui
 target_link_libraries(effindom_v2_ui
     PRIVATE effindom_compile_flags
     PRIVATE effindom_woff2dec
+    PRIVATE ${CMAKE_DL_LIBS}
     PUBLIC harfbuzz
     PUBLIC effindom_icu_i18n
     PUBLIC effindom_icu_common
     PUBLIC effindom_icu_stubdata
     PUBLIC yogacore
 )
+if(NOT EMSCRIPTEN)
+    find_package(Threads REQUIRED)
+    target_link_libraries(effindom_v2_ui PRIVATE Threads::Threads)
+endif()
 
 # All statically linked dependencies are implementation details. In addition
 # to hidden-by-default compilation, prevent archive members with their own

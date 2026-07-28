@@ -13,6 +13,7 @@ import { basename, dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { resolveNativeBuildOutput } from "./native-runtime-package-layout.mjs";
+import { assertNativeRuntimePackagingHost } from "./native-runtime-host-compatibility.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const targets = {
@@ -70,7 +71,7 @@ const targets = {
     buildDir: "build/native-linux-arm64-gnu-release-vulkan",
     platform: "linux",
     family: "glibc",
-    minimum: "2.36",
+    minimum: "2.28",
     host: "libeffindom_v2_linux_native_host.a",
     common: "libeffindom_v2_native_common.a",
     core: "libeffindom_core.so",
@@ -92,7 +93,7 @@ const targets = {
     buildDir: "build/native-linux-x64-gnu-release-vulkan",
     platform: "linux",
     family: "glibc",
-    minimum: "2.36",
+    minimum: "2.28",
     host: "libeffindom_v2_linux_native_host.a",
     common: "libeffindom_v2_native_common.a",
     core: "libeffindom_core.so",
@@ -241,6 +242,8 @@ const dependencyRoot = run(
   { capture: true },
 );
 const packageTarget = join(buildRoot, "native-packager");
+const targetArchitecture = targetName.endsWith("-arm64") ? "arm64" : "x64";
+assertNativeRuntimePackagingHost(target.platform, targetArchitecture);
 run(
   "cargo",
   [

@@ -15,27 +15,20 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 24
-          cache: npm
-      - uses: actions-rust-lang/setup-rust-toolchain@v1
+          package-manager-cache: false
       - name: Verify x64 runner
         run: test "$(uname -m)" = x86_64
-      - name: Install build and runtime dependencies
+      - name: Install packaging dependency
         run: |
           sudo apt-get update
-          sudo apt-get install --yes \
-            clang cmake meson ninja-build pkg-config zstd \
-            libdbus-1-dev libfontconfig1-dev libx11-dev libxext-dev \
-            libdecor-0-dev libdecor-0-plugin-1-cairo \
-            libvulkan-dev mesa-vulkan-drivers xvfb
-      - name: Install package dependencies
-        run: npm ci
+          sudo apt-get install --yes zstd
       - name: Cache verified native dependency SDK
         uses: actions/cache@v4
         with:
           path: ~/.cache/effindom/native-deps
           key: ${{ runner.os }}-x64-native-deps-${{ hashFiles('NativeDeps.lock.json') }}
       - name: Build and test native runtime
-        run: xvfb-run --auto-servernum node scripts/build-native-runtime.mjs --target linux-x64 --with-tests
+        run: bash scripts/build-native-runtime-linux-container.sh --target linux-x64 --with-tests
       - name: Test native runtime package layout
         run: node --test scripts/tests/native-runtime-package-layout.test.mjs
       - name: Package verified native runtime SDK

@@ -358,7 +358,7 @@ struct LinuxVulkanSurface::Impl {
             hardware_present_wait = wait_for_present != nullptr;
         }
 
-        get_proc = [this](const char* name, VkInstance requested_instance, VkDevice requested_device) {
+        get_proc = [](const char* name, VkInstance requested_instance, VkDevice requested_device) {
             if (requested_device != VK_NULL_HANDLE) {
                 return vkGetDeviceProcAddr(requested_device, name);
             }

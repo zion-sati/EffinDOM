@@ -1,7 +1,6 @@
 #!/usr/bin/env node
 
 import { spawnSync } from 'node:child_process';
-import { existsSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -28,11 +27,6 @@ if (!targets[targetName]) {
   console.error(`Usage: node scripts/build-native-runtime.mjs --target <${Object.keys(targets).join('|')}> [--with-tests]`);
   process.exit(1);
 }
-if (!existsSync(join(root, 'cmake', 'EffinDomOssDistribution.cmake'))) {
-  console.error('build-native-runtime requires the EffinDOM distribution configuration.');
-  process.exit(1);
-}
-
 const target = targets[targetName];
 const deps = spawnSync('node', [join(root, 'scripts', 'prepare-native-deps.mjs'), '--target', targetName], { cwd: root, encoding: 'utf8' });
 if (deps.status !== 0) {
@@ -40,7 +34,11 @@ if (deps.status !== 0) {
   process.exit(deps.status ?? 1);
 }
 const dependencyRoot = deps.stdout.trim();
-const common = [`-DEFFINDOM_NATIVE_DEPS_ROOT=${dependencyRoot}`, '-DEFFINDOM_BUILD_NATIVE_FUI_RS_DEMO=OFF'];
+const common = [
+  '-DEFFINDOM_NATIVE_DEPS_MODE=prebuilt',
+  `-DEFFINDOM_NATIVE_DEPS_ROOT=${dependencyRoot}`,
+  '-DEFFINDOM_BUILD_NATIVE_FUI_RS_DEMO=OFF',
+];
 
 if (targetName.startsWith('windows-')) {
   run('cmake', ['--preset', target.preset, ...common]);
