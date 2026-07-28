@@ -123,7 +123,7 @@ std::optional<std::string_view> UiRuntime::GetTextSnapshotDocument(std::uint64_t
 }
 
 bool UiRuntime::RevealTextRange(std::uint64_t handle, std::uint32_t start, std::uint32_t end) {
-    const UINode* node = ResolveTextSnapshotNode(handle);
+    const UINode* node = ResolveTextGeometryNode(handle);
     if (node == nullptr || node->yg_node == nullptr) {
         return false;
     }

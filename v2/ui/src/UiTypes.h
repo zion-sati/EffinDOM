@@ -334,6 +334,7 @@ struct UINode {
     bool text_overflow_fade_horizontal = false;
     bool text_overflow_fade_vertical = false;
     bool is_obscured = false;
+    std::uint64_t text_accessibility_revision = 1U;
     bool has_text_style_runs = false;
     std::vector<TextStyleRun> text_style_runs{};
     std::vector<std::uint32_t> text_line_starts{0U};

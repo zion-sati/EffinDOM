@@ -269,6 +269,7 @@ void UiRuntime::Reset() {
     next_semantic_scope_token_ = 1U;
     ClearTextCommitProfile();
     ClearDynamicTextPrepareProfile();
+    ClearAccessibilityTextProfile();
     ResetFrameArena();
 }
 
@@ -321,6 +322,14 @@ const UiRuntime::TextGeometryProfile& UiRuntime::text_geometry_profile() const {
 
 void UiRuntime::ClearTextGeometryProfile() {
     text_geometry_profile_ = TextGeometryProfile{};
+}
+
+const UiRuntime::AccessibilityTextProfile& UiRuntime::accessibility_text_profile() const {
+    return accessibility_text_profile_;
+}
+
+void UiRuntime::ClearAccessibilityTextProfile() {
+    accessibility_text_profile_ = AccessibilityTextProfile{};
 }
 
 void UiRuntime::ResetCurrentDynamicTextPrepareProfile() const {

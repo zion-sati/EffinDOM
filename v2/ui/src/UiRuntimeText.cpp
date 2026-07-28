@@ -349,10 +349,7 @@ bool UiRuntime::SetText(std::uint64_t handle, const std::uint8_t* utf8_str, std:
         if (!should_emit_text_state) {
             return;
         }
-        const auto* text_ptr = node->text_content.empty()
-            ? nullptr
-            : reinterpret_cast<const std::uint8_t*>(node->text_content.data());
-        as_on_text_changed(handle, text_ptr, static_cast<std::uint32_t>(node->text_content.size()));
+        event_sink_.TextChanged(handle, node->text_content);
         event_sink_.SelectionChanged(handle, node->selection_start, node->selection_end);
     };
     if (node->text_content.size() == static_cast<std::size_t>(len) &&
@@ -364,6 +361,10 @@ bool UiRuntime::SetText(std::uint64_t handle, const std::uint8_t* utf8_str, std:
         node->text_content.clear();
     } else {
         node->text_content.assign(reinterpret_cast<const char*>(utf8_str), reinterpret_cast<const char*>(utf8_str) + len);
+    }
+    node->text_accessibility_revision += 1U;
+    if (node->text_accessibility_revision == 0U) {
+        node->text_accessibility_revision = 1U;
     }
     (void)ApplyAbsurdLineClamp(*node);
     const std::uint32_t text_length = static_cast<std::uint32_t>(node->text_content.size());

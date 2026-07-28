@@ -47,6 +47,57 @@ enum class NativeAccessibilityAction : std::uint32_t {
     Decrement,
 };
 
+enum class NativeAccessibilityTextStatus : std::uint32_t {
+    Ok,
+    NotText,
+    Obscured,
+    StaleRevision,
+    InvalidRange,
+    BufferTooSmall,
+    ReadOnly,
+    InvalidText,
+};
+
+enum class NativeAccessibilityTextEvent : std::uint32_t {
+    DocumentChanged,
+    SelectionChanged,
+};
+
+struct NativeAccessibilityTextInfo {
+    std::uint64_t revision = 0U;
+    std::uint32_t character_count = 0U;
+    std::uint32_t selection_start = 0U;
+    std::uint32_t selection_end = 0U;
+    bool read_only = false;
+    bool multiline = false;
+};
+
+struct NativeAccessibilityTextRect {
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+};
+
+class NativeAccessibilityTextProvider {
+public:
+    virtual ~NativeAccessibilityTextProvider() = default;
+    virtual bool GetInfo(std::uint64_t handle, NativeAccessibilityTextInfo& output) const = 0;
+    virtual NativeAccessibilityTextStatus ReadRange(std::uint64_t handle,
+        std::uint64_t revision, std::uint32_t start, std::uint32_t end,
+        std::string& output) const = 0;
+    virtual NativeAccessibilityTextStatus RangeRects(std::uint64_t handle,
+        std::uint64_t revision, std::uint32_t start, std::uint32_t end,
+        std::vector<NativeAccessibilityTextRect>& output) const = 0;
+    virtual NativeAccessibilityTextStatus SetSelection(std::uint64_t handle,
+        std::uint64_t revision, std::uint32_t start, std::uint32_t end) const = 0;
+    virtual NativeAccessibilityTextStatus RevealRange(std::uint64_t handle,
+        std::uint64_t revision, std::uint32_t start, std::uint32_t end) const = 0;
+    virtual NativeAccessibilityTextStatus ReplaceRange(std::uint64_t handle,
+        std::uint64_t revision, std::uint32_t start, std::uint32_t end,
+        const std::string& replacement, std::uint64_t& output_revision) const = 0;
+};
+
 struct NativeAccessibilityBounds {
     float x = 0.0f;
     float y = 0.0f;
@@ -88,6 +139,13 @@ using NativeAccessibilityActionHandler =
 class NativeAccessibilityAdapter {
 public:
     virtual ~NativeAccessibilityAdapter() = default;
+    virtual void SetTextProvider(std::shared_ptr<NativeAccessibilityTextProvider> provider) {
+        (void)provider;
+    }
+    virtual void TextChanged(NativeAccessibilityTextEvent event, std::uint64_t handle) {
+        (void)event;
+        (void)handle;
+    }
     virtual void Update(const NativeAccessibilitySnapshot& snapshot) = 0;
     virtual void Announce(const NativeAccessibilityNode& node) = 0;
     virtual void Clear() = 0;
@@ -101,14 +159,17 @@ public:
     void Attach(std::unique_ptr<NativeAccessibilityAdapter> adapter);
     bool Sync(const std::uint32_t* words, std::uint32_t length, std::uint64_t focused_handle);
     void Announce(std::uint64_t handle);
+    void NotifyTextChanged(NativeAccessibilityTextEvent event, std::uint64_t handle);
     void PerformAction(NativeAccessibilityAction action, std::uint64_t handle);
     void Clear();
 
     const NativeAccessibilitySnapshot& Snapshot() const;
+    std::shared_ptr<NativeAccessibilityTextProvider> TextProvider() const;
 
 private:
     std::function<void()> request_frame_;
     std::unique_ptr<NativeAccessibilityAdapter> adapter_;
+    std::shared_ptr<NativeAccessibilityTextProvider> text_provider_;
     NativeAccessibilitySnapshot snapshot_{};
 };
 

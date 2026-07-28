@@ -35,7 +35,23 @@ NativeHostCore::NativeHostCore(NativeInputRouterOptions input_options,
     NativeHostCoreCallbacks callbacks)
     : input_router_(engine_, input_options), accessibility_([this] { RequestFrame(); }),
       callbacks_(std::move(callbacks)),
-      start_time_(Clock::now()) {}
+      start_time_(Clock::now()) {
+    effindom::v2::ui::GetRuntime().SetAccessibilityTextEventCallback(
+        [this](effindom::v2::ui::UiEventSink::AccessibilityTextEventKind event,
+            std::uint64_t handle) {
+            const std::uint64_t owner =
+                effindom::v2::ui::GetRuntime().GetAccessibilityTextOwnerHandle(handle);
+            accessibility_.NotifyTextChanged(
+                event == effindom::v2::ui::UiEventSink::AccessibilityTextEventKind::DocumentChanged
+                    ? NativeAccessibilityTextEvent::DocumentChanged
+                    : NativeAccessibilityTextEvent::SelectionChanged,
+                owner == UI_INVALID_HANDLE ? handle : owner);
+        });
+}
+
+NativeHostCore::~NativeHostCore() {
+    effindom::v2::ui::GetRuntime().SetAccessibilityTextEventCallback({});
+}
 
 void NativeHostCore::AttachGraphics(
     std::unique_ptr<NativeGraphicsCoordinator> graphics) {

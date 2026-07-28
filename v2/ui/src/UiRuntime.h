@@ -49,6 +49,14 @@
 
 namespace effindom::v2::ui {
 
+struct TextAccessibilityInfo {
+    std::uint64_t revision = 0U;
+    std::uint32_t character_count = 0U;
+    std::uint32_t selection_start = 0U;
+    std::uint32_t selection_end = 0U;
+    std::uint32_t flags = 0U;
+};
+
 class TreePainter;
 class SceneGeometryResolver;
 
@@ -152,6 +160,17 @@ public:
         std::uint64_t style_rectangles_emitted = 0U;
         std::uint64_t shaping_calls = 0U;
         std::uint64_t shaping_bytes = 0U;
+    };
+
+    struct AccessibilityTextProfile {
+        std::uint64_t metadata_queries = 0U;
+        std::uint64_t range_queries = 0U;
+        std::uint64_t requested_characters = 0U;
+        std::uint64_t materialized_utf8_bytes = 0U;
+        std::uint64_t geometry_queries = 0U;
+        std::uint64_t selection_mutations = 0U;
+        std::uint64_t reveal_requests = 0U;
+        std::uint64_t replacement_mutations = 0U;
     };
 
     struct TextFindHighlight {
@@ -409,6 +428,42 @@ public:
     std::optional<Rect> GetVisibleBounds(std::uint64_t handle) const;
     std::vector<std::uint64_t> GetTextSnapshotHandles() const;
     std::optional<std::string_view> GetTextSnapshotDocument(std::uint64_t handle) const;
+    bool GetAccessibilityTextInfo(std::uint64_t handle, TextAccessibilityInfo& out) const;
+    std::uint64_t GetAccessibilityTextOwnerHandle(std::uint64_t handle) const;
+    UiTextAccessibilityQueryStatus GetAccessibilityTextRange(
+        std::uint64_t handle,
+        std::uint64_t revision,
+        std::uint32_t start_character,
+        std::uint32_t end_character,
+        std::string& out_utf8) const;
+    UiTextAccessibilityQueryStatus GetAccessibilityTextRangeRects(
+        std::uint64_t handle,
+        std::uint64_t revision,
+        std::uint32_t start_character,
+        std::uint32_t end_character,
+        std::vector<Rect>& out_rects) const;
+    UiTextAccessibilityQueryStatus SetAccessibilityTextSelection(
+        std::uint64_t handle,
+        std::uint64_t revision,
+        std::uint32_t start_character,
+        std::uint32_t end_character);
+    UiTextAccessibilityQueryStatus RevealAccessibilityTextRange(
+        std::uint64_t handle,
+        std::uint64_t revision,
+        std::uint32_t start_character,
+        std::uint32_t end_character);
+    UiTextAccessibilityQueryStatus ReplaceAccessibilityTextRange(
+        std::uint64_t handle,
+        std::uint64_t revision,
+        std::uint32_t start_character,
+        std::uint32_t end_character,
+        std::string_view replacement_utf8,
+        std::uint64_t& out_revision);
+    void SetAccessibilityTextEventCallback(UiEventSink::AccessibilityTextEventCallback callback) {
+        event_sink_.SetAccessibilityTextEventCallback(std::move(callback));
+    }
+    std::pair<const UINode*, std::uint64_t> ResolveAccessibilityTextNode(
+        std::uint64_t handle) const;
     std::optional<Rect> GetTextVisibleBounds(std::uint64_t handle) const;
     std::vector<Rect> GetTextRangeSceneRects(std::uint64_t handle, std::uint32_t start, std::uint32_t end) const;
     bool GetCrossSelectionEndpointSceneRects(std::uint64_t area_handle, Rect& out_start_rect, Rect& out_end_rect);
@@ -446,6 +501,8 @@ public:
     void ClearShapingResourceProfile();
     const TextGeometryProfile& text_geometry_profile() const;
     void ClearTextGeometryProfile();
+    const AccessibilityTextProfile& accessibility_text_profile() const;
+    void ClearAccessibilityTextProfile();
 
 EFFINDOM_V2_UI_PRIVATE:
     Rect ComputeInputVisibleBounds(const UINode& node) const override {
@@ -1369,6 +1426,7 @@ EFFINDOM_V2_UI_PRIVATE:
     mutable ShapingResourceProfile shaping_resource_profile_{};
     mutable TextGeometryProfile text_geometry_profile_{};
     mutable bool text_geometry_profile_active_ = false;
+    mutable AccessibilityTextProfile accessibility_text_profile_{};
     mutable std::vector<ShapingBufferEntry> shaping_buffers_{};
     mutable std::uint64_t shaping_font_access_sequence_ = 0U;
     void ResetCurrentDynamicTextPrepareProfile() const;

@@ -10,6 +10,87 @@
 namespace effindom::v2::native {
 namespace {
 
+NativeAccessibilityTextStatus TextStatus(UiTextAccessibilityQueryStatus status) {
+    return static_cast<NativeAccessibilityTextStatus>(status);
+}
+
+class RuntimeAccessibilityTextProvider final : public NativeAccessibilityTextProvider {
+public:
+    explicit RuntimeAccessibilityTextProvider(std::function<void()> request_frame)
+        : request_frame_(std::move(request_frame)) {}
+
+    bool GetInfo(std::uint64_t handle, NativeAccessibilityTextInfo& output) const override {
+        std::uint32_t flags = 0U;
+        if (!ui_get_accessibility_text_info(handle, &output.revision,
+                &output.character_count, &output.selection_start,
+                &output.selection_end, &flags)) return false;
+        output.read_only = (flags & UI_TEXT_ACCESSIBILITY_FLAG_READ_ONLY) != 0U;
+        output.multiline = (flags & UI_TEXT_ACCESSIBILITY_FLAG_MULTILINE) != 0U;
+        return (flags & UI_TEXT_ACCESSIBILITY_FLAG_OBSCURED) == 0U;
+    }
+
+    NativeAccessibilityTextStatus ReadRange(std::uint64_t handle,
+        std::uint64_t revision, std::uint32_t start, std::uint32_t end,
+        std::string& output) const override {
+        output.clear();
+        std::uint32_t length = 0U;
+        auto status = ui_get_accessibility_text_range_utf8_length(
+            handle, revision, start, end, &length);
+        if (status != UI_TEXT_ACCESSIBILITY_QUERY_OK) return TextStatus(status);
+        output.resize(length);
+        status = ui_copy_accessibility_text_range_utf8(handle, revision, start, end,
+            length == 0U ? nullptr : reinterpret_cast<std::uint8_t*>(output.data()), length);
+        if (status != UI_TEXT_ACCESSIBILITY_QUERY_OK) output.clear();
+        return TextStatus(status);
+    }
+
+    NativeAccessibilityTextStatus RangeRects(std::uint64_t handle,
+        std::uint64_t revision, std::uint32_t start, std::uint32_t end,
+        std::vector<NativeAccessibilityTextRect>& output) const override {
+        output.clear();
+        std::uint32_t count = 0U;
+        auto status = ui_get_accessibility_text_range_rect_count(
+            handle, revision, start, end, &count);
+        if (status != UI_TEXT_ACCESSIBILITY_QUERY_OK) return TextStatus(status);
+        output.resize(count);
+        std::uint32_t written = 0U;
+        status = ui_copy_accessibility_text_range_rects(handle, revision, start, end,
+            count == 0U ? nullptr : reinterpret_cast<float*>(output.data()), count, &written);
+        if (status != UI_TEXT_ACCESSIBILITY_QUERY_OK) output.clear();
+        else output.resize(written);
+        return TextStatus(status);
+    }
+
+    NativeAccessibilityTextStatus SetSelection(std::uint64_t handle,
+        std::uint64_t revision, std::uint32_t start, std::uint32_t end) const override {
+        const auto status = TextStatus(
+            ui_set_accessibility_text_selection(handle, revision, start, end));
+        if (status == NativeAccessibilityTextStatus::Ok && request_frame_) request_frame_();
+        return status;
+    }
+
+    NativeAccessibilityTextStatus RevealRange(std::uint64_t handle,
+        std::uint64_t revision, std::uint32_t start, std::uint32_t end) const override {
+        const auto status = TextStatus(
+            ui_reveal_accessibility_text_range(handle, revision, start, end));
+        if (status == NativeAccessibilityTextStatus::Ok && request_frame_) request_frame_();
+        return status;
+    }
+
+    NativeAccessibilityTextStatus ReplaceRange(std::uint64_t handle,
+        std::uint64_t revision, std::uint32_t start, std::uint32_t end,
+        const std::string& replacement, std::uint64_t& output_revision) const override {
+        const auto status = TextStatus(ui_replace_accessibility_text_range(handle, revision, start, end,
+            replacement.empty() ? nullptr : reinterpret_cast<const std::uint8_t*>(replacement.data()),
+            static_cast<std::uint32_t>(replacement.size()), &output_revision));
+        if (status == NativeAccessibilityTextStatus::Ok && request_frame_) request_frame_();
+        return status;
+    }
+
+private:
+    std::function<void()> request_frame_;
+};
+
 constexpr std::uint32_t kFixedRecordWords = 14U;
 constexpr std::uint32_t kHasSelected = 1U << 0U;
 constexpr std::uint32_t kIsSelected = 1U << 1U;
@@ -125,14 +206,18 @@ const char* ActivationKey(NativeAccessibilityRole role) {
 } // namespace
 
 NativeAccessibilityCoordinator::NativeAccessibilityCoordinator(std::function<void()> request_frame)
-    : request_frame_(std::move(request_frame)) {}
+    : request_frame_(std::move(request_frame)),
+      text_provider_(std::make_shared<RuntimeAccessibilityTextProvider>(request_frame_)) {}
 
 NativeAccessibilityCoordinator::~NativeAccessibilityCoordinator() { Clear(); }
 
 void NativeAccessibilityCoordinator::Attach(std::unique_ptr<NativeAccessibilityAdapter> adapter) {
     if (adapter_) adapter_->Clear();
     adapter_ = std::move(adapter);
-    if (adapter_) adapter_->Update(snapshot_);
+    if (adapter_) {
+        adapter_->SetTextProvider(text_provider_);
+        adapter_->Update(snapshot_);
+    }
 }
 
 bool NativeAccessibilityCoordinator::Sync(const std::uint32_t* words, std::uint32_t length,
@@ -153,6 +238,11 @@ void NativeAccessibilityCoordinator::Announce(std::uint64_t handle) {
             return;
         }
     }
+}
+
+void NativeAccessibilityCoordinator::NotifyTextChanged(
+    NativeAccessibilityTextEvent event, std::uint64_t handle) {
+    if (adapter_) adapter_->TextChanged(event, handle);
 }
 
 void NativeAccessibilityCoordinator::PerformAction(
@@ -194,5 +284,8 @@ void NativeAccessibilityCoordinator::Clear() {
 }
 
 const NativeAccessibilitySnapshot& NativeAccessibilityCoordinator::Snapshot() const { return snapshot_; }
+
+std::shared_ptr<NativeAccessibilityTextProvider>
+NativeAccessibilityCoordinator::TextProvider() const { return text_provider_; }
 
 } // namespace effindom::v2::native

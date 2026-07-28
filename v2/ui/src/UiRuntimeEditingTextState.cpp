@@ -186,6 +186,10 @@ bool UiRuntime::ApplyAbsurdLineClampImpl(UINode& node) const {
     }
     clamped_text.append(text.data() + cursor, text.size() - cursor);
     node.text_content = std::move(clamped_text);
+    node.text_accessibility_revision += 1U;
+    if (node.text_accessibility_revision == 0U) {
+        node.text_accessibility_revision = 1U;
+    }
     node.selection_start = MapClampedTextIndex(node.selection_start, clamp_ranges);
     node.selection_end = MapClampedTextIndex(node.selection_end, clamp_ranges);
     return true;

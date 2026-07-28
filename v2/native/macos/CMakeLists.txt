@@ -118,6 +118,7 @@ effindom_stage_macos_native_target(effindom_v2_macos_native
 
 add_executable(effindom_v2_macos_native_tests
     "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_macos_native_host.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_macos_accessibility.mm"
     "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_context_menu_coordinator.cpp"
     "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_asset_service.cpp"
     "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_sdl_event_adapter.cpp"

@@ -1,6 +1,7 @@
 #pragma once
 
 #include <cstdint>
+#include <functional>
 #include <string_view>
 
 namespace effindom::v2::ui {
@@ -17,6 +18,15 @@ struct ScrollMetrics {
 // Host-neutral boundary between retained-runtime subsystems and the existing ABI callbacks.
 class UiEventSink {
 public:
+    enum class AccessibilityTextEventKind {
+        DocumentChanged,
+        SelectionChanged,
+    };
+
+    using AccessibilityTextEventCallback =
+        std::function<void(AccessibilityTextEventKind, std::uint64_t)>;
+
+    void SetAccessibilityTextEventCallback(AccessibilityTextEventCallback callback);
     void FocusChanged(std::uint64_t handle, bool focused) const;
     bool PointerEvent(std::uint64_t handle, std::uint32_t event_type) const;
     void ScrollChanged(std::uint64_t handle, const ScrollMetrics& metrics) const;
@@ -28,6 +38,9 @@ public:
         std::uint32_t start,
         std::uint32_t removed_end,
         std::string_view inserted_utf8) const;
+
+private:
+    AccessibilityTextEventCallback accessibility_text_event_callback_{};
 };
 
 } // namespace effindom::v2::ui

@@ -36,11 +36,19 @@ struct AdapterState {
     std::uint32_t clears = 0U;
     std::vector<std::uint64_t> announcements;
     NativeAccessibilitySnapshot snapshot;
+    std::shared_ptr<NativeAccessibilityTextProvider> text_provider;
+    std::vector<std::pair<NativeAccessibilityTextEvent, std::uint64_t>> text_events;
 };
 
 class RecordingAdapter final : public NativeAccessibilityAdapter {
 public:
     explicit RecordingAdapter(std::shared_ptr<AdapterState> state) : state_(std::move(state)) {}
+    void SetTextProvider(std::shared_ptr<NativeAccessibilityTextProvider> provider) override {
+        state_->text_provider = std::move(provider);
+    }
+    void TextChanged(NativeAccessibilityTextEvent event, std::uint64_t handle) override {
+        state_->text_events.emplace_back(event, handle);
+    }
     void Update(const NativeAccessibilitySnapshot& snapshot) override {
         ++state_->updates;
         state_->snapshot = snapshot;
@@ -120,4 +128,23 @@ TEST_CASE("disabled and missing accessibility actions do not request a frame",
     coordinator.PerformAction(NativeAccessibilityAction::Press, 91U);
     coordinator.PerformAction(NativeAccessibilityAction::Focus, 999U);
     CHECK(frames == 0U);
+}
+
+TEST_CASE("native accessibility attaches one lazy text provider and forwards invalidations",
+    "[v2][native][accessibility][text]") {
+    auto state = std::make_shared<AdapterState>();
+    NativeAccessibilityCoordinator coordinator([] {});
+    coordinator.Attach(std::make_unique<RecordingAdapter>(state));
+
+    REQUIRE(state->text_provider != nullptr);
+    CHECK(state->text_provider == coordinator.TextProvider());
+    NativeAccessibilityTextInfo info;
+    CHECK_FALSE(state->text_provider->GetInfo(0xFFFFFFFFU, info));
+
+    coordinator.NotifyTextChanged(NativeAccessibilityTextEvent::DocumentChanged, 42U);
+    coordinator.NotifyTextChanged(NativeAccessibilityTextEvent::SelectionChanged, 42U);
+    CHECK(state->text_events == std::vector<std::pair<NativeAccessibilityTextEvent, std::uint64_t>>{
+        {NativeAccessibilityTextEvent::DocumentChanged, 42U},
+        {NativeAccessibilityTextEvent::SelectionChanged, 42U},
+    });
 }

@@ -520,6 +520,153 @@ void ui_clear_text_find_highlights(void) {
     effindom::v2::ui::GetRuntime().ClearTextFindHighlights();
 }
 
+bool ui_get_accessibility_text_info(
+    ui_handle_t handle,
+    uint64_t* out_revision,
+    uint32_t* out_character_count,
+    uint32_t* out_selection_start,
+    uint32_t* out_selection_end,
+    uint32_t* out_flags) {
+    if (out_revision == nullptr || out_character_count == nullptr || out_selection_start == nullptr ||
+        out_selection_end == nullptr || out_flags == nullptr) {
+        return false;
+    }
+    effindom::v2::ui::TextAccessibilityInfo info{};
+    if (!effindom::v2::ui::GetRuntime().GetAccessibilityTextInfo(handle, info)) {
+        return false;
+    }
+    *out_revision = info.revision;
+    *out_character_count = info.character_count;
+    *out_selection_start = info.selection_start;
+    *out_selection_end = info.selection_end;
+    *out_flags = info.flags;
+    return true;
+}
+
+UiTextAccessibilityQueryStatus ui_get_accessibility_text_range_utf8_length(
+    ui_handle_t handle,
+    uint64_t revision,
+    uint32_t start_character,
+    uint32_t end_character,
+    uint32_t* out_utf8_length) {
+    if (out_utf8_length == nullptr) {
+        return UI_TEXT_ACCESSIBILITY_QUERY_BUFFER_TOO_SMALL;
+    }
+    std::string text{};
+    const auto status = effindom::v2::ui::GetRuntime().GetAccessibilityTextRange(
+        handle, revision, start_character, end_character, text);
+    if (status == UI_TEXT_ACCESSIBILITY_QUERY_OK) {
+        *out_utf8_length = static_cast<uint32_t>(text.size());
+    }
+    return status;
+}
+
+UiTextAccessibilityQueryStatus ui_copy_accessibility_text_range_utf8(
+    ui_handle_t handle,
+    uint64_t revision,
+    uint32_t start_character,
+    uint32_t end_character,
+    uint8_t* out_utf8,
+    uint32_t buffer_length) {
+    std::string text{};
+    const auto status = effindom::v2::ui::GetRuntime().GetAccessibilityTextRange(
+        handle, revision, start_character, end_character, text);
+    if (status != UI_TEXT_ACCESSIBILITY_QUERY_OK) {
+        return status;
+    }
+    if (buffer_length < text.size() || (out_utf8 == nullptr && !text.empty())) {
+        return UI_TEXT_ACCESSIBILITY_QUERY_BUFFER_TOO_SMALL;
+    }
+    if (!text.empty()) {
+        std::memcpy(out_utf8, text.data(), text.size());
+    }
+    return UI_TEXT_ACCESSIBILITY_QUERY_OK;
+}
+
+UiTextAccessibilityQueryStatus ui_get_accessibility_text_range_rect_count(
+    ui_handle_t handle,
+    uint64_t revision,
+    uint32_t start_character,
+    uint32_t end_character,
+    uint32_t* out_rect_count) {
+    if (out_rect_count == nullptr) {
+        return UI_TEXT_ACCESSIBILITY_QUERY_BUFFER_TOO_SMALL;
+    }
+    std::vector<effindom::v2::ui::Rect> rects{};
+    const auto status = effindom::v2::ui::GetRuntime().GetAccessibilityTextRangeRects(
+        handle, revision, start_character, end_character, rects);
+    if (status == UI_TEXT_ACCESSIBILITY_QUERY_OK) {
+        *out_rect_count = static_cast<uint32_t>(rects.size());
+    }
+    return status;
+}
+
+UiTextAccessibilityQueryStatus ui_copy_accessibility_text_range_rects(
+    ui_handle_t handle,
+    uint64_t revision,
+    uint32_t start_character,
+    uint32_t end_character,
+    float* out_rect_words,
+    uint32_t max_rect_count,
+    uint32_t* out_rect_count) {
+    if (out_rect_count == nullptr) {
+        return UI_TEXT_ACCESSIBILITY_QUERY_BUFFER_TOO_SMALL;
+    }
+    std::vector<effindom::v2::ui::Rect> rects{};
+    const auto status = effindom::v2::ui::GetRuntime().GetAccessibilityTextRangeRects(
+        handle, revision, start_character, end_character, rects);
+    if (status != UI_TEXT_ACCESSIBILITY_QUERY_OK) {
+        return status;
+    }
+    if (max_rect_count < rects.size() || (out_rect_words == nullptr && !rects.empty())) {
+        return UI_TEXT_ACCESSIBILITY_QUERY_BUFFER_TOO_SMALL;
+    }
+    for (std::size_t index = 0U; index < rects.size(); index += 1U) {
+        out_rect_words[index * 4U] = rects[index].x;
+        out_rect_words[index * 4U + 1U] = rects[index].y;
+        out_rect_words[index * 4U + 2U] = rects[index].width;
+        out_rect_words[index * 4U + 3U] = rects[index].height;
+    }
+    *out_rect_count = static_cast<uint32_t>(rects.size());
+    return UI_TEXT_ACCESSIBILITY_QUERY_OK;
+}
+
+UiTextAccessibilityQueryStatus ui_set_accessibility_text_selection(
+    ui_handle_t handle,
+    uint64_t revision,
+    uint32_t start_character,
+    uint32_t end_character) {
+    return effindom::v2::ui::GetRuntime().SetAccessibilityTextSelection(
+        handle, revision, start_character, end_character);
+}
+
+UiTextAccessibilityQueryStatus ui_reveal_accessibility_text_range(
+    ui_handle_t handle,
+    uint64_t revision,
+    uint32_t start_character,
+    uint32_t end_character) {
+    return effindom::v2::ui::GetRuntime().RevealAccessibilityTextRange(
+        handle, revision, start_character, end_character);
+}
+
+UiTextAccessibilityQueryStatus ui_replace_accessibility_text_range(
+    ui_handle_t handle,
+    uint64_t revision,
+    uint32_t start_character,
+    uint32_t end_character,
+    const uint8_t* replacement_utf8,
+    uint32_t replacement_length,
+    uint64_t* out_revision) {
+    if ((replacement_utf8 == nullptr && replacement_length != 0U) || out_revision == nullptr) {
+        return UI_TEXT_ACCESSIBILITY_QUERY_INVALID_TEXT;
+    }
+    const std::string_view replacement(
+        replacement_length == 0U ? "" : reinterpret_cast<const char*>(replacement_utf8),
+        replacement_length);
+    return effindom::v2::ui::GetRuntime().ReplaceAccessibilityTextRange(
+        handle, revision, start_character, end_character, replacement, *out_revision);
+}
+
 uint32_t ui_get_text_document_utf8_length(ui_handle_t handle) {
     const auto text = effindom::v2::ui::GetRuntime().GetTextSnapshotDocument(handle);
     if (!text.has_value()) {

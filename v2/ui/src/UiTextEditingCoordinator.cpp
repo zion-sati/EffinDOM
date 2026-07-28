@@ -138,6 +138,10 @@ bool TextEditingCoordinator::ApplyTextEdit(
         static_cast<std::size_t>(edit.start),
         static_cast<std::size_t>(edit.removed_end - edit.start),
         edit.inserted_text);
+    node.text_accessibility_revision += 1U;
+    if (node.text_accessibility_revision == 0U) {
+        node.text_accessibility_revision = 1U;
+    }
     const std::uint32_t text_length = static_cast<std::uint32_t>(node.text_content.size());
     node.selection_start = std::min(selection_start, text_length);
     node.selection_end = std::min(selection_end, text_length);

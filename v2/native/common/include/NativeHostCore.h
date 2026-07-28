@@ -26,6 +26,7 @@ class NativeHostCore final {
 public:
     NativeHostCore(NativeInputRouterOptions input_options,
         NativeHostCoreCallbacks callbacks);
+    ~NativeHostCore();
 
     void AttachGraphics(std::unique_ptr<NativeGraphicsCoordinator> graphics);
     void AttachAccessibility(std::unique_ptr<NativeAccessibilityAdapter> adapter);

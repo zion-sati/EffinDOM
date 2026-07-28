@@ -5,6 +5,7 @@
 #include "graphics/MacosMetalSurface.h"
 #include "input/MacosScrollWheelBridge.h"
 #include "platform/MacosSystemThemeBridge.h"
+#include "platform/MacosAccessibilityAdapter.h"
 #include "effindom_ui.h"
 #include "SDL3/SDL.h"
 
@@ -158,6 +159,27 @@ TEST_CASE("macOS native host reports desktop operation capabilities", "[v2][nati
     CHECK((capabilities & FUI_HOST_CAPABILITY_BROWSER_HISTORY) == 0U);
     CHECK((capabilities & (1U << 1U)) == 0U);
     CHECK((capabilities & (1U << 2U)) == 0U);
+}
+
+TEST_CASE("macOS accessibility converts Unicode scalar ranges to AX UTF-16 ranges",
+    "[v2][native][macos][accessibility][text]") {
+    using namespace effindom::v2::native::detail;
+    const std::string text = "A\xF0\x9F\x98\x80\xE4\xBD\xA0" "e\xCC\x81";
+    CHECK(MacosAccessibilityUtf16Length(text) == 6U);
+
+    std::uint32_t location = 0U;
+    std::uint32_t length = 0U;
+    REQUIRE(MacosAccessibilityCharacterRangeToUtf16Range(text, 1U, 3U, location, length));
+    CHECK(location == 1U);
+    CHECK(length == 3U);
+
+    std::uint32_t start = 0U;
+    std::uint32_t end = 0U;
+    REQUIRE(MacosAccessibilityUtf16RangeToCharacterRange(text, location, length, start, end));
+    CHECK(start == 1U);
+    CHECK(end == 3U);
+    CHECK_FALSE(MacosAccessibilityUtf16RangeToCharacterRange(text, 2U, 1U, start, end));
+    CHECK_FALSE(MacosAccessibilityCharacterRangeToUtf16Range(text, 0U, 6U, location, length));
 }
 
 TEST_CASE("native FUI-RS mounts remounts and disposes one application", "[v2][native][macos][n3a]") {

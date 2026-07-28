@@ -1,6 +1,7 @@
 set(EFFINDOM_V2_UI_SOURCES
     "${CMAKE_CURRENT_SOURCE_DIR}/src/Api.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeBoxModel.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeAccessibilityText.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeCallbacks.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntimeClipboard.cpp"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/UiRuntime.cpp"
@@ -136,6 +137,7 @@ else()
     add_executable(effindom_v2_ui_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/TestUiSupport.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_command_builder.cpp"
+        "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_accessibility_text.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_commit_frame.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_focus_coordinator.cpp"
         "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_ui_platform_host.cpp"

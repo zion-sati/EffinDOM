@@ -118,6 +118,12 @@ test('scroll-only semantic projection does not read or rewrite unchanged large e
     }
     const initialValueLength = editor.value.length;
     const beforeRevision = editor.dataset.effindomTextRevision ?? null;
+    const originalRangeLength = runtime.ui._ui_get_accessibility_text_range_utf8_length.bind(runtime.ui);
+    let accessibilityRangeReads = 0;
+    runtime.ui._ui_get_accessibility_text_range_utf8_length = (...args) => {
+      accessibilityRangeReads += 1;
+      return originalRangeLength(...args);
+    };
     let valueReads = 0;
     let valueWrites = 0;
     Object.defineProperty(editor, 'value', {
@@ -134,7 +140,9 @@ test('scroll-only semantic projection does not read or rewrite unchanged large e
     runtime.ui._ui_set_scroll_offset(bridge.handleToBigInt(scrollHandle), 0, 100);
     runtime.commitFrame();
     runtime.flushPendingCommit();
+    runtime.ui._ui_get_accessibility_text_range_utf8_length = originalRangeLength;
     return {
+      accessibilityRangeReads,
       valueReads,
       valueWrites,
       valueLength: initialValueLength,
@@ -144,6 +152,7 @@ test('scroll-only semantic projection does not read or rewrite unchanged large e
   }, scene);
 
   expect(result.afterRevision).toBe(result.beforeRevision);
+  expect(result.accessibilityRangeReads).toBe(0);
   expect(result.valueReads).toBe(0);
   expect(result.valueWrites).toBe(0);
   expect(result.valueLength).toBeGreaterThan(10_000);

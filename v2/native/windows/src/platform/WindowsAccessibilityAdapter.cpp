@@ -1,4 +1,5 @@
 #include "WindowsAccessibilityAdapter.h"
+#include "WindowsAccessibilityTextProvider.h"
 
 #include "SDL3/SDL.h"
 
@@ -24,6 +25,7 @@ struct AccessibilityState {
     std::mutex mutex;
     NativeAccessibilitySnapshot snapshot;
     NativeAccessibilityActionHandler action_handler;
+    std::shared_ptr<NativeAccessibilityTextProvider> text_provider;
     HWND window = nullptr;
     bool active = true;
 };
@@ -125,6 +127,18 @@ public:
         }
         if (pattern == UIA_TogglePatternId && NodeSupportsToggle()) {
             return QueryInterface(__uuidof(IToggleProvider), reinterpret_cast<void**>(result));
+        }
+        if (pattern == UIA_TextPatternId || pattern == UIA_TextPattern2Id ||
+            pattern == UIA_ValuePatternId) {
+            const auto node = Node();
+            if (!node) return UIA_E_ELEMENTNOTAVAILABLE;
+            std::shared_ptr<NativeAccessibilityTextProvider> provider;
+            {
+                std::lock_guard lock(state_->mutex);
+                provider = state_->text_provider;
+            }
+            return CreateWindowsAccessibilityTextPattern(state_->window, node->handle,
+                std::move(provider), static_cast<IRawElementProviderSimple*>(this), pattern, result);
         }
         return S_OK;
     }
@@ -364,8 +378,21 @@ public:
             std::lock_guard lock(state_->mutex);
             state_->active = false;
             state_->action_handler = {};
+            state_->text_provider.reset();
         }
         root_->Release();
+    }
+
+    void SetTextProvider(std::shared_ptr<NativeAccessibilityTextProvider> provider) override {
+        std::lock_guard lock(state_->mutex);
+        state_->text_provider = std::move(provider);
+    }
+
+    void TextChanged(NativeAccessibilityTextEvent event, std::uint64_t handle) override {
+        AccessibilityProvider* element = ProviderForHandle(handle);
+        if (element == nullptr) return;
+        UiaRaiseAutomationEvent(element, WindowsAccessibilityTextEventId(event));
+        element->Release();
     }
 
     void Update(const NativeAccessibilitySnapshot& snapshot) override {

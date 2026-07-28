@@ -1,4 +1,5 @@
 #include "TestUiSupport.h"
+#include "UiSemanticProjector.h"
 
 TEST_CASE("v2 ui semantic bounds track scrolled visual positions", "[v2][ui][semantic][scroll]") {
     ui_reset();
@@ -149,4 +150,53 @@ TEST_CASE("v2 ui semantic projector clips multiline textbox to nested scroll vie
     REQUIRE(textbox_record != records.end());
     CHECK(textbox_record->bounds.width == Approx(100.0f));
     CHECK(textbox_record->bounds.height == Approx(50.0f));
+}
+
+TEST_CASE("v2 ui textbox semantic summaries truncate at a UTF-8 codepoint boundary", "[v2][ui][semantic][textbox][text-cap]") {
+    effindom::v2::ui::UINode node;
+    node.is_text_node = true;
+    node.semantic_role = UI_SEMANTIC_TEXTBOX;
+    node.text_content.assign(999U, 'a');
+    node.text_content += "\xE6\x88\x91";
+    node.text_content += "\xF0\x9F\x99\x82";
+    node.text_content.append(4096U, 'z');
+
+    const std::string label = effindom::v2::ui::BuildSemanticLabel(node);
+    const std::string expected = std::string(999U, 'a') + "\xE6\x88\x91...";
+    CHECK(label == expected);
+    CHECK(label.size() == 1005U);
+    CHECK(label.find("\xF0\x9F\x99\x82") == std::string::npos);
+}
+
+TEST_CASE("v2 ui textbox semantic buffer stays bounded as its document grows", "[v2][ui][semantic][textbox][text-cap]") {
+    ui_reset();
+
+    const std::uint64_t textbox = ui_create_node(UI_NODE_TEXT);
+    REQUIRE(textbox != UI_INVALID_HANDLE);
+    ui_set_root(textbox);
+    ui_resize_window(320.0f, 80.0f);
+    ui_set_width(textbox, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(textbox, 40.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_text_limits(textbox, 1000000, 1);
+    ui_set_semantic_role(textbox, UI_SEMANTIC_TEXTBOX);
+
+    std::string document(4096U, 'a');
+    ui_set_text(textbox, reinterpret_cast<const std::uint8_t*>(document.data()),
+        static_cast<std::uint32_t>(document.size()));
+    ui_commit_frame();
+    const auto first_buffer = test_ui_support::ReadSemanticBuffer();
+    const auto first_records = test_ui_support::ReadSemanticRecords(first_buffer);
+    REQUIRE(first_records.size() == 1U);
+    CHECK(first_records.front().label == std::string(1000U, 'a') + "...");
+
+    document.append(12288U, 'b');
+    ui_set_text(textbox, reinterpret_cast<const std::uint8_t*>(document.data()),
+        static_cast<std::uint32_t>(document.size()));
+    ui_commit_frame();
+    const auto larger_buffer = test_ui_support::ReadSemanticBuffer();
+    const auto larger_records = test_ui_support::ReadSemanticRecords(larger_buffer);
+    REQUIRE(larger_records.size() == 1U);
+    CHECK(larger_records.front().label == first_records.front().label);
+    CHECK(larger_buffer.size() == first_buffer.size());
+    CHECK(larger_buffer.size() == 266U);
 }

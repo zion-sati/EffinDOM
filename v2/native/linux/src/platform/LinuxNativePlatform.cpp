@@ -1,4 +1,5 @@
 #include "LinuxNativePlatform.h"
+#include "LinuxAccessibilityAdapter.h"
 #include "NativeWindowIcon.h"
 #include "LinuxResizeSyncBridge.h"
 #include "LinuxSystemThemeBridge.h"
@@ -90,7 +91,10 @@ struct LinuxNativePlatform::Impl {
         if (visible && (!SDL_ShowWindow(window) || !SDL_SyncWindow(window))) {
             throw std::runtime_error(std::string("SDL_ShowWindow failed: ") + SDL_GetError());
         }
-        core.AttachAccessibility(nullptr);
+        core.AttachAccessibility(CreateLinuxAccessibilityAdapter(window,
+            [this](NativeAccessibilityAction action, std::uint64_t handle) {
+                core.Accessibility().PerformAction(action, handle);
+            }));
         SDL_Log("EffinDOM Linux video driver: %s", SDL_GetCurrentVideoDriver());
         ui_dispatcher = std::make_unique<SdlUiDispatcher>(window);
         drop_target = std::make_unique<SdlDropTarget>(window, core.GetEngine());

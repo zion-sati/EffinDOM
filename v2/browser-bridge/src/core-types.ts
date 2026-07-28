@@ -367,6 +367,66 @@ export interface UiModule {
   _ui_clear_text_find_match(): void;
   _ui_push_text_find_highlight(handle: WasmHandleLike, start: number, end: number, color: number): number;
   _ui_clear_text_find_highlights(): void;
+  _ui_get_accessibility_text_info(
+    handle: WasmHandleLike,
+    outRevisionPtr: WasmHandleLike,
+    outCharacterCountPtr: WasmHandleLike,
+    outSelectionStartPtr: WasmHandleLike,
+    outSelectionEndPtr: WasmHandleLike,
+    outFlagsPtr: WasmHandleLike,
+  ): number;
+  _ui_get_accessibility_text_range_utf8_length(
+    handle: WasmHandleLike,
+    revision: WasmHandleLike,
+    startCharacter: number,
+    endCharacter: number,
+    outUtf8LengthPtr: WasmHandleLike,
+  ): number;
+  _ui_copy_accessibility_text_range_utf8(
+    handle: WasmHandleLike,
+    revision: WasmHandleLike,
+    startCharacter: number,
+    endCharacter: number,
+    outUtf8Ptr: WasmHandleLike,
+    bufferLength: number,
+  ): number;
+  _ui_get_accessibility_text_range_rect_count(
+    handle: WasmHandleLike,
+    revision: WasmHandleLike,
+    startCharacter: number,
+    endCharacter: number,
+    outRectCountPtr: WasmHandleLike,
+  ): number;
+  _ui_copy_accessibility_text_range_rects(
+    handle: WasmHandleLike,
+    revision: WasmHandleLike,
+    startCharacter: number,
+    endCharacter: number,
+    outRectWordsPtr: WasmHandleLike,
+    maxRectCount: number,
+    outRectCountPtr: WasmHandleLike,
+  ): number;
+  _ui_set_accessibility_text_selection(
+    handle: WasmHandleLike,
+    revision: WasmHandleLike,
+    startCharacter: number,
+    endCharacter: number,
+  ): number;
+  _ui_reveal_accessibility_text_range(
+    handle: WasmHandleLike,
+    revision: WasmHandleLike,
+    startCharacter: number,
+    endCharacter: number,
+  ): number;
+  _ui_replace_accessibility_text_range(
+    handle: WasmHandleLike,
+    revision: WasmHandleLike,
+    startCharacter: number,
+    endCharacter: number,
+    replacementUtf8Ptr: WasmHandleLike,
+    replacementLength: number,
+    outRevisionPtr: WasmHandleLike,
+  ): number;
   _ui_get_text_document_utf8_length(handle: WasmHandleLike): number;
   _ui_copy_text_document_utf8(handle: WasmHandleLike, outPtr: WasmHandleLike, bufferLength: number): number;
   _ui_get_text_visible_bounds(

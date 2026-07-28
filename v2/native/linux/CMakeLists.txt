@@ -40,6 +40,8 @@ endif()
 
 add_library(effindom_v2_linux_native_host STATIC
     src/graphics/LinuxVulkanSurface.cpp
+    src/platform/LinuxAccessibilityAdapter.cpp
+    src/platform/LinuxAccessibilityText.cpp
     src/platform/LinuxNativePlatform.cpp
     src/platform/LinuxResizeSyncBridge.cpp
     src/platform/LinuxSystemThemeBridge.cpp
@@ -100,6 +102,8 @@ if(EFFINDOM_LINUX_STAGE_RUNTIME)
             "On Ubuntu/Debian install it with: sudo apt install libdecor-0-plugin-1-cairo")
     endif()
 endif()
+option(EFFINDOM_LINUX_ATSPI_INTEGRATION_TESTS
+    "Run Linux AT-SPI discovery against a real accessibility bus" OFF)
 function(effindom_stage_linux_native_target target_name output_root)
     set(output_bin "${output_root}/bin")
     set(output_lib "${output_root}/lib")
@@ -165,7 +169,7 @@ if(EFFINDOM_NATIVE_FUI_RS_DEMO_AVAILABLE)
     )
     target_link_libraries(effindom_v2_linux_native_tests PRIVATE
         effindom_v2_native_common effindom_v2_linux_native_host effindom_native_fui_rs_app
-        Catch2::Catch2WithMain effindom_compile_flags)
+        Catch2::Catch2WithMain effindom_compile_flags PkgConfig::EFFINDOM_LINUX_DBUS)
     effindom_stage_linux_native_target(
         effindom_v2_linux_native_tests "${EFFINDOM_NATIVE_TEST_OUTPUT_ROOT}")
 
@@ -180,6 +184,14 @@ if(EFFINDOM_NATIVE_FUI_RS_DEMO_AVAILABLE)
     add_test(NAME effindom_v2_linux_native_cli
         COMMAND effindom_v2_linux_native --hidden --screenshot
             "${CMAKE_CURRENT_BINARY_DIR}/native-fui-rs.png")
+    if(EFFINDOM_LINUX_ATSPI_INTEGRATION_TESTS)
+        find_package(Python3 REQUIRED COMPONENTS Interpreter)
+        add_test(NAME effindom_v2_linux_native_atspi
+            COMMAND ${Python3_EXECUTABLE}
+                ${CMAKE_SOURCE_DIR}/scripts/test-linux-atspi-provider.py
+                $<TARGET_FILE:effindom_v2_linux_native>)
+        set_tests_properties(effindom_v2_linux_native_atspi PROPERTIES TIMEOUT 30)
+    endif()
     add_test(
         NAME effindom_v2_linux_native_dependencies
         COMMAND ${CMAKE_COMMAND}

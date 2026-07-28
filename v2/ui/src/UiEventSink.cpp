@@ -4,6 +4,10 @@
 
 namespace effindom::v2::ui {
 
+void UiEventSink::SetAccessibilityTextEventCallback(AccessibilityTextEventCallback callback) {
+    accessibility_text_event_callback_ = std::move(callback);
+}
+
 void UiEventSink::FocusChanged(std::uint64_t handle, bool focused) const {
     as_on_focus_changed(handle, focused);
 }
@@ -25,6 +29,9 @@ void UiEventSink::ScrollChanged(std::uint64_t handle, const ScrollMetrics& metri
 
 void UiEventSink::SelectionChanged(std::uint64_t handle, std::uint32_t start, std::uint32_t end) const {
     as_on_selection_changed(handle, start, end);
+    if (accessibility_text_event_callback_) {
+        accessibility_text_event_callback_(AccessibilityTextEventKind::SelectionChanged, handle);
+    }
 }
 
 void UiEventSink::CrossSelectionChanged(std::uint64_t area_handle, std::string_view utf8_text) const {
@@ -39,6 +46,9 @@ void UiEventSink::TextChanged(std::uint64_t handle, std::string_view utf8_text) 
         handle,
         utf8_text.empty() ? nullptr : reinterpret_cast<const std::uint8_t*>(utf8_text.data()),
         static_cast<std::uint32_t>(utf8_text.size()));
+    if (accessibility_text_event_callback_) {
+        accessibility_text_event_callback_(AccessibilityTextEventKind::DocumentChanged, handle);
+    }
 }
 
 void UiEventSink::TextReplaced(
@@ -52,6 +62,9 @@ void UiEventSink::TextReplaced(
         removed_end,
         inserted_utf8.empty() ? nullptr : reinterpret_cast<const std::uint8_t*>(inserted_utf8.data()),
         static_cast<std::uint32_t>(inserted_utf8.size()));
+    if (accessibility_text_event_callback_) {
+        accessibility_text_event_callback_(AccessibilityTextEventKind::DocumentChanged, handle);
+    }
 }
 
 } // namespace effindom::v2::ui

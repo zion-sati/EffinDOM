@@ -39,6 +39,7 @@ endif()
 add_library(effindom_v2_windows_native_host STATIC
     src/platform/WindowsNativePlatform.cpp
     src/platform/WindowsAccessibilityAdapter.cpp
+    src/platform/WindowsAccessibilityTextProvider.cpp
     src/graphics/WindowsGpuSurface.cpp
     src/input/WindowsScrollWheelBridge.cpp
     src/platform/WindowsPlatformServices.cpp
@@ -128,6 +129,7 @@ if(EFFINDOM_WINDOWS_DEMO_AVAILABLE)
 
     add_executable(effindom_v2_windows_native_tests
         tests/test_windows_native_host.cpp
+        tests/test_windows_accessibility_text.cpp
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_asset_service.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_context_menu_coordinator.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_sdl_event_adapter.cpp")
