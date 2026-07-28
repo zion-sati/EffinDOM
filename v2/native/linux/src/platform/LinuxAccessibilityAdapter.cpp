@@ -223,7 +223,12 @@ public:
     ~LinuxAccessibilityAdapter() override {
         if (stop_fd_ >= 0) {
             const std::uint64_t stop = 1U;
-            (void)write(stop_fd_, &stop, sizeof(stop));
+            const ssize_t written = write(stop_fd_, &stop, sizeof(stop));
+            if (written < 0) {
+                SDL_LogWarn(
+                    SDL_LOG_CATEGORY_APPLICATION,
+                    "EffinDOM could not wake the Linux accessibility listener during teardown");
+            }
         }
         if (listener_.joinable()) listener_.join();
         if (connection_ != nullptr) {
