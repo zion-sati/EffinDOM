@@ -13,6 +13,7 @@
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 
 Rust Demo: https://fui-rs-demo.effindom.dev/
+
 AssemblyScript Demo: https://fui-as-demo.effindom.dev/
 
 Let's be honest: nobody ever liked the feeling. Not you. Not the W3C. Not even
