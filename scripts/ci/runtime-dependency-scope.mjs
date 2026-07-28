@@ -60,6 +60,7 @@ const scopes = {
 };
 
 export const scopeNames = Object.freeze(Object.keys(scopes));
+export const nativeScopeNames = Object.freeze(scopeNames.filter((scopeName) => scopeName !== 'wasm'));
 
 function normalize(path) {
   return path.replaceAll('\\', '/').replace(/^\.\//, '');
@@ -87,6 +88,9 @@ export function classifyPaths(paths) {
     for (const scopeName of scopeNames) {
       result[scopeName] ||= affectsScope(path, scopeName);
     }
+  }
+  if (nativeScopeNames.some((scopeName) => result[scopeName])) {
+    for (const scopeName of nativeScopeNames) result[scopeName] = true;
   }
   return result;
 }

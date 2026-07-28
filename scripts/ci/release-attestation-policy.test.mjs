@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import { isVerifiedWasmProducer } from './release-attestation-policy.mjs';
+import { hasSuccessfulJobs, isVerifiedWasmProducer } from './release-attestation-policy.mjs';
 
 test('a successful WASM job remains reusable when an unrelated native job fails', () => {
   const run = { status: 'completed', conclusion: 'failure' };
@@ -30,4 +30,17 @@ test('an absent, skipped, running, or failed WASM job is not a verified producer
     { status: 'in_progress', conclusion: null },
     [{ name: 'wasm / test', status: 'completed', conclusion: 'success' }],
   ), false);
+});
+
+test('a complete native producer may coexist with an unrelated failed WASM job', () => {
+  const run = { status: 'completed', conclusion: 'failure' };
+  const required = ['linux_x64 / test', 'linux_arm64 / test'];
+  const jobs = [
+    { name: 'linux_x64 / test', status: 'completed', conclusion: 'success' },
+    { name: 'linux_arm64 / test', status: 'completed', conclusion: 'success' },
+    { name: 'wasm / test', status: 'completed', conclusion: 'failure' },
+  ];
+
+  assert.equal(hasSuccessfulJobs(run, jobs, required), true);
+  assert.equal(hasSuccessfulJobs(run, jobs, [...required, 'macos_arm64 / test']), false);
 });

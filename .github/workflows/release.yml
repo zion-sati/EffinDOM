@@ -52,7 +52,6 @@ jobs:
       contents: read
     outputs:
       runtime_ci_run_id: ${{ steps.attestation.outputs.runtime_ci_run_id }}
-      wasm_artifact_run_id: ${{ steps.attestation.outputs.wasm_artifact_run_id }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -64,7 +63,7 @@ jobs:
           git fetch origin main
           git merge-base --is-ancestor HEAD origin/main
           echo "sha=$(git rev-parse HEAD)" >> "$GITHUB_OUTPUT"
-      - name: Verify existing Runtime CI attestation and resolve WASM artifact
+      - name: Verify release-ready Runtime CI attestation
         id: attestation
         env:
           GITHUB_TOKEN: ${{ github.token }}
@@ -92,13 +91,15 @@ jobs:
       - name: Download verified WASM package inputs
         env:
           GITHUB_TOKEN: ${{ github.token }}
-          ARTIFACT_RUN_ID: ${{ needs.verify_ci.outputs.wasm_artifact_run_id }}
+          ARTIFACT_RUN_ID: ${{ needs.verify_ci.outputs.runtime_ci_run_id }}
         run: |
-          mkdir -p v2/browser-bridge/dist
+          rm -rf .release/runtime-package-inputs v2/browser-bridge/dist
+          mkdir -p .release/runtime-package-inputs v2/browser-bridge/dist
           gh run download "$ARTIFACT_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
-            --name runtime-package-inputs \
-            --dir v2/browser-bridge/dist
+            --name release-runtime-package-inputs \
+            --dir .release/runtime-package-inputs
+          cp -a .release/runtime-package-inputs/dist/. v2/browser-bridge/dist/
           test -f v2/browser-bridge/dist/effindom.v2.manifest.json
       - name: Stamp runtime package version from the release tag
         env:
@@ -171,7 +172,6 @@ jobs:
             echo "Package: @effindomv2/runtime@${{ needs.validate.outputs.release_version }}"
             echo "npm dist-tag: ${{ needs.validate.outputs.npm_dist_tag }}"
             echo "Verified Runtime CI run: ${{ needs.verify_ci.outputs.runtime_ci_run_id }}"
-            echo "Reused WASM artifact run: ${{ needs.verify_ci.outputs.wasm_artifact_run_id }}"
           } >> "$GITHUB_STEP_SUMMARY"
 
   publish_native:
@@ -191,19 +191,21 @@ jobs:
           GITHUB_TOKEN: ${{ github.token }}
           ARTIFACT_RUN_ID: ${{ needs.verify_ci.outputs.runtime_ci_run_id }}
         run: |
+          rm -rf .release/native-inputs
           mkdir -p .release/native-inputs
           gh run download "$ARTIFACT_RUN_ID" \
             --repo "$GITHUB_REPOSITORY" \
-            --pattern 'native-runtime-*' \
+            --name release-native-runtime-inputs \
             --dir .release/native-inputs
       - name: Verify and assemble native release assets
         env:
           RELEASE_VERSION: ${{ needs.validate.outputs.release_version }}
         run: |
+          native_source_commit="$(node -p "require('./.release/native-inputs/provenance.json').producer.sourceCommit")"
           node scripts/assemble-native-runtime-release.mjs \
             --release "$RELEASE_VERSION" \
-            --source-commit "$(git rev-parse HEAD)" \
-            --input .release/native-inputs \
+            --source-commit "$native_source_commit" \
+            --input .release/native-inputs/artifacts \
             --output .release/native-assets
       - name: Attach native runtimes to the GitHub release
         env:
@@ -217,4 +219,5 @@ jobs:
             echo
             echo 'Targets: macOS ARM64/x64, Windows ARM64/x64, Linux ARM64/x64'
             echo "Verified Runtime CI run: ${{ needs.verify_ci.outputs.runtime_ci_run_id }}"
+            echo "Native artifact source: $(node -p "require('./.release/native-inputs/provenance.json').producer.sourceCommit")"
           } >> "$GITHUB_STEP_SUMMARY"

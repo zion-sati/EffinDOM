@@ -35,6 +35,7 @@ on:
     paths: *runtime_ci_inputs
 
 permissions:
+  actions: read
   contents: read
 
 jobs:
@@ -97,8 +98,8 @@ jobs:
     if: needs.changes.outputs.windows_arm64 == 'true'
     uses: ./.github/workflows/windows-arm64-native-ci.yml
 
-  summary:
-    if: always()
+  materialize_artifacts:
+    if: always() && github.event_name == 'push'
     needs: [changes, wasm, macos_arm64, macos_x64, linux_x64, linux_arm64, windows_x64, windows_arm64]
     runs-on: ubuntu-24.04
     steps:
@@ -119,6 +120,67 @@ jobs:
           WINDOWS_ARM64_REQUIRED: ${{ needs.changes.outputs.windows_arm64 }}
           WINDOWS_ARM64_RESULT: ${{ needs.windows_arm64.result }}
         run: |
+          for target in WASM MACOS_ARM64 MACOS_X64 LINUX_X64 LINUX_ARM64 WINDOWS_X64 WINDOWS_ARM64; do
+            required_name="${target}_REQUIRED"
+            result_name="${target}_RESULT"
+            if [[ "${!required_name}" == 'true' && "${!result_name}" != 'success' ]]; then
+              echo "$target was required but finished with ${!result_name}" >&2
+              exit 1
+            fi
+          done
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+      - name: Build or carry forward complete release inputs
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          WASM_REQUIRED: ${{ needs.changes.outputs.wasm }}
+          NATIVE_REQUIRED: ${{ needs.changes.outputs.macos_arm64 }}
+          RELEASE_ARTIFACT_OUTPUT: ${{ runner.temp }}/release-artifacts
+        run: node scripts/ci/materialize-release-artifacts.mjs
+      - name: Upload release-ready WASM inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-runtime-package-inputs
+          path: ${{ runner.temp }}/release-artifacts/wasm
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload release-ready native inputs
+        uses: actions/upload-artifact@v4
+        with:
+          name: release-native-runtime-inputs
+          path: ${{ runner.temp }}/release-artifacts/native
+          if-no-files-found: error
+          retention-days: 90
+
+  summary:
+    if: always()
+    needs: [changes, wasm, macos_arm64, macos_x64, linux_x64, linux_arm64, windows_x64, windows_arm64, materialize_artifacts]
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Verify required runtime checks
+        env:
+          WASM_REQUIRED: ${{ needs.changes.outputs.wasm }}
+          WASM_RESULT: ${{ needs.wasm.result }}
+          MACOS_ARM64_REQUIRED: ${{ needs.changes.outputs.macos_arm64 }}
+          MACOS_ARM64_RESULT: ${{ needs.macos_arm64.result }}
+          MACOS_X64_REQUIRED: ${{ needs.changes.outputs.macos_x64 }}
+          MACOS_X64_RESULT: ${{ needs.macos_x64.result }}
+          LINUX_X64_REQUIRED: ${{ needs.changes.outputs.linux_x64 }}
+          LINUX_X64_RESULT: ${{ needs.linux_x64.result }}
+          LINUX_ARM64_REQUIRED: ${{ needs.changes.outputs.linux_arm64 }}
+          LINUX_ARM64_RESULT: ${{ needs.linux_arm64.result }}
+          WINDOWS_X64_REQUIRED: ${{ needs.changes.outputs.windows_x64 }}
+          WINDOWS_X64_RESULT: ${{ needs.windows_x64.result }}
+          WINDOWS_ARM64_REQUIRED: ${{ needs.changes.outputs.windows_arm64 }}
+          WINDOWS_ARM64_RESULT: ${{ needs.windows_arm64.result }}
+          MATERIALIZE_RESULT: ${{ needs.materialize_artifacts.result }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
           failed=0
           for target in WASM MACOS_ARM64 MACOS_X64 LINUX_X64 LINUX_ARM64 WINDOWS_X64 WINDOWS_ARM64; do
             required_name="${target}_REQUIRED"
@@ -132,4 +194,8 @@ jobs:
               echo "$target: unchanged, skipped"
             fi
           done
+          if [[ "$EVENT_NAME" == 'push' ]]; then
+            echo "release artifacts: result=$MATERIALIZE_RESULT"
+            [[ "$MATERIALIZE_RESULT" == 'success' ]] || failed=1
+          fi
           exit "$failed"

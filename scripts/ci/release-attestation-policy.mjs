@@ -1,6 +1,10 @@
-export function isVerifiedWasmProducer(run, jobs) {
+export function hasSuccessfulJobs(run, jobs, requiredJobNames) {
   return run.status === 'completed'
-    && jobs.some((job) => job.name === 'wasm / test'
+    && requiredJobNames.every((requiredName) => jobs.some((job) => job.name === requiredName
       && job.status === 'completed'
-      && job.conclusion === 'success');
+      && job.conclusion === 'success'));
+}
+
+export function isVerifiedWasmProducer(run, jobs) {
+  return hasSuccessfulJobs(run, jobs, ['wasm / test']);
 }

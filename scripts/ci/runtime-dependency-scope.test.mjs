@@ -6,6 +6,7 @@ import {
   affectsArtifactScope,
   affectsScope,
   classifyPaths,
+  nativeScopeNames,
   scopeNames,
 } from './runtime-dependency-scope.mjs';
 
@@ -47,4 +48,10 @@ test('runtime CI is triggered by native packaging changes', () => {
 test('target workflow changes invalidate only that target artifact', () => {
   assert.equal(affectsArtifactScope('.github/workflows/wasm-ci.yml', 'wasm'), true);
   assert.equal(affectsArtifactScope('.github/workflows/wasm-ci.yml', 'macos_arm64'), false);
+});
+
+test('a change to one native target rebuilds one complete native provenance set', () => {
+  const result = classifyPaths(['v2/native/linux/src/platform/LinuxNativePlatform.cpp']);
+  assert.equal(result.wasm, false);
+  for (const scopeName of nativeScopeNames) assert.equal(result[scopeName], true);
 });
