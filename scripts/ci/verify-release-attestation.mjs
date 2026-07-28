@@ -1,5 +1,6 @@
 import { execFileSync } from 'node:child_process';
 import { appendFileSync } from 'node:fs';
+import { isVerifiedWasmProducer } from './release-attestation-policy.mjs';
 import { affectsArtifactScope, affectsScope, scopeNames } from './runtime-dependency-scope.mjs';
 
 const repository = process.env.GITHUB_REPOSITORY;
@@ -55,6 +56,21 @@ async function successfulRuntimeCiRuns() {
   return runs;
 }
 
+async function completedRuntimeCiRuns() {
+  const runs = [];
+  for (let page = 1; page <= 10; page += 1) {
+    const result = await api(`/repos/${repository}/actions/workflows/runtime-ci.yml/runs?event=push&status=completed&per_page=100&page=${page}`);
+    runs.push(...result.workflow_runs);
+    if (result.workflow_runs.length < 100) break;
+  }
+  return runs;
+}
+
+async function hasSuccessfulWasmJob(run) {
+  const result = await api(`/repos/${repository}/actions/runs/${run.id}/jobs?per_page=100`);
+  return isVerifiedWasmProducer(run, result.jobs);
+}
+
 async function hasRuntimeArtifact(runId) {
   const result = await api(`/repos/${repository}/actions/runs/${runId}/artifacts?per_page=100`);
   return result.artifacts.some((artifact) => artifact.name === 'runtime-package-inputs' && !artifact.expired);
@@ -73,11 +89,12 @@ if (attestationRun === null) {
   throw new Error('No successful Runtime CI run attests all runtime inputs for this release commit.');
 }
 
+const completedRuns = await completedRuntimeCiRuns();
 let artifactRun = null;
-for (const run of runs) {
+for (const run of completedRuns) {
   if (!isAncestor(run.head_sha, releaseSha)) continue;
   if (changesWasmInputs(run.head_sha, releaseSha)) continue;
-  if (await hasRuntimeArtifact(run.id)) {
+  if (await hasRuntimeArtifact(run.id) && await hasSuccessfulWasmJob(run)) {
     artifactRun = run;
     break;
   }

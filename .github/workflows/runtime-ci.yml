@@ -53,7 +53,7 @@ jobs:
         with:
           fetch-depth: 0
       - name: Test runtime dependency scope classification
-        run: node --test scripts/ci/runtime-dependency-scope.test.mjs
+        run: node --test scripts/ci/runtime-dependency-scope.test.mjs scripts/ci/release-attestation-policy.test.mjs
       - id: classify
         env:
           BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
