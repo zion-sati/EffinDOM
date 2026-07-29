@@ -2,10 +2,9 @@
 
 import { spawnSync } from "node:child_process";
 import {
-  chmodSync,
-  copyFileSync,
   existsSync,
   mkdirSync,
+  readFileSync,
   readdirSync,
   writeFileSync,
 } from "node:fs";
@@ -14,6 +13,7 @@ import { fileURLToPath } from "node:url";
 
 import { resolveNativeBuildOutput } from "./native-runtime-package-layout.mjs";
 import { assertNativeRuntimePackagingHost } from "./native-runtime-host-compatibility.mjs";
+import { createNativeRuntimeArtifact } from "./native-runtime-artifact.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const targets = {
@@ -241,27 +241,8 @@ const dependencyRoot = run(
   [join(root, "scripts/prepare-native-deps.mjs"), "--target", targetName],
   { capture: true },
 );
-const packageTarget = join(buildRoot, "native-packager");
 const targetArchitecture = targetName.endsWith("-arm64") ? "arm64" : "x64";
 assertNativeRuntimePackagingHost(target.platform, targetArchitecture);
-run(
-  "cargo",
-  [
-    "build",
-    "--locked",
-    "--release",
-    "--manifest-path",
-    join(root, "v2/native/packaging/Cargo.toml"),
-    "--bin",
-    "effindom-native-packager",
-  ],
-  { env: { ...process.env, CARGO_TARGET_DIR: packageTarget } },
-);
-const executableName =
-  process.platform === "win32"
-    ? "effindom-native-packager.exe"
-    : "effindom-native-packager";
-const packager = join(packageTarget, "release", executableName);
 
 const from = (output, name) =>
   resolveNativeBuildOutput(buildRoot, output, name, target.platform);
@@ -289,7 +270,6 @@ const files = [
     "sdk/launcher/NativeApplicationMain.cpp",
     "launcher",
   ),
-  input(packager, `tools/${executableName}`, "packager", true),
 ];
 if (target.platform === "linux") {
   files.push(
@@ -381,15 +361,11 @@ writeFileSync(
   requestPath,
   `${JSON.stringify({ schemaVersion: 1, sourceCommit, target: targetName, coreAbi: 2, uiAbi: 1, minimumOs: { family: target.family, version: target.minimum }, destination, files }, null, 2)}\n`,
 );
-const output = run(packager, ["create-runtime-artifact", requestPath], {
-  capture: true,
-});
-const parsed = JSON.parse(output);
+const parsed = createNativeRuntimeArtifact(
+  JSON.parse(readFileSync(requestPath, "utf8")),
+);
 writeFileSync(
   join(destination, "native-runtime-artifact-descriptor.json"),
   `${JSON.stringify(parsed.artifact, null, 2)}\n`,
 );
-copyFileSync(packager, join(destination, executableName));
-if (process.platform !== "win32")
-  chmodSync(join(destination, executableName), 0o755);
 console.log(destination);

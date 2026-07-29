@@ -28,10 +28,11 @@ test('WASM source changes invalidate WASM artifacts without affecting native-onl
 });
 
 test('native packaging changes rerun native targets without invalidating WASM artifacts', () => {
-  const path = 'scripts/package-native-runtime.mjs';
-  assert.equal(affectsArtifactScope(path, 'wasm'), false);
-  for (const scope of scopeNames.filter((scope) => scope !== 'wasm')) {
-    assert.equal(affectsArtifactScope(path, scope), true);
+  for (const path of ['scripts/package-native-runtime.mjs', 'scripts/native-runtime-artifact.mjs']) {
+    assert.equal(affectsArtifactScope(path, 'wasm'), false);
+    for (const scope of scopeNames.filter((scope) => scope !== 'wasm')) {
+      assert.equal(affectsArtifactScope(path, scope), true);
+    }
   }
 });
 
@@ -43,6 +44,7 @@ test('runtime CI is triggered by native packaging changes', () => {
   assert.notEqual(workflowPath, undefined);
   const workflow = readFileSync(workflowPath, 'utf8');
   assert.match(workflow, /^\s+- 'scripts\/package-native-runtime\.mjs'$/m);
+  assert.match(workflow, /^\s+- 'scripts\/native-runtime-artifact\.mjs'$/m);
 });
 
 test('target workflow changes invalidate only that target artifact', () => {

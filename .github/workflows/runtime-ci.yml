@@ -22,6 +22,7 @@ on:
       - 'scripts/ci/**'
       - 'scripts/wasm-deps/**'
       - 'scripts/build-native-runtime.mjs'
+      - 'scripts/native-runtime-artifact.mjs'
       - 'scripts/package-native-runtime.mjs'
       - 'scripts/windows/**'
       - 'v2/abi/**'
