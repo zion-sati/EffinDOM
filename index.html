@@ -565,6 +565,87 @@
         color: var(--lime);
       }
 
+      .syntax-intro {
+        display: grid;
+        grid-template-columns: 0.75fr 1.25fr;
+        gap: 50px;
+        align-items: end;
+        margin: 82px 0 26px;
+      }
+
+      .syntax-intro h3 {
+        margin: 0;
+        font-family: var(--display);
+        font-size: clamp(38px, 4vw, 58px);
+        font-weight: 500;
+        letter-spacing: -0.045em;
+        line-height: 0.98;
+      }
+
+      .syntax-intro p {
+        max-width: 620px;
+        margin-bottom: 0;
+        color: rgba(247, 244, 235, 0.62);
+      }
+
+      .syntax-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        border-top: 1px solid rgba(255, 255, 255, 0.22);
+        border-left: 1px solid rgba(255, 255, 255, 0.22);
+      }
+
+      .syntax-card {
+        min-width: 0;
+        border-right: 1px solid rgba(255, 255, 255, 0.22);
+        border-bottom: 1px solid rgba(255, 255, 255, 0.22);
+        background: #0b0e0d;
+      }
+
+      .syntax-header {
+        display: flex;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 18px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.14);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .syntax-header span:first-child {
+        color: var(--lime);
+      }
+
+      .syntax-header span:last-child {
+        color: rgba(247, 244, 235, 0.38);
+      }
+
+      .syntax-card pre {
+        margin: 0;
+        padding: 24px;
+        overflow-x: auto;
+        color: #e8e5dc;
+        font-family: var(--mono);
+        font-size: clamp(11px, 1.15vw, 13px);
+        line-height: 1.7;
+        tab-size: 2;
+      }
+
+      .syntax-card .keyword {
+        color: var(--coral);
+      }
+
+      .syntax-card .call {
+        color: var(--aqua);
+      }
+
+      .syntax-card .string {
+        color: var(--lime);
+      }
+
       .proof-grid {
         display: grid;
         grid-template-columns: 1.35fr 0.65fr;
@@ -741,6 +822,7 @@
         .hero-grid,
         .statement .shell,
         .section-heading,
+        .syntax-intro,
         .closing-grid {
           grid-template-columns: 1fr;
         }
@@ -826,6 +908,7 @@
 
         .feature-grid,
         .sdk-grid,
+        .syntax-grid,
         .video-grid {
           grid-template-columns: 1fr;
         }
@@ -1135,6 +1218,62 @@
                 <a href="https://fui-as-demo.effindom.dev/">Live demo ↗</a>
                 <a href="https://www.npmjs.com/package/@effindomv2/fui-as">npm ↗</a>
               </div>
+            </article>
+          </div>
+
+          <div class="syntax-intro">
+            <h3>Same retained model. Native syntax.</h3>
+            <p>
+              The runtime concepts do not change between languages. Controls,
+              capabilities, layout, and fluent configuration remain recognisable;
+              each SDK only adapts composition and naming to its language.
+            </p>
+          </div>
+
+          <div class="syntax-grid" aria-label="Equivalent FUI-RS and FUI-AS syntax examples">
+            <article class="syntax-card">
+              <div class="syntax-header">
+                <span>FUI-RS</span>
+                <span>Rust</span>
+              </div>
+              <pre><code><span class="keyword">fn</span> build_page() -&gt; FlexBox {
+  <span class="call">ui!</span> {
+    <span class="call">column</span>()
+      .gap(12.0)
+      .fill_width()
+      .padding(24.0, 24.0, 24.0, 24.0) {
+        <span class="call">text</span>(<span class="string">"Profile"</span>).font_size(28.0),
+        <span class="call">row</span>().gap(8.0) {
+          <span class="call">text_input</span>()
+            .placeholder(<span class="string">"Name"</span>)
+            .fill_width(),
+          <span class="call">button</span>(<span class="string">"Save"</span>),
+        },
+      }
+  }
+}</code></pre>
+            </article>
+
+            <article class="syntax-card">
+              <div class="syntax-header">
+                <span>FUI-AS</span>
+                <span>AssemblyScript</span>
+              </div>
+              <pre><code><span class="keyword">function</span> buildPage(): FlexBox {
+  <span class="keyword">return</span> <span class="call">Column</span>(
+    <span class="keyword">new</span> <span class="call">Text</span>(<span class="string">"Profile"</span>)
+      .fontSize(28.0),
+    <span class="call">Row</span>(
+      <span class="keyword">new</span> <span class="call">TextInput</span>()
+        .placeholder(<span class="string">"Name"</span>)
+        .fillWidth(),
+      <span class="keyword">new</span> <span class="call">Button</span>(<span class="string">"Save"</span>),
+    ).gap(8.0),
+  )
+    .gap(12.0)
+    .fillWidth()
+    .padding(24.0, 24.0, 24.0, 24.0);
+}</code></pre>
             </article>
           </div>
         </div>
