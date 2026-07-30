@@ -3,7 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <meta name="theme-color" content="#111614">
+    <meta name="color-scheme" content="light dark">
+    <meta name="theme-color" content="#f3f0e7" media="(prefers-color-scheme: light)">
+    <meta name="theme-color" content="#0d1210" media="(prefers-color-scheme: dark)">
     <meta
       name="description"
       content="EffinDOM is a web-born application ecosystem for retained UIs that run in browsers and natively on macOS, Windows, and Linux."
@@ -15,7 +17,7 @@
     >
     <style>
       :root {
-        color-scheme: light;
+        color-scheme: light dark;
         --ink: #111614;
         --ink-soft: #34403b;
         --paper: #f3f0e7;
@@ -24,6 +26,12 @@
         --lime: #b8f34a;
         --aqua: #35d4c5;
         --coral: #ff6846;
+        --night: #111614;
+        --night-raised: #171e1b;
+        --night-deep: #0b0e0d;
+        --night-text: #f7f4eb;
+        --surface-hover: #fffdf6;
+        --shadow: rgba(17, 22, 20, 0.16);
         --display: "Iowan Old Style", "Palatino Linotype", Palatino, serif;
         --body: "Avenir Next", "Century Gothic", sans-serif;
         --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -44,7 +52,7 @@
           linear-gradient(var(--line) 1px, transparent 1px),
           linear-gradient(90deg, var(--line) 1px, transparent 1px),
           var(--paper);
-        background-size: 48px 48px;
+        background-size: 64px 64px;
         font-family: var(--body);
         line-height: 1.55;
       }
@@ -68,8 +76,9 @@
         position: relative;
         z-index: 10;
         border-bottom: 1px solid rgba(255, 255, 255, 0.16);
-        color: #f7f4eb;
-        background: var(--ink);
+        color: var(--night-text);
+        background: rgba(17, 22, 20, 0.94);
+        backdrop-filter: blur(18px);
       }
 
       .nav {
@@ -94,8 +103,8 @@
         height: 34px;
         display: grid;
         place-items: center;
-        border-radius: 8px;
-        color: var(--ink);
+        border-radius: 10px;
+        color: var(--night);
         background: var(--lime);
         font-family: var(--mono);
         font-size: 17px;
@@ -120,8 +129,8 @@
       .hero {
         position: relative;
         overflow: hidden;
-        color: #f7f4eb;
-        background: var(--ink);
+        color: var(--night-text);
+        background: var(--night);
       }
 
       .hero::before {
@@ -199,7 +208,7 @@
         gap: 10px;
         padding: 0 20px;
         border: 1px solid rgba(255, 255, 255, 0.24);
-        border-radius: 4px;
+        border-radius: 999px;
         color: #fff;
         text-decoration: none;
         font-size: 14px;
@@ -214,7 +223,7 @@
 
       .button-primary {
         border-color: var(--lime);
-        color: var(--ink);
+        color: var(--night);
         background: var(--lime);
       }
 
@@ -223,8 +232,9 @@
         min-height: 470px;
         padding: 26px;
         border: 1px solid rgba(255, 255, 255, 0.18);
-        background: rgba(255, 255, 255, 0.035);
-        box-shadow: 18px 18px 0 rgba(53, 212, 197, 0.15);
+        border-radius: 22px;
+        background: rgba(255, 255, 255, 0.045);
+        box-shadow: 0 32px 90px rgba(0, 0, 0, 0.34);
         animation: reveal 700ms ease-out both;
       }
 
@@ -243,7 +253,8 @@
         position: relative;
         padding: 18px 20px;
         border: 1px solid rgba(255, 255, 255, 0.2);
-        background: #171e1b;
+        border-radius: 12px;
+        background: var(--night-raised);
       }
 
       .tier + .tier {
@@ -292,6 +303,7 @@
         font-family: var(--mono);
         font-size: 11px;
         text-align: center;
+        border-radius: 999px;
       }
 
       .statement {
@@ -356,15 +368,14 @@
       .feature-grid {
         display: grid;
         grid-template-columns: repeat(3, 1fr);
-        border-top: 1px solid var(--ink);
-        border-left: 1px solid var(--ink);
+        gap: 16px;
       }
 
       .feature {
         min-height: 250px;
         padding: 28px;
-        border-right: 1px solid var(--ink);
-        border-bottom: 1px solid var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 16px;
         background: rgba(243, 240, 231, 0.86);
       }
 
@@ -384,7 +395,8 @@
         flex-direction: column;
         grid-column: span 4;
         padding: 28px;
-        border: 1px solid var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 18px;
         color: var(--ink);
         background: var(--paper);
         text-decoration: none;
@@ -397,9 +409,9 @@
       }
 
       .ecosystem-card:hover {
-        transform: translate(-4px, -4px);
-        box-shadow: 8px 8px 0 var(--ink);
-        background: #fffdf6;
+        transform: translateY(-4px);
+        box-shadow: 0 22px 60px var(--shadow);
+        background: var(--surface-hover);
       }
 
       .ecosystem-kind {
@@ -456,9 +468,183 @@
         font-size: 15px;
       }
 
+      .platforms {
+        margin-top: 78px;
+        padding-top: 34px;
+        border-top: 1px solid var(--line);
+      }
+
+      .platforms-heading {
+        display: flex;
+        align-items: end;
+        justify-content: space-between;
+        gap: 30px;
+        margin-bottom: 24px;
+      }
+
+      .platforms-heading h3 {
+        margin: 0;
+        font-family: var(--display);
+        font-size: clamp(34px, 4vw, 52px);
+        font-weight: 500;
+        letter-spacing: -0.045em;
+      }
+
+      .platforms-heading p {
+        max-width: 580px;
+        margin-bottom: 0;
+        color: var(--ink-soft);
+        font-size: 14px;
+      }
+
+      .platform-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        gap: 14px;
+      }
+
+      .platform-card {
+        min-width: 0;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--paper);
+      }
+
+      .platform-topline {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        margin-bottom: 26px;
+      }
+
+      .platform-os {
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .platform-arch {
+        padding: 4px 8px;
+        border: 1px solid var(--line);
+        border-radius: 999px;
+        color: var(--ink-soft);
+        font-family: var(--mono);
+        font-size: 9px;
+        text-transform: uppercase;
+      }
+
+      .platform-card strong {
+        display: block;
+        margin-bottom: 5px;
+        font-family: var(--display);
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: -0.03em;
+      }
+
+      .platform-backend {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+        color: var(--ink-soft);
+        font-family: var(--mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.07em;
+      }
+
+      .platform-backend::before {
+        content: "";
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: var(--aqua);
+        box-shadow: 0 0 0 4px rgba(53, 212, 197, 0.12);
+      }
+
+      .hard-section {
+        border-top: 1px solid var(--line);
+        border-bottom: 1px solid var(--line);
+        background: var(--paper-deep);
+      }
+
+      .hard-grid {
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+      }
+
+      .hard-card {
+        position: relative;
+        min-height: 250px;
+        padding: 30px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--paper);
+      }
+
+      .hard-card::after {
+        content: attr(data-index);
+        position: absolute;
+        right: 14px;
+        bottom: -32px;
+        color: var(--line);
+        font-family: var(--mono);
+        font-size: 118px;
+        font-weight: 700;
+        line-height: 1;
+        pointer-events: none;
+      }
+
+      .hard-label {
+        display: inline-flex;
+        padding: 5px 9px;
+        border-radius: 999px;
+        color: var(--night);
+        background: var(--aqua);
+        font-family: var(--mono);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .hard-card:nth-child(3n + 2) .hard-label {
+        background: var(--lime);
+      }
+
+      .hard-card:nth-child(3n + 3) .hard-label {
+        color: #fff;
+        background: var(--coral);
+      }
+
+      .hard-card h3 {
+        position: relative;
+        z-index: 1;
+        margin: 32px 0 10px;
+        font-family: var(--display);
+        font-size: 30px;
+        font-weight: 600;
+        letter-spacing: -0.035em;
+      }
+
+      .hard-card p {
+        position: relative;
+        z-index: 1;
+        max-width: 570px;
+        margin-bottom: 0;
+        color: var(--ink-soft);
+        font-size: 14px;
+      }
+
       .sdk-section {
-        color: #f7f4eb;
-        background: var(--ink);
+        color: var(--night-text);
+        background: var(--night);
       }
 
       .sdk-section .section-heading p:last-child {
@@ -479,7 +665,8 @@
         padding: 34px;
         overflow: hidden;
         border: 1px solid rgba(255, 255, 255, 0.18);
-        background: #171e1b;
+        border-radius: 18px;
+        background: var(--night-raised);
       }
 
       .sdk-card::after {
@@ -497,7 +684,7 @@
       .sdk-status {
         width: fit-content;
         padding: 5px 8px;
-        color: var(--ink);
+        color: var(--night);
         background: var(--aqua);
         font-family: var(--mono);
         font-size: 10px;
@@ -525,7 +712,8 @@
         padding: 15px 16px;
         border-left: 3px solid var(--lime);
         color: var(--lime);
-        background: #0b0e0d;
+        border-radius: 0 10px 10px 0;
+        background: var(--night-deep);
         font-family: var(--mono);
         font-size: 12px;
         overflow-x: auto;
@@ -591,15 +779,15 @@
       .syntax-grid {
         display: grid;
         grid-template-columns: repeat(2, minmax(0, 1fr));
-        border-top: 1px solid rgba(255, 255, 255, 0.22);
-        border-left: 1px solid rgba(255, 255, 255, 0.22);
+        gap: 16px;
       }
 
       .syntax-card {
         min-width: 0;
-        border-right: 1px solid rgba(255, 255, 255, 0.22);
-        border-bottom: 1px solid rgba(255, 255, 255, 0.22);
-        background: #0b0e0d;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.22);
+        border-radius: 16px;
+        background: var(--night-deep);
       }
 
       .syntax-header {
@@ -665,8 +853,10 @@
 
       .video-card {
         margin: 0;
-        border: 1px solid var(--ink);
-        background: var(--ink);
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--night);
       }
 
       .video-card:first-child {
@@ -700,7 +890,9 @@
 
       .proof-main,
       .proof-side {
-        border: 1px solid var(--ink);
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        overflow: hidden;
         background: var(--paper);
       }
 
@@ -753,8 +945,8 @@
       .closing {
         padding: 92px 0;
         border-top: 1px solid rgba(255, 255, 255, 0.15);
-        color: #f7f4eb;
-        background: var(--ink);
+        color: var(--night-text);
+        background: var(--night);
       }
 
       .closing-grid {
@@ -784,7 +976,7 @@
       footer {
         padding: 28px 0;
         color: rgba(247, 244, 235, 0.55);
-        background: var(--ink);
+        background: var(--night);
         font-family: var(--mono);
         font-size: 11px;
       }
@@ -818,6 +1010,43 @@
         }
       }
 
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --ink: #edf2ec;
+          --ink-soft: #aebbb3;
+          --paper: #0d1210;
+          --paper-deep: #121916;
+          --line: rgba(237, 242, 236, 0.14);
+          --surface-hover: #19221e;
+          --shadow: rgba(0, 0, 0, 0.42);
+        }
+
+        .statement {
+          color: var(--night);
+        }
+
+        .ecosystem-section {
+          background: rgba(13, 18, 16, 0.94);
+        }
+
+        .feature {
+          background: rgba(18, 25, 22, 0.88);
+        }
+
+        .ecosystem-card {
+          background: #121916;
+        }
+
+        .ecosystem-card:hover {
+          background: var(--surface-hover);
+        }
+
+        .proof-main,
+        .proof-side {
+          background: #121916;
+        }
+      }
+
       @media (max-width: 900px) {
         .hero-grid,
         .statement .shell,
@@ -836,6 +1065,10 @@
         }
 
         .feature-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .platform-grid {
           grid-template-columns: repeat(2, 1fr);
         }
 
@@ -909,8 +1142,15 @@
         .feature-grid,
         .sdk-grid,
         .syntax-grid,
-        .video-grid {
+        .video-grid,
+        .platform-grid,
+        .hard-grid {
           grid-template-columns: 1fr;
+        }
+
+        .platforms-heading {
+          align-items: start;
+          flex-direction: column;
         }
 
         .ecosystem-card,
@@ -1000,9 +1240,9 @@
               <span>Live / v2</span>
             </div>
             <div class="tier">
-              <span class="tier-label">Apps, SDKs, and tooling</span>
-              <strong>FUI-RS / FUI-AS / cargo-fui</strong>
-              <small>Controls, themes, scaffolders, builds, and native packages</small>
+              <span class="tier-label">Tier 3 · Application SDKs</span>
+              <strong>FUI-RS / FUI-AS</strong>
+              <small>Retained controls, themes, events, and application APIs</small>
             </div>
             <div class="tier">
               <span class="tier-label">Tier 2 · UI runtime</span>
@@ -1160,6 +1400,152 @@
               <span class="feature-number">06 / LANGUAGE</span>
               <h3>The runtime is not the SDK</h3>
               <p>A stable C ABI keeps rendering infrastructure language-neutral. Rust and AssemblyScript are first-class application surfaces.</p>
+            </article>
+          </div>
+
+          <div class="platforms" aria-labelledby="platforms-title">
+            <div class="platforms-heading">
+              <h3 id="platforms-title">Six native desktop targets.</h3>
+              <p>
+                Native applications run the EffinDOM engine directly. GPU
+                acceleration uses the platform renderer below, with automatic
+                software raster fallback when a suitable GPU surface is unavailable.
+              </p>
+            </div>
+
+            <div class="platform-grid">
+              <article class="platform-card">
+                <div class="platform-topline">
+                  <span class="platform-os">macOS</span>
+                  <span class="platform-arch">ARM64</span>
+                </div>
+                <strong>Apple Silicon</strong>
+                <span class="platform-backend">Metal</span>
+              </article>
+
+              <article class="platform-card">
+                <div class="platform-topline">
+                  <span class="platform-os">macOS</span>
+                  <span class="platform-arch">x64</span>
+                </div>
+                <strong>Intel Mac</strong>
+                <span class="platform-backend">Metal</span>
+              </article>
+
+              <article class="platform-card">
+                <div class="platform-topline">
+                  <span class="platform-os">Windows</span>
+                  <span class="platform-arch">ARM64</span>
+                </div>
+                <strong>Windows on ARM</strong>
+                <span class="platform-backend">Direct3D 12</span>
+              </article>
+
+              <article class="platform-card">
+                <div class="platform-topline">
+                  <span class="platform-os">Windows</span>
+                  <span class="platform-arch">x64</span>
+                </div>
+                <strong>Windows PC</strong>
+                <span class="platform-backend">Direct3D 12</span>
+              </article>
+
+              <article class="platform-card">
+                <div class="platform-topline">
+                  <span class="platform-os">Linux</span>
+                  <span class="platform-arch">ARM64</span>
+                </div>
+                <strong>Linux ARM</strong>
+                <span class="platform-backend">Vulkan</span>
+              </article>
+
+              <article class="platform-card">
+                <div class="platform-topline">
+                  <span class="platform-os">Linux</span>
+                  <span class="platform-arch">x64</span>
+                </div>
+                <strong>Linux PC</strong>
+                <span class="platform-backend">Vulkan</span>
+              </article>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="hard-section" aria-labelledby="hard-title">
+        <div class="shell">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">The hard parts</p>
+              <h2 id="hard-title">A canvas is easy. An application platform is not.</h2>
+            </div>
+            <p>
+              Drawing controls was never the difficult part. The work is in the
+              behaviour users notice only when it is missing: editing, selection,
+              international text, accessibility, native input, and state that
+              survives real application use.
+            </p>
+          </div>
+
+          <div class="hard-grid">
+            <article class="hard-card" data-index="01">
+              <span class="hard-label">Editing</span>
+              <h3>IME, clipboard, and password managers</h3>
+              <p>Browser editor mirrors let canvas-rendered TextInput and TextArea controls cooperate with composition, autocorrect, platform clipboard conventions, forms, and password-manager extensions.</p>
+            </article>
+
+            <article class="hard-card" data-index="02">
+              <span class="hard-label">Global text</span>
+              <h3>CJK and emoji without permanent tofu</h3>
+              <p>HarfBuzz and ICU shape global scripts while incremental font fallback detects missing glyphs, loads only required coverage, and keeps live text stable as new fonts arrive.</p>
+            </article>
+
+            <article class="hard-card" data-index="03">
+              <span class="hard-label">Selection</span>
+              <h3>Selection that crosses boundaries</h3>
+              <p>Mouse drag, reverse selection, cross-node ranges, touch teardrops, handle crossover, context menus, copy, and viewport auto-scroll share one retained selection model.</p>
+            </article>
+
+            <article class="hard-card" data-index="04">
+              <span class="hard-label">Accessibility</span>
+              <h3>Pixels are not the semantic tree</h3>
+              <p>EffinDOM projects retained semantics through DOM and ARIA on the web, NSAccessibility on macOS, Microsoft UI Automation on Windows, and AT-SPI on Linux.</p>
+            </article>
+
+            <article class="hard-card" data-index="05">
+              <span class="hard-label">TextArea</span>
+              <h3>Fast paths without behavioural forks</h3>
+              <p>Visible-line processing, incremental edits, fixed line heights, monospaced metrics, wrapping, and static-content reuse reduce work while preserving identical Unicode, caret, hit-testing, and selection behaviour.</p>
+            </article>
+
+            <article class="hard-card" data-index="06">
+              <span class="hard-label">Native feel</span>
+              <h3>Input follows the host platform</h3>
+              <p>Native trackpad momentum, wheel behaviour, keyboard conventions, multi-click timing, window resizing, system themes, accent colours, and platform context menus are handled by host adapters rather than approximated globally.</p>
+            </article>
+
+            <article class="hard-card" data-index="07">
+              <span class="hard-label">Lifecycle</span>
+              <h3>Retained state stays retained</h3>
+              <p>Control identity preserves focus, text, selection, scroll position, overlays, and subscriptions. Browser history can restore named retained state instead of reconstructing a blank page.</p>
+            </article>
+
+            <article class="hard-card" data-index="08">
+              <span class="hard-label">Delivery</span>
+              <h3>Fonts and runtimes load without freezing the app</h3>
+              <p>Mandatory runtime assets expose bounded startup progress. Optional script coverage and page fonts load asynchronously, update retained content when ready, and do not block an already usable application.</p>
+            </article>
+
+            <article class="hard-card" data-index="09">
+              <span class="hard-label">Host services</span>
+              <h3>Typed access beyond the UI runtime</h3>
+              <p>Applications declare their own host-service boundary and generate strongly typed SDK bindings. Browser or platform code implements the capability without leaking bridge calls, raw pointers, or transport details into application UI.</p>
+            </article>
+
+            <article class="hard-card" data-index="10">
+              <span class="hard-label">Workers</span>
+              <h3>Background work without blocking interaction</h3>
+              <p>FUI workers run computation outside the application UI thread with generated message contracts, progress reporting, cooperative yields, cancellation, and an explicit allowlist of host services available inside the worker.</p>
             </article>
           </div>
         </div>
