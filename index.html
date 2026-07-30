@@ -338,6 +338,123 @@
         letter-spacing: -0.03em;
       }
 
+      .myths-section {
+        position: relative;
+        color: var(--ink);
+        background: var(--paper);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .myths-section .section-heading {
+        position: relative;
+        z-index: 1;
+      }
+
+      .myths-section .section-heading p:last-child {
+        color: var(--ink-soft);
+      }
+
+      .myths-section .eyebrow {
+        color: var(--coral);
+      }
+
+      .myth-grid {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 16px;
+        counter-reset: myth;
+      }
+
+      .myth-card {
+        position: relative;
+        min-width: 0;
+        min-height: 250px;
+        padding: 30px;
+        overflow: hidden;
+        border: 1px solid var(--line);
+        border-radius: 18px;
+        background: var(--paper);
+        counter-increment: myth;
+      }
+
+      .myth-card::after {
+        content: counter(myth, decimal-leading-zero);
+        position: absolute;
+        right: 14px;
+        bottom: -32px;
+        color: var(--line);
+        font-family: var(--mono);
+        font-size: 118px;
+        font-weight: 700;
+        line-height: 1;
+        pointer-events: none;
+      }
+
+      .myth-claim {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        grid-template-columns: auto minmax(0, 1fr);
+        gap: 14px;
+        align-items: start;
+        margin-bottom: 20px;
+        color: var(--ink);
+        font-family: var(--display);
+        font-size: clamp(25px, 2.7vw, 36px);
+        font-weight: 600;
+        letter-spacing: -0.035em;
+        line-height: 1.08;
+      }
+
+      .myth-claim::before {
+        content: "×";
+        width: 30px;
+        height: 30px;
+        display: grid;
+        place-items: center;
+        margin-top: 2px;
+        border: 1px solid rgba(255, 104, 70, 0.72);
+        border-radius: 50%;
+        color: var(--coral);
+        font-family: var(--body);
+        font-size: 23px;
+        font-weight: 700;
+        line-height: 1;
+        box-shadow: 0 0 0 5px rgba(255, 104, 70, 0.08);
+      }
+
+      .myth-answer {
+        position: relative;
+        z-index: 1;
+        margin-bottom: 0;
+        color: var(--ink-soft);
+        font-size: 14px;
+      }
+
+      .myth-answer strong {
+        color: var(--ink);
+      }
+
+      .myth-proof {
+        position: relative;
+        z-index: 1;
+        display: inline-flex;
+        margin-top: 20px;
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.08em;
+        text-decoration: none;
+        text-transform: uppercase;
+      }
+
+      .myth-proof:hover {
+        color: var(--coral);
+      }
+
       section {
         padding: 104px 0;
       }
@@ -1144,7 +1261,8 @@
         .syntax-grid,
         .video-grid,
         .platform-grid,
-        .hard-grid {
+        .hard-grid,
+        .myth-grid {
           grid-template-columns: 1fr;
         }
 
@@ -1271,6 +1389,119 @@
           </p>
         </div>
       </div>
+
+      <section class="myths-section" aria-labelledby="myths-title">
+        <div class="shell">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Myth versus implementation</p>
+              <h2 id="myths-title">Popular canvas myths, debunked.</h2>
+            </div>
+            <p>
+              These common beliefs are accurate for a raw bitmap with mouse
+              events, but they are not inherent limitations of canvas presentation.
+              Here is what EffinDOM actually implements instead.
+            </p>
+          </div>
+
+          <div class="myth-grid">
+            <article class="myth-card">
+              <h3 class="myth-claim">“Canvas applications are inaccessible.”</h3>
+              <div>
+                <p class="myth-answer">
+                  <strong>A raw canvas is.</strong> EffinDOM separately projects its
+                  retained semantic tree through DOM and ARIA in browsers,
+                  NSAccessibility on macOS, Microsoft UI Automation on Windows,
+                  and AT-SPI on Linux. Assistive technology receives controls,
+                  names, state, bounds, actions, focus, and editable text rather
+                  than being asked to interpret pixels.
+                </p>
+                <a class="myth-proof" href="https://github.com/zion-sati/EffinDOM/tree/main/docs/v2">Inspect the accessibility implementation ↗</a>
+              </div>
+            </article>
+
+            <article class="myth-card">
+              <h3 class="myth-claim">“You cannot inspect anything in DevTools.”</h3>
+              <p class="myth-answer">
+                Controls are intentionally not DOM layout elements, so the CSS
+                inspector is not the right debugger. EffinDOM exposes its retained
+                tree, semantic tree, bounds, state, and node properties through an
+                on-demand DevTools DOM mirror, Inspect Mode, and a built-in debug
+                dialog. You inspect the model that actually owns the UI.
+              </p>
+            </article>
+
+            <article class="myth-card">
+              <h3 class="myth-claim">“Text input, IME, and password managers will be broken.”</h3>
+              <p class="myth-answer">
+                EffinDOM mirrors editor state into real browser editing and form
+                elements while retaining visual rendering itself. This lets the
+                browser and operating system handle composition, mobile keyboards,
+                clipboard conventions, autofill, and password-manager extensions.
+              </p>
+            </article>
+
+            <article class="myth-card">
+              <h3 class="myth-claim">“Users cannot select, copy, or search canvas text.”</h3>
+              <p class="myth-answer">
+                Retained text supports caret placement, mouse and touch selection,
+                cross-node ranges, teardrop handles, context menus, and clipboard
+                operations. The normal desktop shortcut opens EffinDOM's retained
+                find experience. Mobile and explicit browser-native find search the
+                projected semantic text too; the match works, although the browser's
+                highlight can use a slightly different DOM font from the
+                canvas-rendered text beneath it.
+              </p>
+            </article>
+
+            <article class="myth-card">
+              <h3 class="myth-claim">“Canvas means redrawing everything forever.”</h3>
+              <p class="myth-answer">
+                EffinDOM is retained and demand-driven. Controls preserve identity,
+                layout and text results are cached, static content is reused, and
+                frames are requested by invalidation or active animation. A canvas
+                presentation surface does not require an immediate-mode application
+                model or a permanent render loop.
+              </p>
+            </article>
+
+            <article class="myth-card">
+              <h3 class="myth-claim">“Every application ships another enormous WASM engine.”</h3>
+              <p class="myth-answer">
+                Tier 1, Tier 2, ICU, and built-in fonts are immutable,
+                content-addressed runtime assets shared across EffinDOM applications.
+                The current demo transfers about 7.6 MB compressed from a cold cache,
+                excluding page images, and under 500 KB for a warm home-page load.
+                Browser caches can still be evicted; this is architecture, not magic.
+              </p>
+            </article>
+
+            <article class="myth-card">
+              <h3 class="myth-claim">“Canvas applications are invisible to search engines and bots.”</h3>
+              <p class="myth-answer">
+                <strong>Client-rendered React is no different.</strong> Google can
+                execute JavaScript and index the semantic content EffinDOM projects
+                after startup, just as it indexes a client-rendered React tree.
+                A crawler that executes application JavaScript can inspect both. A
+                crawler that does not execute application JavaScript sees neither
+                client-rendered application tree. Canvas presentation does not make
+                EffinDOM uniquely opaque to bots.
+              </p>
+              <a class="myth-proof" href="https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics">Google's JavaScript SEO guidance ↗</a>
+            </article>
+
+            <article class="myth-card">
+              <h3 class="myth-claim">“Native support is just an Electron or WebView wrapper.”</h3>
+              <p class="myth-answer">
+                Native hosts run the EffinDOM C++ runtime directly against Metal,
+                Direct3D 12, or Vulkan. There is no embedded Chromium and no system
+                WebView. The browser and native hosts share retained UI behaviour,
+                while platform adapters handle operating-system-specific services.
+              </p>
+            </article>
+          </div>
+        </div>
+      </section>
 
       <section class="ecosystem-section" id="ecosystem" aria-labelledby="ecosystem-title">
         <div class="shell">
