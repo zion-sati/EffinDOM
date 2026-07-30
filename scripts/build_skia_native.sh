@@ -49,6 +49,8 @@ case "${PLATFORM_TOKEN}" in
   *) red "ERROR: unsupported native Skia platform '$(uname -s)'."; exit 1 ;;
 esac
 
+MACOS_DEPLOYMENT_TARGET="${MACOSX_DEPLOYMENT_TARGET:-13.0}"
+
 BACKEND="${SKIA_NATIVE_BACKEND:-${DEFAULT_BACKEND}}"
 if [ "${BACKEND}" = "metal" ] && [ "${PLATFORM_TOKEN}" != "macos" ]; then
   red "ERROR: the Metal native Skia backend requires macOS."
@@ -71,6 +73,9 @@ COMPILER_TOKEN="$(printf '%s' "${COMPILER_TOKEN}" | tr '[:upper:]' '[:lower:]')"
 STAGING="${SKIA_NATIVE_DIR:-${REPO_ROOT}/skia/native/${PLATFORM_TOKEN}-${TARGET_CPU}-${COMPILER_TOKEN}-${CONFIGURATION_TOKEN}-${BACKEND}}"
 BIN_DIR="out/${PLATFORM_TOKEN}-${TARGET_CPU}-${CONFIGURATION_TOKEN}-${BACKEND}"
 BACKEND_ID="native-ganesh-${PLATFORM_TOKEN}-${TARGET_CPU}-${CONFIGURATION_TOKEN}-${BACKEND}-${SKIA_REVISION}"
+if [ "${PLATFORM_TOKEN}" = "macos" ]; then
+  BACKEND_ID="${BACKEND_ID}-macos${MACOS_DEPLOYMENT_TARGET}"
+fi
 BACKEND_STAMP="${STAGING}/.effindom-skia-backend"
 SKIA_CC="${CC:-clang}"
 SKIA_CXX="${CXX:-clang++}"

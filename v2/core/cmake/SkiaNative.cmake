@@ -94,6 +94,7 @@ else()
         "SKIA_BUILD_CONFIGURATION=${CMAKE_BUILD_TYPE}"
         "SKIA_NATIVE_BACKEND=${_EFFINDOM_V2_SKIA_BACKEND}"
         "SKIA_COMPILER_ID=${CMAKE_CXX_COMPILER_ID}"
+        "MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}"
         "${CMAKE_SOURCE_DIR}/scripts/build_skia_native.sh")
     set(_EFFINDOM_V2_SKIA_BUILD_SCRIPT "${CMAKE_SOURCE_DIR}/scripts/build_skia_native.sh")
 endif()

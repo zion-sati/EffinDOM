@@ -146,6 +146,7 @@
       "generator": "Ninja",
       "condition": { "type": "equals", "lhs": "${hostSystemName}", "rhs": "Darwin" },
       "cacheVariables": {
+        "CMAKE_OSX_DEPLOYMENT_TARGET": "13.0",
         "CMAKE_EXPORT_COMPILE_COMMANDS": "ON",
         "EFFINDOM_BUILD_NATIVE_HEADLESS": "ON",
         "EFFINDOM_BUILD_NATIVE_MACOS": "ON",

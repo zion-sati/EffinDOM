@@ -13,7 +13,7 @@ endian = 'little'
 needs_exe_wrapper = true
 
 [built-in options]
-c_args = ['-arch', '@EFFINDOM_HARFBUZZ_APPLE_ARCH@']
-cpp_args = ['-arch', '@EFFINDOM_HARFBUZZ_APPLE_ARCH@']
-c_link_args = ['-arch', '@EFFINDOM_HARFBUZZ_APPLE_ARCH@']
-cpp_link_args = ['-arch', '@EFFINDOM_HARFBUZZ_APPLE_ARCH@']
+c_args = ['-arch', '@EFFINDOM_HARFBUZZ_APPLE_ARCH@', '-mmacosx-version-min=@EFFINDOM_HARFBUZZ_MACOS_DEPLOYMENT_TARGET@']
+cpp_args = ['-arch', '@EFFINDOM_HARFBUZZ_APPLE_ARCH@', '-mmacosx-version-min=@EFFINDOM_HARFBUZZ_MACOS_DEPLOYMENT_TARGET@']
+c_link_args = ['-arch', '@EFFINDOM_HARFBUZZ_APPLE_ARCH@', '-mmacosx-version-min=@EFFINDOM_HARFBUZZ_MACOS_DEPLOYMENT_TARGET@']
+cpp_link_args = ['-arch', '@EFFINDOM_HARFBUZZ_APPLE_ARCH@', '-mmacosx-version-min=@EFFINDOM_HARFBUZZ_MACOS_DEPLOYMENT_TARGET@']
