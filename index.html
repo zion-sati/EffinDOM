@@ -1480,12 +1480,14 @@
               <h3 class="myth-claim">“Canvas applications are invisible to search engines and bots.”</h3>
               <p class="myth-answer">
                 <strong>Client-rendered React is no different.</strong> Google can
-                execute JavaScript and index the semantic content EffinDOM projects
-                after startup, just as it indexes a client-rendered React tree.
-                A crawler that executes application JavaScript can inspect both. A
-                crawler that does not execute application JavaScript sees neither
-                client-rendered application tree. Canvas presentation does not make
-                EffinDOM uniquely opaque to bots.
+                render a client application and index the semantic DOM produced
+                after startup. In EffinDOM, application and UI state run in
+                WebAssembly; the retained WASM runtime emits a semantic buffer, and
+                the small browser bridge materialises that buffer as DOM and ARIA.
+                React produces its client-rendered DOM from JavaScript instead. A
+                rendering crawler can inspect either result; a crawler that never
+                runs the client runtime sees neither application tree. Canvas
+                presentation does not make EffinDOM uniquely opaque to bots.
               </p>
               <a class="myth-proof" href="https://developers.google.com/search/docs/crawling-indexing/javascript/javascript-seo-basics">Google's JavaScript SEO guidance ↗</a>
             </article>
