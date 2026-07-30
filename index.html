@@ -26,12 +26,20 @@
         --lime: #b8f34a;
         --aqua: #35d4c5;
         --coral: #ff6846;
+        --accent-green: #527f08;
         --night: #111614;
         --night-raised: #171e1b;
         --night-deep: #0b0e0d;
         --night-text: #f7f4eb;
         --surface-hover: #fffdf6;
         --shadow: rgba(17, 22, 20, 0.16);
+        --type-section-title: clamp(42px, 5vw, 68px);
+        --type-section-copy: 18px;
+        --type-card-title: 28px;
+        --type-card-copy: 15px;
+        --type-product-title: 40px;
+        --card-radius: 16px;
+        --card-padding: 28px;
         --display: "Iowan Old Style", "Palatino Linotype", Palatino, serif;
         --body: "Avenir Next", "Century Gothic", sans-serif;
         --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
@@ -183,7 +191,7 @@
       }
 
       h1 em {
-        color: var(--lime);
+        color: var(--accent-green);
         font-style: italic;
       }
 
@@ -299,7 +307,7 @@
       .target {
         padding: 12px;
         border: 1px solid rgba(184, 243, 74, 0.38);
-        color: var(--lime);
+        color: var(--accent-green);
         font-family: var(--mono);
         font-size: 11px;
         text-align: center;
@@ -461,7 +469,7 @@
 
       .section-heading {
         display: grid;
-        grid-template-columns: 1fr 2fr;
+        grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
         gap: 70px;
         margin-bottom: 64px;
       }
@@ -592,10 +600,10 @@
       }
 
       .platforms-heading {
-        display: flex;
-        align-items: end;
-        justify-content: space-between;
-        gap: 30px;
+        display: grid;
+        grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+        align-items: start;
+        gap: 70px;
         margin-bottom: 24px;
       }
 
@@ -872,9 +880,9 @@
 
       .syntax-intro {
         display: grid;
-        grid-template-columns: 0.75fr 1.25fr;
-        gap: 50px;
-        align-items: end;
+        grid-template-columns: minmax(0, 380px) minmax(0, 1fr);
+        gap: 70px;
+        align-items: start;
         margin: 82px 0 26px;
       }
 
@@ -1116,6 +1124,82 @@
         color: var(--lime);
       }
 
+      /* Shared typography and surface rhythm. */
+      .section-heading h2,
+      .syntax-intro h3,
+      .platforms-heading h3 {
+        font-size: var(--type-section-title);
+        font-weight: 500;
+        letter-spacing: -0.05em;
+        line-height: 0.96;
+      }
+
+      .section-heading p:last-child,
+      .syntax-intro p,
+      .platforms-heading p {
+        max-width: 650px;
+        color: var(--ink-soft);
+        font-size: var(--type-section-copy);
+        line-height: 1.55;
+      }
+
+      .myth-claim,
+      .ecosystem-card h3,
+      .feature h3,
+      .hard-card h3,
+      .platform-card strong {
+        font-size: var(--type-card-title);
+        letter-spacing: -0.03em;
+        line-height: 1.08;
+      }
+
+      .myth-answer,
+      .ecosystem-card p,
+      .feature p,
+      .hard-card p {
+        font-size: var(--type-card-copy);
+        line-height: 1.55;
+      }
+
+      .myth-card,
+      .ecosystem-card,
+      .feature,
+      .hard-card,
+      .platform-card {
+        border-radius: var(--card-radius);
+        padding: var(--card-padding);
+      }
+
+      .myth-card,
+      .ecosystem-card,
+      .feature,
+      .hard-card {
+        min-height: 250px;
+      }
+
+      .sdk-card,
+      .syntax-card,
+      .video-card,
+      .proof-main,
+      .proof-side {
+        border-radius: var(--card-radius);
+      }
+
+      .sdk-card h3 {
+        font-size: var(--type-product-title);
+      }
+
+      .myth-grid,
+      .ecosystem-grid,
+      .feature-grid,
+      .hard-grid,
+      .platform-grid,
+      .sdk-grid,
+      .video-grid,
+      .proof-grid {
+        gap: 16px;
+      }
+
       @keyframes reveal {
         from {
           opacity: 0;
@@ -1136,6 +1220,7 @@
           --line: rgba(237, 242, 236, 0.14);
           --surface-hover: #19221e;
           --shadow: rgba(0, 0, 0, 0.42);
+          --accent-green: #b8f34a;
         }
 
         .statement {
@@ -1164,11 +1249,130 @@
         }
       }
 
+      @media (prefers-color-scheme: light) {
+        .site-header {
+          color: var(--ink);
+          border-bottom-color: var(--line);
+          background: rgba(243, 240, 231, 0.92);
+        }
+
+        .nav-links a {
+          color: var(--ink-soft);
+        }
+
+        .nav-links a:hover {
+          color: var(--coral);
+        }
+
+        .hero {
+          color: var(--ink);
+          background: var(--paper);
+        }
+
+        .hero::before {
+          opacity: 0.08;
+        }
+
+        .hero-copy,
+        .map-caption,
+        .tier small {
+          color: var(--ink-soft);
+        }
+
+        .hero .button,
+        .closing .button {
+          color: var(--ink);
+          border-color: var(--line);
+        }
+
+        .hero .button-primary,
+        .closing .button-primary {
+          color: var(--night);
+          border-color: var(--lime);
+        }
+
+        .runtime-map {
+          border-color: var(--line);
+          background: rgba(255, 255, 255, 0.5);
+          box-shadow: 0 32px 90px rgba(17, 22, 20, 0.13);
+        }
+
+        .tier {
+          border-color: var(--line);
+          background: rgba(255, 255, 255, 0.72);
+        }
+
+        .tier strong {
+          color: var(--ink);
+        }
+
+        .sdk-section {
+          color: var(--ink);
+          background: var(--paper-deep);
+        }
+
+        .sdk-section .section-heading p:last-child,
+        .sdk-card p,
+        .syntax-intro p,
+        .command-label {
+          color: var(--ink-soft);
+        }
+
+        .sdk-card {
+          border-color: var(--line);
+          background: var(--paper);
+        }
+
+        .sdk-card::after {
+          color: var(--line);
+        }
+
+        .sdk-links a {
+          color: var(--ink);
+        }
+
+        .sdk-links a:hover {
+          color: var(--coral);
+        }
+
+        .video-card {
+          background: var(--paper);
+        }
+
+        .video-card figcaption {
+          color: var(--ink-soft);
+        }
+
+        .video-card figcaption span:last-child {
+          color: var(--coral);
+        }
+
+        .closing {
+          color: var(--ink);
+          border-top-color: var(--line);
+          background: var(--paper-deep);
+        }
+
+        .closing-copy p {
+          color: var(--ink-soft);
+        }
+
+        footer {
+          color: var(--ink-soft);
+          background: var(--paper-deep);
+        }
+
+        .footer-grid {
+          border-top-color: var(--line);
+        }
+      }
+
       @media (max-width: 900px) {
         .hero-grid,
         .statement .shell,
         .section-heading,
         .syntax-intro,
+        .platforms-heading,
         .closing-grid {
           grid-template-columns: 1fr;
         }
@@ -1264,11 +1468,6 @@
         .hard-grid,
         .myth-grid {
           grid-template-columns: 1fr;
-        }
-
-        .platforms-heading {
-          align-items: start;
-          flex-direction: column;
         }
 
         .ecosystem-card,
