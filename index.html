@@ -456,7 +456,6 @@
       .command {
         position: relative;
         z-index: 1;
-        margin-top: auto;
         padding: 15px 16px;
         border-left: 3px solid var(--lime);
         color: var(--lime);
@@ -465,6 +464,25 @@
         font-size: 12px;
         overflow-x: auto;
         white-space: nowrap;
+      }
+
+      .command-stack {
+        position: relative;
+        z-index: 1;
+        display: grid;
+        gap: 12px;
+        margin-top: auto;
+      }
+
+      .command-label {
+        display: block;
+        margin-bottom: 6px;
+        color: rgba(247, 244, 235, 0.48);
+        font-family: var(--mono);
+        font-size: 9px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
       }
 
       .sdk-links {
@@ -485,6 +503,52 @@
         display: grid;
         grid-template-columns: 1.35fr 0.65fr;
         gap: 20px;
+      }
+
+      .video-section {
+        border-top: 1px solid var(--line);
+        background: var(--paper-deep);
+      }
+
+      .video-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+      }
+
+      .video-card {
+        margin: 0;
+        border: 1px solid var(--ink);
+        background: var(--ink);
+      }
+
+      .video-card:first-child {
+        grid-column: 1 / -1;
+      }
+
+      .video-card video {
+        width: 100%;
+        display: block;
+        aspect-ratio: 16 / 9;
+        object-fit: contain;
+        background: #070908;
+      }
+
+      .video-card figcaption {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 16px;
+        padding: 14px 16px;
+        color: rgba(247, 244, 235, 0.68);
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .video-card figcaption span:last-child {
+        color: var(--lime);
       }
 
       .proof-main,
@@ -689,8 +753,13 @@
         }
 
         .feature-grid,
-        .sdk-grid {
+        .sdk-grid,
+        .video-grid {
           grid-template-columns: 1fr;
+        }
+
+        .video-card:first-child {
+          grid-column: auto;
         }
 
         .feature {
@@ -871,7 +940,16 @@
               <span class="sdk-status">Web + native</span>
               <h3>FUI-RS</h3>
               <p>Idiomatic Rust application development for browser, macOS, Windows, and Linux from one retained UI model.</p>
-              <div class="command">cargo install --locked cargo-fui</div>
+              <div class="command-stack">
+                <div>
+                  <span class="command-label">Native, web, or universal</span>
+                  <div class="command">cargo install --locked cargo-fui</div>
+                </div>
+                <div>
+                  <span class="command-label">Browser-only npm workflow</span>
+                  <div class="command">npx @effindomv2/create-fui-rs-app my-app</div>
+                </div>
+              </div>
               <div class="sdk-links">
                 <a href="https://github.com/zion-sati/fui-rs/blob/main/docs/v2/fui-rs/SDK_INDEX.md">SDK docs ↗</a>
                 <a href="https://github.com/zion-sati/fui-rs">Source ↗</a>
@@ -884,7 +962,12 @@
               <span class="sdk-status">Web</span>
               <h3>FUI-AS</h3>
               <p>A TypeScript-shaped AssemblyScript SDK with fluent retained controls and compact route-level WebAssembly applications.</p>
-              <div class="command">npm create @effindomv2/fui-as-app@latest my-app</div>
+              <div class="command-stack">
+                <div>
+                  <span class="command-label">Browser application</span>
+                  <div class="command">npm create @effindomv2/fui-as-app@latest my-app</div>
+                </div>
+              </div>
               <div class="sdk-links">
                 <a href="https://github.com/zion-sati/fui-as/blob/main/docs/v2/fui-as/SDK_INDEX.md">SDK docs ↗</a>
                 <a href="https://github.com/zion-sati/fui-as">Source ↗</a>
@@ -892,6 +975,63 @@
                 <a href="https://www.npmjs.com/package/@effindomv2/fui-as">npm ↗</a>
               </div>
             </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="video-section" aria-labelledby="videos-title">
+        <div class="shell">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">See it running</p>
+              <h2 id="videos-title">Not a mock-up.</h2>
+            </div>
+            <p>
+              Retained controls, text editing, custom drawing, touch interaction,
+              and a community-built space shooter, all running through FUI-RS.
+            </p>
+          </div>
+
+          <div class="video-grid">
+            <figure class="video-card">
+              <video controls muted playsinline preload="metadata" aria-label="FUI-RS demonstration reel 1">
+                <source src="https://github.com/user-attachments/assets/75815f18-8476-4882-b290-6a6bd6a9b0e7">
+                <a href="https://github.com/user-attachments/assets/75815f18-8476-4882-b290-6a6bd6a9b0e7">Watch FUI-RS demonstration reel 1</a>
+              </video>
+              <figcaption><span>FUI-RS demonstration</span><span>01</span></figcaption>
+            </figure>
+
+            <figure class="video-card">
+              <video controls muted playsinline preload="metadata" aria-label="FUI-RS demonstration reel 2">
+                <source src="https://github.com/user-attachments/assets/198f1c7f-3d92-4acb-b2b3-53fd72898ed0">
+                <a href="https://github.com/user-attachments/assets/198f1c7f-3d92-4acb-b2b3-53fd72898ed0">Watch FUI-RS demonstration reel 2</a>
+              </video>
+              <figcaption><span>FUI-RS demonstration</span><span>02</span></figcaption>
+            </figure>
+
+            <figure class="video-card">
+              <video controls muted playsinline preload="metadata" aria-label="FUI-RS demonstration reel 3">
+                <source src="https://github.com/user-attachments/assets/22e2c40f-a762-4a05-b164-4499cca0bf27">
+                <a href="https://github.com/user-attachments/assets/22e2c40f-a762-4a05-b164-4499cca0bf27">Watch FUI-RS demonstration reel 3</a>
+              </video>
+              <figcaption><span>FUI-RS demonstration</span><span>03</span></figcaption>
+            </figure>
+
+            <figure class="video-card">
+              <video controls muted playsinline preload="metadata" aria-label="FUI-RS demonstration reel 4">
+                <source src="https://github.com/user-attachments/assets/f4b94bad-b93d-486e-8ed4-43482990d324">
+                <a href="https://github.com/user-attachments/assets/f4b94bad-b93d-486e-8ed4-43482990d324">Watch FUI-RS demonstration reel 4</a>
+              </video>
+              <figcaption><span>FUI-RS demonstration</span><span>04</span></figcaption>
+            </figure>
+
+            <figure class="video-card">
+              <video controls muted playsinline preload="metadata" aria-label="FUI-RS demonstration reel 5">
+                <source src="https://github.com/user-attachments/assets/ac497b4a-cc36-4f4f-862d-005ca706edbc">
+                <a href="https://github.com/user-attachments/assets/ac497b4a-cc36-4f4f-862d-005ca706edbc">Watch FUI-RS demonstration reel 5</a>
+              </video>
+              <figcaption><span>FUI-RS demonstration</span><span>05</span></figcaption>
+            </figure>
           </div>
         </div>
       </section>
