@@ -6,9 +6,9 @@
     <meta name="theme-color" content="#111614">
     <meta
       name="description"
-      content="EffinDOM is a web-born retained UI runtime for WebAssembly and native macOS, Windows, and Linux applications."
+      content="EffinDOM is a web-born application ecosystem for retained UIs that run in browsers and natively on macOS, Windows, and Linux."
     >
-    <title>EffinDOM | A real application runtime, born on the web</title>
+    <title>EffinDOM | A web-born application ecosystem for web and native</title>
     <link
       rel="icon"
       href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111614'/%3E%3Cpath d='M17 17h31v9H27v7h18v8H27v7h21v9H17z' fill='%23b8f34a'/%3E%3C/svg%3E"
@@ -368,6 +368,72 @@
         background: rgba(243, 240, 231, 0.86);
       }
 
+      .ecosystem-section {
+        background: rgba(243, 240, 231, 0.92);
+      }
+
+      .ecosystem-grid {
+        display: grid;
+        grid-template-columns: repeat(12, 1fr);
+        gap: 16px;
+      }
+
+      .ecosystem-card {
+        min-height: 260px;
+        display: flex;
+        flex-direction: column;
+        grid-column: span 4;
+        padding: 28px;
+        border: 1px solid var(--ink);
+        color: var(--ink);
+        background: var(--paper);
+        text-decoration: none;
+        transition: transform 160ms ease, box-shadow 160ms ease, background 160ms ease;
+      }
+
+      .ecosystem-card:nth-child(1),
+      .ecosystem-card:nth-child(2) {
+        grid-column: span 6;
+      }
+
+      .ecosystem-card:hover {
+        transform: translate(-4px, -4px);
+        box-shadow: 8px 8px 0 var(--ink);
+        background: #fffdf6;
+      }
+
+      .ecosystem-kind {
+        color: var(--coral);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .ecosystem-card h3 {
+        margin: 32px 0 10px;
+        font-family: var(--display);
+        font-size: 34px;
+        font-weight: 600;
+        letter-spacing: -0.035em;
+      }
+
+      .ecosystem-card p {
+        max-width: 520px;
+        margin-bottom: 24px;
+        color: var(--ink-soft);
+        font-size: 14px;
+      }
+
+      .ecosystem-link {
+        margin-top: auto;
+        color: var(--ink);
+        font-family: var(--mono);
+        font-size: 11px;
+        font-weight: 700;
+      }
+
       .feature-number {
         display: block;
         margin-bottom: 44px;
@@ -691,6 +757,12 @@
           grid-template-columns: repeat(2, 1fr);
         }
 
+        .ecosystem-card,
+        .ecosystem-card:nth-child(1),
+        .ecosystem-card:nth-child(2) {
+          grid-column: span 6;
+        }
+
         .proof-grid {
           grid-template-columns: 1fr;
         }
@@ -758,6 +830,12 @@
           grid-template-columns: 1fr;
         }
 
+        .ecosystem-card,
+        .ecosystem-card:nth-child(1),
+        .ecosystem-card:nth-child(2) {
+          grid-column: 1 / -1;
+        }
+
         .video-card:first-child {
           grid-column: auto;
         }
@@ -807,7 +885,7 @@
           <span>EffinDOM</span>
         </a>
         <div class="nav-links">
-          <a href="#architecture">Architecture</a>
+          <a href="#ecosystem">Ecosystem</a>
           <a href="#sdks">SDKs</a>
           <a href="https://github.com/zion-sati/EffinDOM">Documentation</a>
           <a href="https://github.com/zion-sati/EffinDOM">GitHub ↗</a>
@@ -820,11 +898,12 @@
         <div class="hero-grid shell">
           <div>
             <p class="eyebrow">Web-born. Native without a browser.</p>
-            <h1 id="hero-title">A real UI runtime for the <em>application web.</em></h1>
+            <h1 id="hero-title">A real application ecosystem <em>beyond the DOM.</em></h1>
             <p class="hero-copy">
-              EffinDOM replaces DOM layout and rendering with a retained,
-              cross-language runtime. One application model runs through
-              WebAssembly in the browser and directly on macOS, Windows, and Linux.
+              EffinDOM combines a retained cross-language runtime, typed FUI
+              SDKs, project scaffolders, native packaging, shared delivery, and
+              developer tooling. Build for the browser through WebAssembly or run
+              directly on macOS, Windows, and Linux.
             </p>
             <div class="actions">
               <a class="button button-primary" href="https://fui-rs-demo.effindom.dev/">Run the Rust demo ↗</a>
@@ -834,13 +913,13 @@
 
           <div class="runtime-map" aria-label="EffinDOM three-tier architecture">
             <div class="map-caption">
-              <span>Runtime topology</span>
+              <span>Ecosystem topology</span>
               <span>Live / v2</span>
             </div>
             <div class="tier">
-              <span class="tier-label">Tier 3 · Application SDK</span>
-              <strong>FUI-RS / FUI-AS</strong>
-              <small>Retained controls, themes, events, application APIs</small>
+              <span class="tier-label">Apps, SDKs, and tooling</span>
+              <strong>FUI-RS / FUI-AS / cargo-fui</strong>
+              <small>Controls, themes, scaffolders, builds, and native packages</small>
             </div>
             <div class="tier">
               <span class="tier-label">Tier 2 · UI runtime</span>
@@ -869,6 +948,88 @@
           </p>
         </div>
       </div>
+
+      <section class="ecosystem-section" id="ecosystem" aria-labelledby="ecosystem-title">
+        <div class="shell">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">The whole stack</p>
+              <h2 id="ecosystem-title">More than a runtime.</h2>
+            </div>
+            <p>
+              EffinDOM is the common foundation for a growing application
+              ecosystem. Developers normally enter through an FUI SDK or a
+              scaffolder; the rendering runtime, browser bridge, native hosts,
+              delivery system, and packaging engine sit underneath.
+            </p>
+          </div>
+
+          <div class="ecosystem-grid">
+            <a class="ecosystem-card" href="https://github.com/zion-sati/fui-rs">
+              <span class="ecosystem-kind">Application SDK</span>
+              <h3>FUI-RS</h3>
+              <p>Retained Rust UI for browser and native desktop, with Cargo-native tooling and an npm-oriented browser workflow.</p>
+              <span class="ecosystem-link">SDK, docs, and source ↗</span>
+            </a>
+
+            <a class="ecosystem-card" href="https://github.com/zion-sati/fui-as">
+              <span class="ecosystem-kind">Application SDK</span>
+              <h3>FUI-AS</h3>
+              <p>AssemblyScript application development with a TypeScript-shaped fluent API and independently loaded route WASM.</p>
+              <span class="ecosystem-link">SDK, docs, and source ↗</span>
+            </a>
+
+            <a class="ecosystem-card" href="https://github.com/zion-sati/EffinDOM">
+              <span class="ecosystem-kind">Shared infrastructure</span>
+              <h3>EffinDOM Runtime</h3>
+              <p>Rendering, layout, typography, input, selection, semantics, browser integration, and native platform hosts.</p>
+              <span class="ecosystem-link">Runtime source and docs ↗</span>
+            </a>
+
+            <a class="ecosystem-card" href="https://github.com/zion-sati/cargo-fui">
+              <span class="ecosystem-kind">Rust developer tooling</span>
+              <h3>cargo-fui</h3>
+              <p>Scaffold, develop, build, and package FUI-RS applications for web, native, or universal targets.</p>
+              <span class="ecosystem-link">Install from crates.io ↗</span>
+            </a>
+
+            <a class="ecosystem-card" href="https://github.com/zion-sati/EffinDOM-Native-Packaging">
+              <span class="ecosystem-kind">Packaging engine</span>
+              <h3>Native Packaging</h3>
+              <p>Cross-language application metadata, icon generation, signing inputs, and packages for six desktop targets.</p>
+              <span class="ecosystem-link">Packaging crate and source ↗</span>
+            </a>
+
+            <a class="ecosystem-card" href="https://github.com/zion-sati/create-fui-rs-app">
+              <span class="ecosystem-kind">Browser scaffolder</span>
+              <h3>create-fui-*-app</h3>
+              <p>npm-oriented simple and routed project templates for FUI-RS and FUI-AS browser applications.</p>
+              <span class="ecosystem-link">Open the FUI-RS scaffolder ↗</span>
+            </a>
+
+            <a class="ecosystem-card" href="https://github.com/zion-sati/EffinDOM-Runtimes">
+              <span class="ecosystem-kind">Shared delivery</span>
+              <h3>Runtime CDN</h3>
+              <p>Immutable content-addressed WebAssembly runtimes, ICU data, and fixed assets shared across EffinDOM applications.</p>
+              <span class="ecosystem-link">Inspect published runtime sets ↗</span>
+            </a>
+
+            <a class="ecosystem-card" href="https://github.com/jatm80/galaga-rs/">
+              <span class="ecosystem-kind">Community application</span>
+              <h3>Galaga-RS</h3>
+              <p>The first independent FUI-RS application: a complete community-built Galaga-style space shooter with a live web build.</p>
+              <span class="ecosystem-link">Source and live demo ↗</span>
+            </a>
+
+            <a class="ecosystem-card" href="https://github.com/zion-sati">
+              <span class="ecosystem-kind">Incubating SDKs</span>
+              <h3>FUI-KT / FUI-CS</h3>
+              <p>Kotlin/Wasm and C# language surfaces currently at smoke-stage maturity, built against the same language-neutral ABI.</p>
+              <span class="ecosystem-link">Follow the ecosystem ↗</span>
+            </a>
+          </div>
+        </div>
+      </section>
 
       <section id="architecture" aria-labelledby="architecture-title">
         <div class="shell">
@@ -1095,8 +1256,9 @@
 
     <footer>
       <div class="footer-grid shell">
-        <span>EffinDOM runtime · MIT licensed</span>
+        <span>EffinDOM ecosystem · runtime MIT · official FUI SDKs AGPL/commercial</span>
         <div class="footer-links">
+          <a href="#ecosystem">Ecosystem</a>
           <a href="https://github.com/zion-sati/EffinDOM">GitHub</a>
           <a href="https://github.com/zion-sati/EffinDOM/blob/main/docs/QUICKSTART.md">Docs</a>
           <a href="https://github.com/zion-sati/fui-rs/blob/main/docs/v2/fui-rs/SDK_INDEX.md">FUI-RS SDK</a>
