@@ -28,12 +28,17 @@ if (!targets[targetName]) {
   process.exit(1);
 }
 const target = targets[targetName];
-const deps = spawnSync('node', [join(root, 'scripts', 'prepare-native-deps.mjs'), '--target', targetName], { cwd: root, encoding: 'utf8' });
-if (deps.status !== 0) {
-  process.stderr.write(deps.stderr);
-  process.exit(deps.status ?? 1);
+let dependencyRoot = process.env.EFFINDOM_NATIVE_DEPS_ROOT?.trim();
+if (dependencyRoot) {
+  dependencyRoot = resolve(dependencyRoot);
+} else {
+  const deps = spawnSync('node', [join(root, 'scripts', 'prepare-native-deps.mjs'), '--target', targetName], { cwd: root, encoding: 'utf8' });
+  if (deps.status !== 0) {
+    process.stderr.write(deps.stderr);
+    process.exit(deps.status ?? 1);
+  }
+  dependencyRoot = deps.stdout.trim();
 }
-const dependencyRoot = deps.stdout.trim();
 const common = [
   '-DEFFINDOM_NATIVE_DEPS_MODE=prebuilt',
   `-DEFFINDOM_NATIVE_DEPS_ROOT=${dependencyRoot}`,

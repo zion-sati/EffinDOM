@@ -236,11 +236,13 @@ if (
 }
 const buildRoot = resolve(root, target.buildDir);
 if (!existsSync(buildRoot)) fail(`native build is missing: ${buildRoot}`);
-const dependencyRoot = run(
-  "node",
-  [join(root, "scripts/prepare-native-deps.mjs"), "--target", targetName],
-  { capture: true },
-);
+const dependencyRoot = process.env.EFFINDOM_NATIVE_DEPS_ROOT?.trim()
+  ? resolve(process.env.EFFINDOM_NATIVE_DEPS_ROOT)
+  : run(
+      "node",
+      [join(root, "scripts/prepare-native-deps.mjs"), "--target", targetName],
+      { capture: true },
+    );
 const targetArchitecture = targetName.endsWith("-arm64") ? "arm64" : "x64";
 assertNativeRuntimePackagingHost(target.platform, targetArchitecture);
 

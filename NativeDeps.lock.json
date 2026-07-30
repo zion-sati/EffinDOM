@@ -3,14 +3,14 @@
   "base_url": "https://native-deps.effindom.dev",
   "targets": {
     "macos-arm64": {
-      "recipe_hash": "b90ff1acbec07a72b7113b730923882edd130ba131bf3211cf087a9543923883",
-      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/macos-arm64/b90ff1acbec07a72b7113b730923882edd130ba131bf3211cf087a9543923883/manifest.json",
-      "manifest_sha256": "e0e1e27cc498731428085ab8449026c9b93086036192fabe9053fd161e77582c"
+      "recipe_hash": "54455914d9b892a5283304c0a7e4c88f5604e7b5ce797438d7ebbd7ee39d04df",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/macos-arm64/54455914d9b892a5283304c0a7e4c88f5604e7b5ce797438d7ebbd7ee39d04df/manifest.json",
+      "manifest_sha256": "bd715f1d777303dbd93514de8a6a62e93c2909aa0dc4c073b3a98abc733ecfa5"
     },
     "macos-x64": {
-      "recipe_hash": "4b2ed2c62e0c89c004296eebee096160dd8d14e7f76e9786727a745b4c395952",
-      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/macos-x64/4b2ed2c62e0c89c004296eebee096160dd8d14e7f76e9786727a745b4c395952/manifest.json",
-      "manifest_sha256": "ef095f59901e095fae67a1962d9a1c9f19a20b1ea0043859b7a7880d86eeffe9"
+      "recipe_hash": "d678c7a42e71cf99cb0debf13cb12a81aa2d323d011c394de41ad7ceb1eba2da",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/macos-x64/d678c7a42e71cf99cb0debf13cb12a81aa2d323d011c394de41ad7ceb1eba2da/manifest.json",
+      "manifest_sha256": "f3db83dba0cabb6e71ec09fbe6408e8abdd6a3ce250c72392b2127950994198b"
     },
     "linux-x64": {
       "recipe_hash": "944a120eb0e1d99991d2943478ede96b5afa0f8458e71ab708791a5918539da0",
