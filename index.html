@@ -1,0 +1,970 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#111614">
+    <meta
+      name="description"
+      content="EffinDOM is a web-born retained UI runtime for WebAssembly and native macOS, Windows, and Linux applications."
+    >
+    <title>EffinDOM | A real application runtime, born on the web</title>
+    <link
+      rel="icon"
+      href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23111614'/%3E%3Cpath d='M17 17h31v9H27v7h18v8H27v7h21v9H17z' fill='%23b8f34a'/%3E%3C/svg%3E"
+    >
+    <style>
+      :root {
+        color-scheme: light;
+        --ink: #111614;
+        --ink-soft: #34403b;
+        --paper: #f3f0e7;
+        --paper-deep: #e8e3d5;
+        --line: rgba(17, 22, 20, 0.18);
+        --lime: #b8f34a;
+        --aqua: #35d4c5;
+        --coral: #ff6846;
+        --display: "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+        --body: "Avenir Next", "Century Gothic", sans-serif;
+        --mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html {
+        scroll-behavior: smooth;
+      }
+
+      body {
+        margin: 0;
+        color: var(--ink);
+        background:
+          linear-gradient(var(--line) 1px, transparent 1px),
+          linear-gradient(90deg, var(--line) 1px, transparent 1px),
+          var(--paper);
+        background-size: 48px 48px;
+        font-family: var(--body);
+        line-height: 1.55;
+      }
+
+      a {
+        color: inherit;
+      }
+
+      a:focus-visible,
+      button:focus-visible {
+        outline: 3px solid var(--coral);
+        outline-offset: 4px;
+      }
+
+      .shell {
+        width: min(1180px, calc(100% - 40px));
+        margin: 0 auto;
+      }
+
+      .site-header {
+        position: relative;
+        z-index: 10;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.16);
+        color: #f7f4eb;
+        background: var(--ink);
+      }
+
+      .nav {
+        min-height: 76px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .brand {
+        display: inline-flex;
+        align-items: center;
+        gap: 12px;
+        text-decoration: none;
+        font-weight: 700;
+        letter-spacing: -0.02em;
+      }
+
+      .brand-mark {
+        width: 34px;
+        height: 34px;
+        display: grid;
+        place-items: center;
+        border-radius: 8px;
+        color: var(--ink);
+        background: var(--lime);
+        font-family: var(--mono);
+        font-size: 17px;
+      }
+
+      .nav-links {
+        display: flex;
+        align-items: center;
+        gap: 24px;
+        font-size: 14px;
+      }
+
+      .nav-links a {
+        color: rgba(255, 255, 255, 0.72);
+        text-decoration: none;
+      }
+
+      .nav-links a:hover {
+        color: var(--lime);
+      }
+
+      .hero {
+        position: relative;
+        overflow: hidden;
+        color: #f7f4eb;
+        background: var(--ink);
+      }
+
+      .hero::before {
+        content: "";
+        position: absolute;
+        inset: 0;
+        opacity: 0.22;
+        background:
+          radial-gradient(circle at 84% 22%, var(--aqua) 0 2px, transparent 3px),
+          radial-gradient(circle at 14% 72%, var(--coral) 0 2px, transparent 3px);
+        background-size: 34px 34px, 46px 46px;
+        pointer-events: none;
+      }
+
+      .hero-grid {
+        position: relative;
+        min-height: 690px;
+        display: grid;
+        grid-template-columns: minmax(0, 1.08fr) minmax(380px, 0.92fr);
+        align-items: center;
+        gap: 70px;
+        padding: 82px 0 96px;
+      }
+
+      .eyebrow {
+        margin: 0 0 18px;
+        color: var(--lime);
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+
+      h1,
+      h2,
+      h3,
+      p {
+        margin-top: 0;
+      }
+
+      h1 {
+        max-width: 770px;
+        margin-bottom: 28px;
+        font-family: var(--display);
+        font-size: clamp(58px, 7.2vw, 104px);
+        font-weight: 500;
+        letter-spacing: -0.065em;
+        line-height: 0.91;
+      }
+
+      h1 em {
+        color: var(--lime);
+        font-style: italic;
+      }
+
+      .hero-copy {
+        max-width: 650px;
+        margin-bottom: 34px;
+        color: rgba(247, 244, 235, 0.72);
+        font-size: clamp(17px, 2vw, 21px);
+      }
+
+      .actions {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 12px;
+      }
+
+      .button {
+        min-height: 48px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 10px;
+        padding: 0 20px;
+        border: 1px solid rgba(255, 255, 255, 0.24);
+        border-radius: 4px;
+        color: #fff;
+        text-decoration: none;
+        font-size: 14px;
+        font-weight: 700;
+        transition: transform 160ms ease, border-color 160ms ease, background 160ms ease;
+      }
+
+      .button:hover {
+        transform: translateY(-2px);
+        border-color: var(--lime);
+      }
+
+      .button-primary {
+        border-color: var(--lime);
+        color: var(--ink);
+        background: var(--lime);
+      }
+
+      .runtime-map {
+        position: relative;
+        min-height: 470px;
+        padding: 26px;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: rgba(255, 255, 255, 0.035);
+        box-shadow: 18px 18px 0 rgba(53, 212, 197, 0.15);
+        animation: reveal 700ms ease-out both;
+      }
+
+      .map-caption {
+        display: flex;
+        justify-content: space-between;
+        margin-bottom: 28px;
+        color: rgba(255, 255, 255, 0.48);
+        font-family: var(--mono);
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.12em;
+      }
+
+      .tier {
+        position: relative;
+        padding: 18px 20px;
+        border: 1px solid rgba(255, 255, 255, 0.2);
+        background: #171e1b;
+      }
+
+      .tier + .tier {
+        margin-top: 34px;
+      }
+
+      .tier + .tier::before {
+        content: "";
+        position: absolute;
+        width: 1px;
+        height: 35px;
+        left: 50%;
+        bottom: 100%;
+        background: var(--aqua);
+      }
+
+      .tier-label {
+        color: var(--aqua);
+        font-family: var(--mono);
+        font-size: 10px;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .tier strong {
+        display: block;
+        margin: 3px 0;
+        font-size: 18px;
+      }
+
+      .tier small {
+        color: rgba(255, 255, 255, 0.52);
+      }
+
+      .targets {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 10px;
+        margin-top: 34px;
+      }
+
+      .target {
+        padding: 12px;
+        border: 1px solid rgba(184, 243, 74, 0.38);
+        color: var(--lime);
+        font-family: var(--mono);
+        font-size: 11px;
+        text-align: center;
+      }
+
+      .statement {
+        border-bottom: 1px solid var(--line);
+        background: var(--lime);
+      }
+
+      .statement .shell {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 70px;
+        padding-top: 42px;
+        padding-bottom: 42px;
+      }
+
+      .statement p {
+        margin: 0;
+      }
+
+      .statement-label {
+        font-family: var(--mono);
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.1em;
+        text-transform: uppercase;
+      }
+
+      .statement-copy {
+        font-family: var(--display);
+        font-size: clamp(24px, 3vw, 38px);
+        line-height: 1.15;
+        letter-spacing: -0.03em;
+      }
+
+      section {
+        padding: 104px 0;
+      }
+
+      .section-heading {
+        display: grid;
+        grid-template-columns: 1fr 2fr;
+        gap: 70px;
+        margin-bottom: 64px;
+      }
+
+      .section-heading h2 {
+        margin-bottom: 0;
+        font-family: var(--display);
+        font-size: clamp(42px, 5vw, 72px);
+        font-weight: 500;
+        letter-spacing: -0.05em;
+        line-height: 0.95;
+      }
+
+      .section-heading p:last-child {
+        max-width: 650px;
+        margin-bottom: 0;
+        color: var(--ink-soft);
+        font-size: 18px;
+      }
+
+      .feature-grid {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        border-top: 1px solid var(--ink);
+        border-left: 1px solid var(--ink);
+      }
+
+      .feature {
+        min-height: 250px;
+        padding: 28px;
+        border-right: 1px solid var(--ink);
+        border-bottom: 1px solid var(--ink);
+        background: rgba(243, 240, 231, 0.86);
+      }
+
+      .feature-number {
+        display: block;
+        margin-bottom: 44px;
+        color: var(--coral);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .feature h3 {
+        margin-bottom: 10px;
+        font-family: var(--display);
+        font-size: 28px;
+        font-weight: 600;
+        letter-spacing: -0.025em;
+      }
+
+      .feature p {
+        margin-bottom: 0;
+        color: var(--ink-soft);
+        font-size: 15px;
+      }
+
+      .sdk-section {
+        color: #f7f4eb;
+        background: var(--ink);
+      }
+
+      .sdk-section .section-heading p:last-child {
+        color: rgba(247, 244, 235, 0.66);
+      }
+
+      .sdk-grid {
+        display: grid;
+        grid-template-columns: repeat(2, 1fr);
+        gap: 20px;
+      }
+
+      .sdk-card {
+        position: relative;
+        min-height: 390px;
+        display: flex;
+        flex-direction: column;
+        padding: 34px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, 0.18);
+        background: #171e1b;
+      }
+
+      .sdk-card::after {
+        content: attr(data-code);
+        position: absolute;
+        right: -10px;
+        bottom: -60px;
+        color: rgba(255, 255, 255, 0.045);
+        font-family: var(--mono);
+        font-size: 180px;
+        font-weight: 700;
+        line-height: 1;
+      }
+
+      .sdk-status {
+        width: fit-content;
+        padding: 5px 8px;
+        color: var(--ink);
+        background: var(--aqua);
+        font-family: var(--mono);
+        font-size: 10px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .sdk-card h3 {
+        margin: 36px 0 12px;
+        font-family: var(--display);
+        font-size: 48px;
+        font-weight: 500;
+        letter-spacing: -0.04em;
+      }
+
+      .sdk-card p {
+        max-width: 520px;
+        color: rgba(247, 244, 235, 0.62);
+      }
+
+      .command {
+        position: relative;
+        z-index: 1;
+        margin-top: auto;
+        padding: 15px 16px;
+        border-left: 3px solid var(--lime);
+        color: var(--lime);
+        background: #0b0e0d;
+        font-family: var(--mono);
+        font-size: 12px;
+        overflow-x: auto;
+        white-space: nowrap;
+      }
+
+      .sdk-links {
+        position: relative;
+        z-index: 1;
+        display: flex;
+        gap: 18px;
+        margin-top: 22px;
+        font-size: 13px;
+        font-weight: 700;
+      }
+
+      .sdk-links a:hover {
+        color: var(--lime);
+      }
+
+      .proof-grid {
+        display: grid;
+        grid-template-columns: 1.35fr 0.65fr;
+        gap: 20px;
+      }
+
+      .proof-main,
+      .proof-side {
+        border: 1px solid var(--ink);
+        background: var(--paper);
+      }
+
+      .proof-main {
+        padding: 42px;
+      }
+
+      .proof-main blockquote {
+        margin: 0 0 36px;
+        font-family: var(--display);
+        font-size: clamp(34px, 4vw, 58px);
+        line-height: 1.05;
+        letter-spacing: -0.04em;
+      }
+
+      .proof-main p {
+        max-width: 720px;
+        color: var(--ink-soft);
+      }
+
+      .proof-side {
+        display: grid;
+        grid-template-rows: repeat(3, 1fr);
+      }
+
+      .metric {
+        padding: 28px;
+        border-bottom: 1px solid var(--ink);
+      }
+
+      .metric:last-child {
+        border-bottom: 0;
+      }
+
+      .metric strong {
+        display: block;
+        font-family: var(--display);
+        font-size: 36px;
+        font-weight: 500;
+      }
+
+      .metric span {
+        color: var(--ink-soft);
+        font-family: var(--mono);
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+      }
+
+      .closing {
+        padding: 92px 0;
+        border-top: 1px solid rgba(255, 255, 255, 0.15);
+        color: #f7f4eb;
+        background: var(--ink);
+      }
+
+      .closing-grid {
+        display: grid;
+        grid-template-columns: 1.4fr 0.6fr;
+        gap: 60px;
+        align-items: end;
+      }
+
+      .closing h2 {
+        margin-bottom: 0;
+        font-family: var(--display);
+        font-size: clamp(54px, 8vw, 112px);
+        font-weight: 500;
+        line-height: 0.88;
+        letter-spacing: -0.065em;
+      }
+
+      .closing h2 span {
+        color: var(--coral);
+      }
+
+      .closing-copy p {
+        color: rgba(247, 244, 235, 0.62);
+      }
+
+      footer {
+        padding: 28px 0;
+        color: rgba(247, 244, 235, 0.55);
+        background: var(--ink);
+        font-family: var(--mono);
+        font-size: 11px;
+      }
+
+      .footer-grid {
+        display: flex;
+        justify-content: space-between;
+        gap: 24px;
+        border-top: 1px solid rgba(255, 255, 255, 0.14);
+        padding-top: 26px;
+      }
+
+      .footer-links {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 18px;
+      }
+
+      .footer-links a:hover {
+        color: var(--lime);
+      }
+
+      @keyframes reveal {
+        from {
+          opacity: 0;
+          transform: translateY(18px);
+        }
+        to {
+          opacity: 1;
+          transform: translateY(0);
+        }
+      }
+
+      @media (max-width: 900px) {
+        .hero-grid,
+        .statement .shell,
+        .section-heading,
+        .closing-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .hero-grid {
+          padding-top: 64px;
+        }
+
+        .runtime-map {
+          width: min(100%, 560px);
+        }
+
+        .feature-grid {
+          grid-template-columns: repeat(2, 1fr);
+        }
+
+        .proof-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .proof-side {
+          grid-template-columns: repeat(3, 1fr);
+          grid-template-rows: none;
+        }
+
+        .metric {
+          border-right: 1px solid var(--ink);
+          border-bottom: 0;
+        }
+
+        .metric:last-child {
+          border-right: 0;
+        }
+      }
+
+      @media (max-width: 640px) {
+        .shell {
+          width: min(100% - 24px, 1180px);
+        }
+
+        .nav {
+          min-height: 64px;
+        }
+
+        .nav-links a:not(:last-child) {
+          display: none;
+        }
+
+        .hero-grid {
+          min-height: auto;
+          gap: 54px;
+          padding: 54px 0 72px;
+        }
+
+        h1 {
+          font-size: clamp(52px, 18vw, 76px);
+        }
+
+        .runtime-map {
+          min-height: auto;
+          padding: 18px;
+          box-shadow: 8px 8px 0 rgba(53, 212, 197, 0.15);
+        }
+
+        section {
+          padding: 74px 0;
+        }
+
+        .section-heading {
+          gap: 24px;
+          margin-bottom: 44px;
+        }
+
+        .statement .shell {
+          gap: 16px;
+        }
+
+        .feature-grid,
+        .sdk-grid {
+          grid-template-columns: 1fr;
+        }
+
+        .feature {
+          min-height: 220px;
+        }
+
+        .proof-main {
+          padding: 28px;
+        }
+
+        .proof-side {
+          grid-template-columns: 1fr;
+        }
+
+        .metric {
+          border-right: 0;
+          border-bottom: 1px solid var(--ink);
+        }
+
+        .footer-grid {
+          flex-direction: column;
+        }
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        html {
+          scroll-behavior: auto;
+        }
+
+        *,
+        *::before,
+        *::after {
+          animation-duration: 0.01ms !important;
+          animation-iteration-count: 1 !important;
+          transition-duration: 0.01ms !important;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <header class="site-header">
+      <nav class="nav shell" aria-label="Main navigation">
+        <a class="brand" href="#top" aria-label="EffinDOM home">
+          <span class="brand-mark" aria-hidden="true">E/</span>
+          <span>EffinDOM</span>
+        </a>
+        <div class="nav-links">
+          <a href="#architecture">Architecture</a>
+          <a href="#sdks">SDKs</a>
+          <a href="https://github.com/zion-sati/EffinDOM">Documentation</a>
+          <a href="https://github.com/zion-sati/EffinDOM">GitHub ↗</a>
+        </div>
+      </nav>
+    </header>
+
+    <main id="top">
+      <section class="hero" aria-labelledby="hero-title">
+        <div class="hero-grid shell">
+          <div>
+            <p class="eyebrow">Web-born. Native without a browser.</p>
+            <h1 id="hero-title">A real UI runtime for the <em>application web.</em></h1>
+            <p class="hero-copy">
+              EffinDOM replaces DOM layout and rendering with a retained,
+              cross-language runtime. One application model runs through
+              WebAssembly in the browser and directly on macOS, Windows, and Linux.
+            </p>
+            <div class="actions">
+              <a class="button button-primary" href="https://fui-rs-demo.effindom.dev/">Run the Rust demo ↗</a>
+              <a class="button" href="https://github.com/zion-sati/EffinDOM/blob/main/docs/QUICKSTART.md">Read the quickstart</a>
+            </div>
+          </div>
+
+          <div class="runtime-map" aria-label="EffinDOM three-tier architecture">
+            <div class="map-caption">
+              <span>Runtime topology</span>
+              <span>Live / v2</span>
+            </div>
+            <div class="tier">
+              <span class="tier-label">Tier 3 · Application SDK</span>
+              <strong>FUI-RS / FUI-AS</strong>
+              <small>Retained controls, themes, events, application APIs</small>
+            </div>
+            <div class="tier">
+              <span class="tier-label">Tier 2 · UI runtime</span>
+              <strong>Layout / Text / Input / Semantics</strong>
+              <small>Yoga, HarfBuzz, ICU, accessibility projection</small>
+            </div>
+            <div class="tier">
+              <span class="tier-label">Tier 1 · Renderer</span>
+              <strong>Skia command processor</strong>
+              <small>GPU-backed presentation with software fallback</small>
+            </div>
+            <div class="targets" aria-label="Supported runtime targets">
+              <div class="target">Browser / WASM</div>
+              <div class="target">Native desktop</div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <div class="statement">
+        <div class="shell">
+          <p class="statement-label">The premise</p>
+          <p class="statement-copy">
+            The browser is an excellent display server. It should not dictate
+            your application architecture.
+          </p>
+        </div>
+      </div>
+
+      <section id="architecture" aria-labelledby="architecture-title">
+        <div class="shell">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Why EffinDOM</p>
+              <h2 id="architecture-title">Born in the harder direction.</h2>
+            </div>
+            <p>
+              Native-first frameworks usually arrive on the web as ports.
+              EffinDOM began with browser constraints: accessibility, IME,
+              password managers, touch, routing, asynchronous assets, and a
+              globally cacheable runtime. Moving that architecture onto native
+              operating systems is the simpler direction.
+            </p>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature">
+              <span class="feature-number">01 / RENDERING</span>
+              <h3>Retained, not reconstructed</h3>
+              <p>Layout, text, hit testing, scrolling, and control state live in one retained runtime without virtual DOM diffing.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">02 / WEB</span>
+              <h3>Canvas without the black box</h3>
+              <p>EffinDOM projects semantics and editor state separately, preserving ARIA, IME, selection, and password-manager integration.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">03 / NATIVE</span>
+              <h3>No Chromium. No WebView.</h3>
+              <p>The same runtime executes directly through native macOS, Windows, and Linux hosts with platform accessibility adapters.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">04 / TEXT</span>
+              <h3>Typography is infrastructure</h3>
+              <p>HarfBuzz and ICU provide shaping, line breaking, BiDi, global scripts, rich text, editing, and fallback-font handling.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">05 / DELIVERY</span>
+              <h3>A shared Web DLL</h3>
+              <p>Content-addressed runtime modules and fixed assets can remain cached across routes, applications, SDKs, and languages.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">06 / LANGUAGE</span>
+              <h3>The runtime is not the SDK</h3>
+              <p>A stable C ABI keeps rendering infrastructure language-neutral. Rust and AssemblyScript are first-class application surfaces.</p>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="sdk-section" id="sdks" aria-labelledby="sdks-title">
+        <div class="shell">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">Choose your surface</p>
+              <h2 id="sdks-title">Typed SDKs. One runtime.</h2>
+            </div>
+            <p>
+              FUI SDKs provide retained controls, fluent composition, reactive
+              state, theming, accessibility, and application lifecycle without
+              exposing the runtime ABI.
+            </p>
+          </div>
+
+          <div class="sdk-grid">
+            <article class="sdk-card" data-code="RS">
+              <span class="sdk-status">Web + native</span>
+              <h3>FUI-RS</h3>
+              <p>Idiomatic Rust application development for browser, macOS, Windows, and Linux from one retained UI model.</p>
+              <div class="command">cargo install --locked cargo-fui</div>
+              <div class="sdk-links">
+                <a href="https://github.com/zion-sati/fui-rs/blob/main/docs/v2/fui-rs/SDK_INDEX.md">SDK docs ↗</a>
+                <a href="https://github.com/zion-sati/fui-rs">Source ↗</a>
+                <a href="https://fui-rs-demo.effindom.dev/">Live demo ↗</a>
+                <a href="https://crates.io/crates/fui-rs">crates.io ↗</a>
+              </div>
+            </article>
+
+            <article class="sdk-card" data-code="AS">
+              <span class="sdk-status">Web</span>
+              <h3>FUI-AS</h3>
+              <p>A TypeScript-shaped AssemblyScript SDK with fluent retained controls and compact route-level WebAssembly applications.</p>
+              <div class="command">npm create @effindomv2/fui-as-app@latest my-app</div>
+              <div class="sdk-links">
+                <a href="https://github.com/zion-sati/fui-as/blob/main/docs/v2/fui-as/SDK_INDEX.md">SDK docs ↗</a>
+                <a href="https://github.com/zion-sati/fui-as">Source ↗</a>
+                <a href="https://fui-as-demo.effindom.dev/">Live demo ↗</a>
+                <a href="https://www.npmjs.com/package/@effindomv2/fui-as">npm ↗</a>
+              </div>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section aria-labelledby="proof-title">
+        <div class="shell">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">The operating model</p>
+              <h2 id="proof-title">Shared where it matters.</h2>
+            </div>
+            <p>
+              The expensive runtime is infrastructure, not application payload.
+              Applications ship their own retained logic while browsers reuse
+              cached engines, ICU data, and built-in fonts.
+            </p>
+          </div>
+
+          <div class="proof-grid">
+            <div class="proof-main">
+              <blockquote>“Your app is your app. The engine should not be downloaded again for every site.”</blockquote>
+              <p>
+                EffinDOM publishes immutable runtime sets selected by capability.
+                Web applications consume them through a small browser bridge with
+                packaged fallback assets. Native applications consume the same
+                engine architecture as platform runtime libraries.
+              </p>
+              <a class="button button-primary" href="https://github.com/zion-sati/EffinDOM/blob/main/docs/WHY_EFFINDOM.md">Read why EffinDOM exists</a>
+            </div>
+            <div class="proof-side" aria-label="Supported platforms and architecture">
+              <div class="metric">
+                <strong>3</strong>
+                <span>Runtime tiers</span>
+              </div>
+              <div class="metric">
+                <strong>6</strong>
+                <span>Native desktop targets</span>
+              </div>
+              <div class="metric">
+                <strong>1</strong>
+                <span>Language-neutral ABI</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section class="closing" aria-labelledby="closing-title">
+        <div class="closing-grid shell">
+          <h2 id="closing-title">Take the DOM <span>off.</span></h2>
+          <div class="closing-copy">
+            <p>Build a retained Rust application for the browser and native desktop, or start with AssemblyScript on the web.</p>
+            <div class="actions">
+              <a class="button button-primary" href="https://github.com/zion-sati/EffinDOM/blob/main/docs/QUICKSTART.md">Get started</a>
+              <a class="button" href="https://github.com/zion-sati/EffinDOM">Explore the runtime</a>
+            </div>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <footer>
+      <div class="footer-grid shell">
+        <span>EffinDOM runtime · MIT licensed</span>
+        <div class="footer-links">
+          <a href="https://github.com/zion-sati/EffinDOM">GitHub</a>
+          <a href="https://github.com/zion-sati/EffinDOM/blob/main/docs/QUICKSTART.md">Docs</a>
+          <a href="https://github.com/zion-sati/fui-rs/blob/main/docs/v2/fui-rs/SDK_INDEX.md">FUI-RS SDK</a>
+          <a href="https://github.com/zion-sati/fui-as/blob/main/docs/v2/fui-as/SDK_INDEX.md">FUI-AS SDK</a>
+          <a href="https://github.com/zion-sati/EffinDOM/blob/main/LICENSE.md">Licensing</a>
+          <a href="https://github.com/zion-sati/EffinDOM/blob/main/docs/WHO_IS_ZION_SATI.md">Zion Sati</a>
+        </div>
+      </div>
+    </footer>
+  </body>
+</html>
