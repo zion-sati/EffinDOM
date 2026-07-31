@@ -1527,6 +1527,7 @@
         <div class="nav-links">
           <a href="#ecosystem">Ecosystem</a>
           <a href="#sdks">SDKs</a>
+          <a href="#agent-skills">AI skills</a>
           <a href="https://github.com/zion-sati/EffinDOM">Documentation</a>
           <a href="https://github.com/zion-sati/EffinDOM">GitHub ↗</a>
         </div>
@@ -1767,6 +1768,13 @@
               <h3>Runtime CDN</h3>
               <p>Immutable content-addressed WebAssembly runtimes, ICU data, and fixed assets shared across EffinDOM applications.</p>
               <span class="ecosystem-link">Inspect published runtime sets ↗</span>
+            </a>
+
+            <a class="ecosystem-card" href="https://github.com/zion-sati/fui-rs-skills">
+              <span class="ecosystem-kind">Agent guidance</span>
+              <h3>FUI-RS Skills</h3>
+              <p>Official, versioned Agent Skills that teach retained FUI-RS architecture, drawing, fonts, host integration, accessibility, and packaging.</p>
+              <span class="ecosystem-link">Install the official skills ↗</span>
             </a>
 
             <a class="ecosystem-card" href="https://github.com/jatm80/galaga-rs/">
@@ -2017,6 +2025,8 @@
                 <a href="https://github.com/zion-sati/fui-rs">Source ↗</a>
                 <a href="https://fui-rs-demo.effindom.dev/">Live demo ↗</a>
                 <a href="https://crates.io/crates/fui-rs">crates.io ↗</a>
+                <a href="https://docs.rs/fui-rs">docs.rs ↗</a>
+                <a href="https://www.npmjs.com/package/@effindomv2/fui-rs">npm web tooling ↗</a>
               </div>
             </article>
 
@@ -2093,6 +2103,66 @@
     .padding(24.0, 24.0, 24.0, 24.0);
 }</code></pre>
             </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="ecosystem-section" id="agent-skills" aria-labelledby="agent-skills-title">
+        <div class="shell">
+          <div class="section-heading">
+            <div>
+              <p class="eyebrow">AI-native developer experience</p>
+              <h2 id="agent-skills-title">Agents that understand the framework.</h2>
+            </div>
+            <p>
+              Generic models often mistake retained UI for React-style rerendering
+              or immediate mode. FUI-RS ships official Agent Skills grounded in
+              released APIs, so an agent can follow the real ownership, lifecycle,
+              rendering, accessibility, and packaging contracts instead of
+              inventing plausible-looking framework code.
+            </p>
+          </div>
+
+          <div class="feature-grid">
+            <article class="feature">
+              <span class="feature-number">01 / APPLICATIONS</span>
+              <h3>Retained app development</h3>
+              <p>Fluent <code>ui!</code> composition, cheap retained handles, callbacks, capability traits, state ownership, and universal application boundaries.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">02 / CONTROLS</span>
+              <h3>Custom controls</h3>
+              <p>Reusable components, templates, presenters, themes, focus, activation, semantics, and cycle-safe Rust ownership.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">03 / DRAWING</span>
+              <h3>Immediate and bitmap graphics</h3>
+              <p>CustomDrawable, DrawContext, paths, text resources, retained bitmaps, dirty-region uploads, animation, and measured invalidation.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">04 / TYPOGRAPHY</span>
+              <h3>Custom font registration</h3>
+              <p>Font faces, families, weight and style mapping, mixed-script fallback, async readiness, and web/native asset packaging.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">05 / HOST</span>
+              <h3>Generated host services</h3>
+              <p>Typed service and event contracts, browser and native adapters, worker allowlists, subscriptions, and ABI-safe generation.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">06 / ACCESSIBILITY</span>
+              <h3>Semantic behaviour</h3>
+              <p>Retained semantic projection, custom-control accessibility, forms, editors, keyboard operation, and assistive-technology testing.</p>
+            </article>
+            <article class="feature">
+              <span class="feature-number">07 / DELIVERY</span>
+              <h3>Build and package</h3>
+              <p>cargo-fui project targets, verified runtime acquisition, offline builds, icons, assets, DMG, MSIX, AppImage, and cross-platform CI.</p>
+            </article>
+          </div>
+
+          <div class="actions" style="margin-top: 34px">
+            <a class="button button-primary" href="https://github.com/zion-sati/fui-rs-skills">Explore FUI-RS Skills ↗</a>
           </div>
         </div>
       </section>
@@ -2216,6 +2286,7 @@
         <span>EffinDOM ecosystem · runtime MIT · official FUI SDKs AGPL/commercial</span>
         <div class="footer-links">
           <a href="#ecosystem">Ecosystem</a>
+          <a href="#agent-skills">AI skills</a>
           <a href="https://github.com/zion-sati/EffinDOM">GitHub</a>
           <a href="https://github.com/zion-sati/EffinDOM/blob/main/docs/QUICKSTART.md">Docs</a>
           <a href="https://github.com/zion-sati/fui-rs/blob/main/docs/v2/fui-rs/SDK_INDEX.md">FUI-RS SDK</a>
