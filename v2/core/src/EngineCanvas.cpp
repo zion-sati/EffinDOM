@@ -1,8 +1,12 @@
 #include "EngineInternal.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstring>
+#include <limits>
+#include <optional>
+#include <vector>
 #include <include/core/SkBitmap.h>
 #include <include/core/SkCanvas.h>
 #include <include/core/SkColor.h>
@@ -36,6 +40,63 @@ enum CanvasBatchOp : std::uint32_t {
     CANVAS_BATCH_DRAW_IMAGE = 31,
     CANVAS_BATCH_DRAW_SVG = 32,
 };
+
+std::optional<std::uint32_t> RgbaByteCount(std::uint32_t width, std::uint32_t height) {
+    if (width == 0U || height == 0U ||
+        width > static_cast<std::uint32_t>(std::numeric_limits<int>::max()) ||
+        height > static_cast<std::uint32_t>(std::numeric_limits<int>::max())) {
+        return std::nullopt;
+    }
+    const std::uint64_t byte_count =
+        static_cast<std::uint64_t>(width) * static_cast<std::uint64_t>(height) * 4ULL;
+    if (byte_count > std::numeric_limits<std::uint32_t>::max()) return std::nullopt;
+    return static_cast<std::uint32_t>(byte_count);
+}
+
+std::uint32_t CanvasBatchArgumentCount(std::uint32_t op) {
+    switch (op) {
+    case CANVAS_BATCH_SAVE:
+    case CANVAS_BATCH_RESTORE:
+        return 0U;
+    case CANVAS_BATCH_ROTATE:
+        return 1U;
+    case CANVAS_BATCH_TRANSLATE:
+    case CANVAS_BATCH_SCALE:
+        return 2U;
+    case CANVAS_BATCH_CLIP_RECT:
+    case CANVAS_BATCH_DRAW_PATH:
+    case CANVAS_BATCH_DRAW_TEXT_NODE:
+        return 4U;
+    case CANVAS_BATCH_DRAW_SVG:
+        return 5U;
+    case CANVAS_BATCH_DRAW_CIRCLE:
+    case CANVAS_BATCH_DRAW_LINE:
+        return 6U;
+    case CANVAS_BATCH_DRAW_RECT:
+    case CANVAS_BATCH_DRAW_IMAGE:
+        return 7U;
+    case CANVAS_BATCH_CLIP_ROUND_RECT:
+        return 8U;
+    case CANVAS_BATCH_DRAW_ROUND_RECT:
+        return 9U;
+    default:
+        return UINT32_MAX;
+    }
+}
+
+bool ValidateCanvasBatch(const std::uint32_t* words, std::uint32_t word_count) {
+    std::uint32_t index = 0U;
+    while (index < word_count) {
+        const std::uint32_t argument_count = CanvasBatchArgumentCount(words[index++]);
+        if (argument_count == UINT32_MAX ||
+            argument_count > word_count ||
+            index > word_count - argument_count) {
+            return false;
+        }
+        index += argument_count;
+    }
+    return true;
+}
 
 float WordToFloat(std::uint32_t word) {
     float value = 0.0f;
@@ -198,48 +259,79 @@ void EdCanvasDrawRoundRect(SkCanvas* canvas, float x, float y, float w, float h,
 /* ── Path management ───────────────────────────────────────────── */
 
 std::uint32_t Engine::CreatePath() {
-    const std::uint32_t id = impl_->next_path_id++;
-    impl_->paths.emplace(id, SkPath{});
-    return id;
+    if (impl_->paths.size() >= static_cast<std::size_t>(UINT32_MAX - 1U)) return 0U;
+    for (std::size_t attempt = 0U; attempt <= impl_->paths.size(); ++attempt) {
+        const std::uint32_t id = impl_->next_path_id++;
+        if (id == 0U) continue;
+        if (impl_->paths.emplace(id, SkPath{}).second) return id;
+    }
+    return 0U;
 }
 
-void Engine::DestroyPath(std::uint32_t path_id) {
-    impl_->paths.erase(path_id);
+bool Engine::DestroyPath(std::uint32_t path_id) {
+    return path_id != 0U && impl_->paths.erase(path_id) != 0U;
 }
 
-void Engine::PathMoveTo(std::uint32_t path_id, float x, float y) {
+bool Engine::PathMoveTo(std::uint32_t path_id, float x, float y) {
+    if (!std::isfinite(x) || !std::isfinite(y)) return false;
     auto it = impl_->paths.find(path_id);
-    if (it != impl_->paths.end()) it->second.moveTo(x, y);
+    if (it == impl_->paths.end()) return false;
+    it->second.moveTo(x, y);
+    return true;
 }
 
-void Engine::PathLineTo(std::uint32_t path_id, float x, float y) {
+bool Engine::PathLineTo(std::uint32_t path_id, float x, float y) {
+    if (!std::isfinite(x) || !std::isfinite(y)) return false;
     auto it = impl_->paths.find(path_id);
-    if (it != impl_->paths.end()) it->second.lineTo(x, y);
+    if (it == impl_->paths.end()) return false;
+    it->second.lineTo(x, y);
+    return true;
 }
 
-void Engine::PathQuadTo(std::uint32_t path_id, float cx, float cy, float x, float y) {
+bool Engine::PathQuadTo(std::uint32_t path_id, float cx, float cy, float x, float y) {
+    if (!std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(x) || !std::isfinite(y)) return false;
     auto it = impl_->paths.find(path_id);
-    if (it != impl_->paths.end()) it->second.quadTo(cx, cy, x, y);
+    if (it == impl_->paths.end()) return false;
+    it->second.quadTo(cx, cy, x, y);
+    return true;
 }
 
-void Engine::PathCubicTo(std::uint32_t path_id, float cx1, float cy1, float cx2, float cy2, float x, float y) {
+bool Engine::PathCubicTo(std::uint32_t path_id, float cx1, float cy1, float cx2, float cy2, float x, float y) {
+    if (!std::isfinite(cx1) || !std::isfinite(cy1) ||
+        !std::isfinite(cx2) || !std::isfinite(cy2) ||
+        !std::isfinite(x) || !std::isfinite(y)) {
+        return false;
+    }
     auto it = impl_->paths.find(path_id);
-    if (it != impl_->paths.end()) it->second.cubicTo(cx1, cy1, cx2, cy2, x, y);
+    if (it == impl_->paths.end()) return false;
+    it->second.cubicTo(cx1, cy1, cx2, cy2, x, y);
+    return true;
 }
 
-void Engine::PathClose(std::uint32_t path_id) {
+bool Engine::PathClose(std::uint32_t path_id) {
     auto it = impl_->paths.find(path_id);
-    if (it != impl_->paths.end()) it->second.close();
+    if (it == impl_->paths.end()) return false;
+    it->second.close();
+    return true;
 }
 
-void Engine::PathAddRect(std::uint32_t path_id, float x, float y, float w, float h) {
+bool Engine::PathAddRect(std::uint32_t path_id, float x, float y, float w, float h) {
+    if (!std::isfinite(x) || !std::isfinite(y) ||
+        !std::isfinite(w) || !std::isfinite(h) || w <= 0.0f || h <= 0.0f) {
+        return false;
+    }
     auto it = impl_->paths.find(path_id);
-    if (it != impl_->paths.end()) it->second.addRect(SkRect::MakeXYWH(x, y, w, h));
+    if (it == impl_->paths.end()) return false;
+    it->second.addRect(SkRect::MakeXYWH(x, y, w, h));
+    return true;
 }
 
-void Engine::PathAddCircle(std::uint32_t path_id, float cx, float cy, float r) {
+bool Engine::PathAddCircle(std::uint32_t path_id, float cx, float cy, float r) {
+    if (!std::isfinite(cx) || !std::isfinite(cy) || !std::isfinite(r) || r <= 0.0f) return false;
     auto it = impl_->paths.find(path_id);
-    if (it != impl_->paths.end()) it->second.addCircle(cx, cy, r);
+    if (it == impl_->paths.end()) return false;
+    it->second.addCircle(cx, cy, r);
+    return true;
 }
 
 /* ── Stateful canvas drawing ───────────────────────────────────── */
@@ -306,8 +398,9 @@ void Engine::CanvasDrawSvg(SkCanvas* canvas, std::uint32_t svg_id,
     canvas->restore();
 }
 
-void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::uint32_t word_count) const {
-    if (!canvas || words == nullptr || word_count == 0U) return;
+bool Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::uint32_t word_count) const {
+    if (word_count == 0U) return true;
+    if (!canvas || words == nullptr || !ValidateCanvasBatch(words, word_count)) return false;
 
     std::uint32_t i = 0U;
     auto has = [&](std::uint32_t count) {
@@ -327,7 +420,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             EdCanvasRestore(canvas);
             break;
         case CANVAS_BATCH_TRANSLATE:
-            if (!has(2U)) return;
+            if (!has(2U)) return false;
             {
                 const float x = next_float();
                 const float y = next_float();
@@ -335,7 +428,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_SCALE:
-            if (!has(2U)) return;
+            if (!has(2U)) return false;
             {
                 const float sx = next_float();
                 const float sy = next_float();
@@ -343,14 +436,14 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_ROTATE:
-            if (!has(1U)) return;
+            if (!has(1U)) return false;
             {
                 const float degrees = next_float();
                 EdCanvasRotate(canvas, degrees);
             }
             break;
         case CANVAS_BATCH_CLIP_RECT:
-            if (!has(4U)) return;
+            if (!has(4U)) return false;
             {
                 const float x = next_float();
                 const float y = next_float();
@@ -360,7 +453,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_CLIP_ROUND_RECT:
-            if (!has(8U)) return;
+            if (!has(8U)) return false;
             {
                 const float x = next_float();
                 const float y = next_float();
@@ -374,7 +467,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_DRAW_RECT:
-            if (!has(7U)) return;
+            if (!has(7U)) return false;
             {
                 const float x = next_float();
                 const float y = next_float();
@@ -387,7 +480,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_DRAW_CIRCLE:
-            if (!has(6U)) return;
+            if (!has(6U)) return false;
             {
                 const float cx = next_float();
                 const float cy = next_float();
@@ -399,7 +492,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_DRAW_LINE:
-            if (!has(6U)) return;
+            if (!has(6U)) return false;
             {
                 const float x1 = next_float();
                 const float y1 = next_float();
@@ -411,7 +504,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_DRAW_ROUND_RECT:
-            if (!has(9U)) return;
+            if (!has(9U)) return false;
             {
                 const float x = next_float();
                 const float y = next_float();
@@ -426,7 +519,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_DRAW_PATH:
-            if (!has(4U)) return;
+            if (!has(4U)) return false;
             {
                 const std::uint32_t path_id = words[i++];
                 const std::uint32_t fill = words[i++];
@@ -436,7 +529,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_DRAW_TEXT_NODE:
-            if (!has(4U)) return;
+            if (!has(4U)) return false;
             {
                 const std::uint64_t handle = WordsToHandle(words[i], words[i + 1U]);
                 i += 2U;
@@ -446,7 +539,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_DRAW_IMAGE:
-            if (!has(7U)) return;
+            if (!has(7U)) return false;
             {
                 const std::uint32_t texture_id = words[i++];
                 const float x = next_float();
@@ -459,7 +552,7 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         case CANVAS_BATCH_DRAW_SVG:
-            if (!has(5U)) return;
+            if (!has(5U)) return false;
             {
                 const std::uint32_t svg_id = words[i++];
                 const float x = next_float();
@@ -470,15 +563,16 @@ void Engine::CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::
             }
             break;
         default:
-            return;
+            return false;
         }
     }
+    return true;
 }
 
 /* ── Offscreen surfaces ────────────────────────────────────────── */
 
 std::uint32_t Engine::CreateOffscreenSurface(std::uint32_t width, std::uint32_t height) {
-    if (width == 0 || height == 0) return 0;
+    if (!RgbaByteCount(width, height).has_value()) return 0U;
 
     const SkImageInfo info = SkImageInfo::Make(
         static_cast<int>(width), static_cast<int>(height),
@@ -487,7 +581,15 @@ std::uint32_t Engine::CreateOffscreenSurface(std::uint32_t width, std::uint32_t 
     sk_sp<SkSurface> surface = SkSurfaces::Raster(info);
     if (!surface) return 0;
 
-    const std::uint32_t id = impl_->next_offscreen_id++;
+    std::uint32_t id = impl_->next_offscreen_id == 0U ? 1U : impl_->next_offscreen_id;
+    const std::uint32_t first_id = id;
+    while (impl_->offscreen_surfaces.find(id) != impl_->offscreen_surfaces.end()) {
+        id += 1U;
+        if (id == 0U) id = 1U;
+        if (id == first_id) return 0U;
+    }
+    impl_->next_offscreen_id = id + 1U;
+    if (impl_->next_offscreen_id == 0U) impl_->next_offscreen_id = 1U;
     impl_->offscreen_surfaces.emplace(id, Engine::Impl::OffscreenSurface{
         std::move(surface), width, height
     });
@@ -500,34 +602,55 @@ void* Engine::GetOffscreenCanvas(std::uint32_t offscreen_id) const {
     return static_cast<void*>(it->second.surface->getCanvas());
 }
 
-void Engine::ReadOffscreenPixels(std::uint32_t offscreen_id, std::uint8_t* out_rgba) const {
-    if (!out_rgba) return;
+std::optional<std::pair<std::uint32_t, std::uint32_t>> Engine::GetOffscreenDimensions(
+    std::uint32_t offscreen_id) const {
+    const auto it = impl_->offscreen_surfaces.find(offscreen_id);
+    if (it == impl_->offscreen_surfaces.end()) return std::nullopt;
+    return std::pair{it->second.width, it->second.height};
+}
+
+bool Engine::ReadOffscreenPixels(
+    std::uint32_t offscreen_id,
+    std::uint8_t* out_rgba,
+    std::uint32_t width,
+    std::uint32_t height) const {
+    if (out_rgba == nullptr) return false;
     auto it = impl_->offscreen_surfaces.find(offscreen_id);
-    if (it == impl_->offscreen_surfaces.end()) return;
+    if (it == impl_->offscreen_surfaces.end() || it->second.width != width || it->second.height != height) {
+        return false;
+    }
+    const auto byte_count = RgbaByteCount(width, height);
+    if (!byte_count.has_value()) return false;
 
     const auto& surface = it->second.surface;
     const SkImageInfo info = SkImageInfo::Make(
-        static_cast<int>(it->second.width), static_cast<int>(it->second.height),
+        static_cast<int>(width), static_cast<int>(height),
         kRGBA_8888_SkColorType, kPremul_SkAlphaType);
-
-    surface->readPixels(info, out_rgba, it->second.width * 4U, 0, 0);
+    std::vector<std::uint8_t> pixels(*byte_count);
+    if (!surface->readPixels(info, pixels.data(), static_cast<std::size_t>(width) * 4U, 0, 0)) {
+        return false;
+    }
+    std::memcpy(out_rgba, pixels.data(), pixels.size());
+    return true;
 }
 
-void Engine::DestroyOffscreenSurface(std::uint32_t offscreen_id) {
-    impl_->offscreen_surfaces.erase(offscreen_id);
+bool Engine::DestroyOffscreenSurface(std::uint32_t offscreen_id) {
+    return offscreen_id != 0U && impl_->offscreen_surfaces.erase(offscreen_id) != 0U;
+}
+
+std::size_t Engine::OffscreenSurfaceCountForTesting() const {
+    return impl_->offscreen_surfaces.size();
 }
 
 std::uint32_t Engine::RenderNodeToRgba(std::uint64_t handle, std::uint32_t width, std::uint32_t height,
                                        std::uint8_t* out_pixels, std::uint32_t out_capacity,
                                        float scale, float x, float y) {
-    if (width == 0 || height == 0 || out_pixels == nullptr) return 0;
+    if (out_pixels == nullptr || !std::isfinite(scale) || !std::isfinite(x) || !std::isfinite(y)) return 0U;
+    const auto byte_count = RgbaByteCount(width, height);
+    if (!byte_count.has_value() || out_capacity < *byte_count) return 0U;
 
     const detail::DisplayNode* node = impl_->Resolve(handle);
     if (node == nullptr || !node->alive) return 0;
-    if (!node->has_glyph_run && node->glyphs.empty()) return 0;
-
-    const std::uint32_t byte_count = width * height * 4U;
-    if (out_capacity < byte_count) return 0;
 
     const SkImageInfo info = SkImageInfo::Make(
         static_cast<int>(width), static_cast<int>(height),
@@ -551,9 +674,9 @@ std::uint32_t Engine::RenderNodeToRgba(std::uint64_t handle, std::uint32_t width
     surface->readPixels(bitmap, 0, 0);
     void* pixelAddr = bitmap.getPixels();
     if (pixelAddr) {
-        std::memcpy(out_pixels, pixelAddr, byte_count);
+        std::memcpy(out_pixels, pixelAddr, *byte_count);
     }
-    return pixelAddr ? byte_count : 0;
+    return pixelAddr ? *byte_count : 0U;
 }
 
 } // namespace effindom::v2

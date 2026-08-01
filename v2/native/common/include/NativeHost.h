@@ -8,12 +8,14 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace effindom::v2::native {
 
 class NativePlatformHost;
+class NativeWorkerHost;
 
 class NativeHost final {
 public:
@@ -62,10 +64,14 @@ public:
         const std::string& data = {});
     std::uint64_t HitTest(float x, float y) const;
     bool HasFontForTesting(std::uint32_t font_id) const;
+    bool LoadFontForTesting(std::uint32_t font_id, const std::filesystem::path& path);
     bool FontHasGlyphForTesting(std::uint32_t font_id, std::uint32_t codepoint) const;
     std::optional<std::pair<float, float>> SvgSizeForTesting(std::uint32_t svg_id) const;
+    void RegisterSvgForTesting(std::uint32_t svg_id, std::string_view source);
     std::optional<std::pair<std::uint32_t, std::uint32_t>> TextureSizeForTesting(std::uint32_t texture_id) const;
     std::size_t TextureCountForTesting() const;
+    std::size_t PathCountForTesting() const;
+    std::size_t OffscreenSurfaceCountForTesting() const;
     std::size_t FallbackFontCountForTesting() const;
     void RequestMissingFontCoverageForTesting(
         std::uint32_t primary_font_id,
@@ -80,6 +86,8 @@ public:
 
 private:
     std::unique_ptr<NativePlatformHost> platform_;
+    std::unique_ptr<NativeWorkerHost> worker_host_;
+    std::uint64_t worker_session_generation_ = 0U;
 };
 
 } // namespace effindom::v2::native

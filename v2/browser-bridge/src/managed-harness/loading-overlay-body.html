@@ -20,6 +20,7 @@
   (() => {
     const overlay = document.getElementById('effindom-loading-overlay');
     if (!(overlay instanceof HTMLElement)) return;
+    const canvas = document.getElementById('fui-canvas');
     const detail = document.getElementById('effindom-loading-detail');
     const state = {
       timerId: null,
@@ -37,6 +38,10 @@
     state.timerId = window.setTimeout(() => {
       state.timerId = null;
       state.visibleAtMs = performance.now();
+      if (canvas instanceof HTMLCanvasElement && canvas.dataset.effindomLoadingVisibility === undefined) {
+        canvas.dataset.effindomLoadingVisibility = canvas.style.visibility;
+        canvas.style.visibility = 'hidden';
+      }
       overlay.dataset.state = 'loading';
       overlay.hidden = false;
       overlay.setAttribute('aria-hidden', 'false');

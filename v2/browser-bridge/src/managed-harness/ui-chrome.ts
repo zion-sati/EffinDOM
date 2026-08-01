@@ -9,10 +9,11 @@ const LOADING_TITLE_ID = 'effindom-loading-title';
 const LOADING_DETAIL_ID = 'effindom-loading-detail';
 
 const DEFAULT_LOADING_OVERLAY_STYLES = `
-.effindom-loading-overlay{--effindom-loader-color:#38bdf8;--effindom-loader-background:rgba(6,12,21,.88);position:absolute;inset:0;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:linear-gradient(145deg,rgba(2,6,23,.76),rgba(15,23,42,.9));backdrop-filter:blur(10px);z-index:2;color:#e2e8f0;opacity:1;transition:opacity 140ms ease;font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:default;user-select:none;-webkit-user-select:none}
-.effindom-loading-overlay[hidden]{display:none}.effindom-loading-card{max-width:420px;padding:24px 26px;border:1px solid rgba(148,163,184,.28);border-radius:20px;background:var(--effindom-loader-background);text-align:center;box-shadow:0 22px 60px rgba(2,6,23,.34)}
+.effindom-loading-overlay{--effindom-loader-color:#38bdf8;--effindom-loader-background:rgba(6,12,21,.88);--effindom-loader-overlay-background:linear-gradient(145deg,rgba(2,6,23,.76),rgba(15,23,42,.9));--effindom-loader-text:#e2e8f0;--effindom-loader-border:rgba(148,163,184,.28);--effindom-loader-shadow:rgba(2,6,23,.34);--effindom-loader-kicker:#7dd3fc;--effindom-loader-detail:#cbd5e1;--effindom-loader-error-border:rgba(248,113,113,.5);--effindom-loader-error-background:rgba(69,10,10,.86);position:absolute;inset:0;display:grid;place-items:center;padding:24px;box-sizing:border-box;background:var(--effindom-loader-overlay-background);backdrop-filter:blur(10px);z-index:2;color:var(--effindom-loader-text);opacity:1;transition:opacity 140ms ease;font-family:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;cursor:default;pointer-events:none;user-select:none;-webkit-user-select:none}
+.effindom-loading-overlay[hidden]{display:none}.effindom-loading-card{max-width:420px;padding:24px 26px;border:1px solid var(--effindom-loader-border);border-radius:20px;background:var(--effindom-loader-background);text-align:center;box-shadow:0 22px 60px var(--effindom-loader-shadow)}
 .effindom-loading-visual{width:88px;height:64px;margin:0 auto 18px;color:var(--effindom-loader-color)}.effindom-loading-frame{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-dasharray:164;animation:effindom-frame 1.8s cubic-bezier(.65,0,.35,1) infinite}.effindom-loading-node{fill:currentColor;transform-box:fill-box;transform-origin:center;animation:effindom-node 1.8s ease-in-out infinite}.effindom-loading-node-b{animation-delay:-.9s}
-.effindom-loading-kicker{margin:0 0 8px;font:700 11px/1.2 system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:#7dd3fc}.effindom-loading-title{margin:0;font:600 24px/1.2 system-ui,sans-serif}.effindom-loading-detail{margin:10px 0 0;font:14px/1.5 system-ui,sans-serif;color:#cbd5e1}.effindom-loading-overlay[data-state=error] .effindom-loading-card{border-color:rgba(248,113,113,.5);background:rgba(69,10,10,.86)}.effindom-loading-overlay[data-state=error] .effindom-loading-visual{display:none}
+.effindom-loading-kicker{margin:0 0 8px;font:700 11px/1.2 system-ui,sans-serif;letter-spacing:.12em;text-transform:uppercase;color:var(--effindom-loader-kicker)}.effindom-loading-title{margin:0;font:600 24px/1.2 system-ui,sans-serif}.effindom-loading-detail{margin:10px 0 0;font:14px/1.5 system-ui,sans-serif;color:var(--effindom-loader-detail)}.effindom-loading-overlay[data-state=error] .effindom-loading-card{border-color:var(--effindom-loader-error-border);background:var(--effindom-loader-error-background)}.effindom-loading-overlay[data-state=error] .effindom-loading-visual{display:none}
+@media(prefers-color-scheme:light){.effindom-loading-overlay{--effindom-loader-color:#0284c7;--effindom-loader-background:rgba(255,255,255,.92);--effindom-loader-overlay-background:linear-gradient(145deg,rgba(248,250,252,.82),rgba(226,232,240,.94));--effindom-loader-text:#0f172a;--effindom-loader-border:rgba(100,116,139,.28);--effindom-loader-shadow:rgba(15,23,42,.18);--effindom-loader-kicker:#0369a1;--effindom-loader-detail:#475569;--effindom-loader-error-border:rgba(220,38,38,.38);--effindom-loader-error-background:rgba(254,226,226,.94)}}
 @keyframes effindom-frame{0%{stroke-dashoffset:164;opacity:.35}45%,65%{stroke-dashoffset:0;opacity:1}100%{stroke-dashoffset:-164;opacity:.35}}@keyframes effindom-node{0%,100%{transform:scale(.65);opacity:.35}50%{transform:scale(1.15);opacity:1}}@media(prefers-reduced-motion:reduce){.effindom-loading-frame,.effindom-loading-node{animation:none}.effindom-loading-frame{stroke-dashoffset:0}}
 `;
 
@@ -152,9 +153,19 @@ export function waitForFrame(): Promise<void> {
 }
 
 export class HarnessUiChrome {
+  private loadingOverlay: HTMLElement | null = null;
+
   ensureLoadingOverlay(): HTMLElement {
+    if (this.loadingOverlay !== null) {
+      if (!this.loadingOverlay.isConnected) {
+        const canvas = document.getElementById('fui-canvas');
+        (canvas?.parentElement ?? document.body).appendChild(this.loadingOverlay);
+      }
+      return this.loadingOverlay;
+    }
     const existing = document.getElementById(LOADING_OVERLAY_ID);
     if (existing instanceof HTMLElement) {
+      this.loadingOverlay = existing;
       return existing;
     }
     if (document.getElementById('effindom-loading-overlay-default-styles') === null) {
@@ -173,6 +184,7 @@ export class HarnessUiChrome {
     overlay.innerHTML = DEFAULT_LOADING_OVERLAY_BODY;
     const canvas = document.getElementById('fui-canvas');
     (canvas?.parentElement ?? document.body).appendChild(overlay);
+    this.loadingOverlay = overlay;
     return overlay;
   }
 
@@ -199,6 +211,11 @@ export class HarnessUiChrome {
       return;
     }
     overlay.dataset.state = state;
+    const canvas = document.getElementById('fui-canvas');
+    if (canvas instanceof HTMLCanvasElement && canvas.dataset.effindomLoadingVisibility === undefined) {
+      canvas.dataset.effindomLoadingVisibility = canvas.style.visibility;
+      canvas.style.visibility = 'hidden';
+    }
     overlay.hidden = false;
     overlay.setAttribute('aria-hidden', 'false');
     titleNode.textContent = title;
@@ -214,13 +231,22 @@ export class HarnessUiChrome {
   }
 
   hideLoadingOverlay(): void {
-    const overlay = document.getElementById(LOADING_OVERLAY_ID);
-    if (!(overlay instanceof HTMLElement)) {
-      return;
+    const overlay = this.loadingOverlay ?? document.getElementById(LOADING_OVERLAY_ID);
+    if (overlay instanceof HTMLElement) {
+      this.loadingOverlay = overlay;
+      overlay.hidden = true;
+      overlay.dataset.state = 'ready';
+      overlay.setAttribute('aria-hidden', 'true');
+      overlay.remove();
     }
-    overlay.hidden = true;
-    overlay.dataset.state = 'ready';
-    overlay.setAttribute('aria-hidden', 'true');
+    const canvas = document.getElementById('fui-canvas');
+    if (canvas instanceof HTMLCanvasElement) {
+      const previousVisibility = canvas.dataset.effindomLoadingVisibility;
+      if (previousVisibility !== undefined) {
+        canvas.style.visibility = previousVisibility;
+        delete canvas.dataset.effindomLoadingVisibility;
+      }
+    }
   }
 
   setUrlPreviewText(text: string): void {

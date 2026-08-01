@@ -7,14 +7,20 @@ if(EFFINDOM_BUILD_NATIVE_FUI_RS_DEMO AND EXISTS "${EFFINDOM_NATIVE_RUST_MANIFEST
 set(EFFINDOM_NATIVE_FUI_RS_DEMO_AVAILABLE ON)
 file(GLOB_RECURSE EFFINDOM_NATIVE_RUST_SOURCES CONFIGURE_DEPENDS
     "${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}/src/*.rs"
+    "${CMAKE_SOURCE_DIR}/v2/fui-rs/crates/demo-worker/src/*.rs"
     "${CMAKE_SOURCE_DIR}/v2/fui-rs/src/*.rs"
 )
 
 add_custom_command(
     OUTPUT "${EFFINDOM_NATIVE_RUST_LIBRARY}"
-    COMMAND ${CMAKE_COMMAND} -E env CARGO_TARGET_DIR=${EFFINDOM_NATIVE_RUST_TARGET_DIR}
+    COMMAND ${CMAKE_COMMAND} -E env
+        CARGO_TARGET_DIR=${EFFINDOM_NATIVE_RUST_TARGET_DIR}
+        FUI_NATIVE_WORKER_REGISTRY_RS=${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}/src/native_worker_registry.rs
+        "RUSTFLAGS=--cfg fui_native_worker_registry --check-cfg=cfg(fui_native_worker_registry)"
         cargo build --release --target ${EFFINDOM_RUST_TARGET} --manifest-path "${EFFINDOM_NATIVE_RUST_MANIFEST}"
-    DEPENDS ${EFFINDOM_NATIVE_RUST_SOURCES} "${EFFINDOM_NATIVE_RUST_MANIFEST}" "${CMAKE_SOURCE_DIR}/v2/fui-rs/Cargo.toml"
+    DEPENDS ${EFFINDOM_NATIVE_RUST_SOURCES} "${EFFINDOM_NATIVE_RUST_MANIFEST}"
+        "${CMAKE_SOURCE_DIR}/v2/fui-rs/crates/demo-worker/Cargo.toml"
+        "${CMAKE_SOURCE_DIR}/v2/fui-rs/Cargo.toml"
     WORKING_DIRECTORY "${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}"
     COMMENT "[EffinDOM native] Building native FUI-RS application"
     VERBATIM
@@ -136,6 +142,9 @@ effindom_stage_macos_native_target(effindom_v2_macos_native_tests
 
 include("${CMAKE_SOURCE_DIR}/v2/native/common/NativeCommonContractTests.cmake")
 effindom_add_native_common_contract_tests(effindom_native_fui_rs_app)
+effindom_stage_macos_native_target(effindom_v2_native_common_contract_tests
+    "${EFFINDOM_NATIVE_OUTPUT_BIN}" "${EFFINDOM_NATIVE_OUTPUT_LIB}"
+    "${EFFINDOM_NATIVE_OUTPUT_RESOURCES}" "@loader_path/../lib")
 
 include(CTest)
 include(Catch)

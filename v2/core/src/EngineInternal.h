@@ -21,8 +21,9 @@
 class SkCanvas;
 class SkFont;
 
-/* EM_JS callback — defined in Wasm.cpp for wasm builds, stubbed for native.
-   Must use C linkage to match the EM_JS-generated symbol. */
+#ifdef __EMSCRIPTEN__
+/* EM_JS callback defined in Wasm.cpp. It remains the browser fallback when
+   no host strategy has been installed on the engine. */
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -32,9 +33,6 @@ void effindom_v2_custom_draw(std::uint32_t handle_lo, std::uint32_t handle_hi, s
 #ifdef __cplusplus
 }
 #endif
-
-#ifndef __EMSCRIPTEN__
-inline void effindom_v2_custom_draw(std::uint32_t, std::uint32_t, std::uintptr_t) {}
 #endif
 
 namespace effindom::v2::detail {
@@ -214,6 +212,7 @@ struct Engine::Impl {
     std::unordered_map<std::uint32_t, detail::SvgRecord> svgs{};
     std::unordered_map<std::uint32_t, detail::TextureRecord> textures{};
     std::unordered_map<std::uint32_t, SkPath> paths{};
+    Engine::CustomDrawCallback custom_draw_callback{};
 
     struct OffscreenSurface {
         sk_sp<SkSurface> surface;

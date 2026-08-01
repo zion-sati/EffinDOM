@@ -78,6 +78,7 @@ void CharacterizeViewportReconciliation() {
 template <typename Host>
 void CharacterizePointerActivation() {
     Host host(false);
+    host.Resize(1000U, 900U);
     host.MountApplication();
     host.DrainFrames();
     const auto baseline_activations = host.State().activation_count;

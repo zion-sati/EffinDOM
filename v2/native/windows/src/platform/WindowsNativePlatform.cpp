@@ -7,6 +7,7 @@
 #include "graphics/WindowsGpuSurface.h"
 #include "NativeInputRouter.h"
 #include "NativeRasterSurface.h"
+#include "NativeTimerCoordinator.h"
 #include "SdlDropTarget.h"
 #include "SdlEventAdapter.h"
 #include "SdlFileDialogs.h"
@@ -46,6 +47,7 @@ struct WindowsNativePlatform::Impl {
         : core(NativeInputRouterOptions{false, true, false}, NativeHostCoreCallbacks{
               [this] { return platform_services.ProcessPendingAssets(); },
               [this] {
+                  timer_coordinator->Clear();
                   ui_dispatcher->Clear();
                   __fui_clear_ui_dispatches();
                   file_dialogs->Clear();
@@ -80,6 +82,9 @@ struct WindowsNativePlatform::Impl {
             SDL_SyncWindow(window);
         }
         ui_dispatcher = std::make_unique<SdlUiDispatcher>(window);
+        timer_coordinator = std::make_unique<NativeTimerCoordinator>([this](NativeTimerCoordinator::UiTask task) {
+            return ui_dispatcher->PostTask(std::move(task));
+        });
         drop_target = std::make_unique<SdlDropTarget>(window, core.GetEngine());
         file_dialogs = std::make_unique<SdlFileDialogs>(window, visible, [](const NativeFileDialogCompletion& completion) {
             std::string payload;
@@ -168,6 +173,7 @@ struct WindowsNativePlatform::Impl {
     }
 
     ~Impl() {
+        timer_coordinator.reset();
         system_theme_bridge.reset();
         ui::ClearGlobalUiPlatformHost(platform_services);
         ui_dispatcher->Clear();
@@ -211,6 +217,7 @@ struct WindowsNativePlatform::Impl {
     SDL_Window* window = nullptr;
     NativeHostCore core;
     std::unique_ptr<SdlUiDispatcher> ui_dispatcher;
+    std::unique_ptr<NativeTimerCoordinator> timer_coordinator;
     std::unique_ptr<SdlDropTarget> drop_target;
     std::unique_ptr<SdlFileDialogs> file_dialogs;
     SdlEventAdapter input_adapter;
@@ -236,6 +243,15 @@ bool WindowsNativePlatform::PostUiDispatch(std::uint64_t callback_id) {
 }
 bool WindowsNativePlatform::CancelUiDispatch(std::uint64_t callback_id) {
     return impl_->ui_dispatcher->Cancel(callback_id);
+}
+bool WindowsNativePlatform::PostUiTask(std::function<bool()> task) {
+    return impl_->ui_dispatcher->PostTask(std::move(task));
+}
+void WindowsNativePlatform::StartTimer(std::uint32_t timer_id, std::int32_t delay_ms) {
+    impl_->timer_coordinator->Start(timer_id, delay_ms);
+}
+void WindowsNativePlatform::CancelTimer(std::uint32_t timer_id) {
+    impl_->timer_coordinator->Cancel(timer_id);
 }
 void WindowsNativePlatform::RequestFrame() { impl_->core.RequestFrame(); }
 
@@ -408,6 +424,12 @@ void WindowsNativePlatform::SetCursor(std::uint32_t style) { impl_->platform_ser
 void WindowsNativePlatform::RequestFontLoad(std::uint32_t font_id, const std::string& source) {
     impl_->platform_services.RequestFontLoad(font_id, source);
 }
+void WindowsNativePlatform::ReportMissingFontCoverage(
+    std::uint32_t primary_font_id,
+    std::uint32_t coverage_kind,
+    const std::string& sample_text) {
+    impl_->platform_services.ReportMissingFontCoverage(primary_font_id, coverage_kind, sample_text);
+}
 void WindowsNativePlatform::LoadSvg(std::uint32_t svg_id, const std::string& source) {
     impl_->platform_services.LoadSvg(svg_id, source);
 }
@@ -450,13 +472,5 @@ void WindowsNativePlatform::DispatchDropEventForTesting(
  std::size_t WindowsNativePlatform::FallbackFontCountForTesting() const {
     return impl_->platform_services.FallbackFontCountForTesting();
 }
-
-void WindowsNativePlatform::RequestMissingFontCoverageForTesting(
-    std::uint32_t primary_font_id,
-    std::uint32_t coverage_kind,
-    const std::string& sample_text) {
-    impl_->platform_services.ReportMissingFontCoverage(primary_font_id, coverage_kind, sample_text);
-}
-
 
 } // namespace effindom::v2::native

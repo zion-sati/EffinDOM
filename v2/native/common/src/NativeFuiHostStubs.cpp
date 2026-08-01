@@ -1,12 +1,14 @@
 #include "effindom_ui.h"
+#include "NativeFuiUnsupportedCapabilities.h"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
 
-// Desktop-neutral definitions for browser-only FUI host imports. Native
-// capabilities implemented by the desktop host live in
-// NativeFuiRuntimeBridge.cpp; unsupported browser facilities remain explicit.
+// Desktop-neutral definitions for intentional browser-only and native-fallback
+// FUI host imports. Genuine desktop capabilities live in
+// NativeFuiRuntimeBridge.cpp. Public unsupported operations reject through the
+// normal FUI completion channel and report one diagnostic per capability.
 extern "C" {
 
 #if defined(_MSC_VER)
@@ -31,48 +33,116 @@ bool fui_cut_text_range_snapshot(std::uint64_t handle, std::uint32_t start, std:
 }
 bool fui_delete_focused_text_range(std::uint32_t, std::uint32_t) { return false; }
 void fui_commit_text_action_focus(std::uint64_t) {}
-void fui_start_timer(std::uint32_t, std::int32_t) {}
-void fui_cancel_timer(std::uint32_t) {}
-void fui_bitmap_commit(std::uint32_t, std::uintptr_t, std::uint32_t, std::uint32_t, std::uint32_t) {}
-void fui_bitmap_commit_dirty(
-    std::uint32_t, std::uintptr_t, std::uint32_t, std::uint32_t, std::uint32_t,
-    std::uint32_t, std::uint32_t, std::uint32_t, std::uint32_t) {}
-void fui_bitmap_release(std::uint32_t) {}
-std::uint32_t fui_render_node_to_rgba(
-    std::uint64_t, std::uint32_t, std::uint32_t, std::uintptr_t,
-    std::uint32_t, float, float, float) { return 0U; }
+
+// Browser networking. Native applications use their language's networking APIs.
 void fui_fetch_start(
-    std::uint32_t, std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t,
-    std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t) {}
-void fui_fetch_cancel(std::uint32_t) {}
-void fui_set_persisted_scroll_offset(std::uintptr_t, std::uint32_t, float, float) {}
+    std::uint32_t request_id, std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t,
+    std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t) {
+    effindom::v2::native::RejectUnsupportedFetch(request_id);
+}
+void fui_fetch_cancel(std::uint32_t) {
+    effindom::v2::native::ReportUnsupportedFuiCapability(
+        "fui_fetch_cancel", "FUI Fetch is a browser host capability; no native request was started.");
+}
+
+// Browser history-backed retained-state restoration. A native persistence
+// adapter remains a separate future capability and is not implied here.
+void fui_set_persisted_scroll_offset(std::uintptr_t, std::uint32_t, float, float) {
+    effindom::v2::native::ReportUnsupportedFuiCapability(
+        "fui_set_persisted_scroll_offset", "Browser history persistence is unavailable on native hosts.");
+}
 bool fui_try_get_persisted_scroll_offset(
-    std::uintptr_t, std::uint32_t, std::uintptr_t, std::uintptr_t) { return false; }
+    std::uintptr_t, std::uint32_t, std::uintptr_t, std::uintptr_t) {
+    effindom::v2::native::ReportUnsupportedFuiCapability(
+        "fui_try_get_persisted_scroll_offset", "Browser history persistence is unavailable on native hosts.");
+    return false;
+}
 void fui_set_persisted_state(
     std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t, std::uint32_t,
-    std::uintptr_t, std::uint32_t) {}
+    std::uintptr_t, std::uint32_t) {
+    effindom::v2::native::ReportUnsupportedFuiCapability(
+        "fui_set_persisted_state", "Browser history persistence is unavailable on native hosts.");
+}
 std::int32_t fui_copy_persisted_state(
     std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t,
-    std::uintptr_t, std::uintptr_t, std::uint32_t) { return -1; }
-void fui_worker_cancel(std::uint32_t) {}
+    std::uintptr_t, std::uintptr_t, std::uint32_t) {
+    effindom::v2::native::ReportUnsupportedFuiCapability(
+        "fui_copy_persisted_state", "Browser history persistence is unavailable on native hosts.");
+    return -1;
+}
+
+// Browser file handles and streams. Native file dialogs are exposed separately
+// by the desktop host; application file I/O belongs to native language APIs.
 std::uint32_t fui_file_capabilities() { return 0U; }
+void fui_file_pick(std::uint32_t request_id, std::uintptr_t, std::uint32_t, bool) {
+    effindom::v2::native::RejectUnsupportedFile(
+        effindom::v2::native::UnsupportedFileOperation::Pick, request_id);
+}
+void fui_file_read_chunk(
+    std::uint32_t request_id, std::uintptr_t, std::uint32_t, std::uint64_t, std::uint32_t) {
+    effindom::v2::native::RejectUnsupportedFile(
+        effindom::v2::native::UnsupportedFileOperation::Read, request_id);
+}
+void fui_file_save_text(
+    std::uint32_t request_id, std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t,
+    std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t) {
+    effindom::v2::native::RejectUnsupportedFile(
+        effindom::v2::native::UnsupportedFileOperation::Save, request_id);
+}
+void fui_file_save_bytes(
+    std::uint32_t request_id, std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t,
+    std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t) {
+    effindom::v2::native::RejectUnsupportedFile(
+        effindom::v2::native::UnsupportedFileOperation::Save, request_id);
+}
+void fui_file_create_writer(
+    std::uint32_t request_id, std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t,
+    std::uintptr_t, std::uint32_t) {
+    effindom::v2::native::RejectUnsupportedFile(
+        effindom::v2::native::UnsupportedFileOperation::CreateWriter, request_id);
+}
+void fui_file_writer_write_text(
+    std::uint32_t request_id, std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t) {
+    effindom::v2::native::RejectUnsupportedFile(
+        effindom::v2::native::UnsupportedFileOperation::Write, request_id);
+}
+void fui_file_writer_write_bytes(
+    std::uint32_t request_id, std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t) {
+    effindom::v2::native::RejectUnsupportedFile(
+        effindom::v2::native::UnsupportedFileOperation::Write, request_id);
+}
+void fui_file_writer_finish(std::uint32_t request_id, std::uintptr_t, std::uint32_t) {
+    effindom::v2::native::RejectUnsupportedFile(
+        effindom::v2::native::UnsupportedFileOperation::Finish, request_id);
+}
 void fui_file_process_worker_start(
-    std::uint32_t, std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t,
-    std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t, std::uint32_t, bool) {}
-void fui_file_process_worker_cancel(std::uint32_t) {}
-std::uint32_t fui_path_create() { return 0U; }
-void fui_path_destroy(std::uint32_t) {}
-void fui_path_move_to(std::uint32_t, float, float) {}
-void fui_path_line_to(std::uint32_t, float, float) {}
-void fui_path_quad_to(std::uint32_t, float, float, float, float) {}
-void fui_path_cubic_to(std::uint32_t, float, float, float, float, float, float) {}
-void fui_path_close(std::uint32_t) {}
-void fui_path_add_rect(std::uint32_t, float, float, float, float) {}
-void fui_path_add_circle(std::uint32_t, float, float, float) {}
-void fui_canvas_draw_batch(std::uintptr_t, std::uintptr_t, std::uint32_t) {}
-std::uint32_t fui_canvas_create_offscreen(std::uint32_t, std::uint32_t) { return 0U; }
-std::uintptr_t fui_canvas_get_offscreen_ptr(std::uint32_t) { return 0U; }
-void fui_canvas_read_offscreen_pixels(std::uint32_t, std::uintptr_t, std::uint32_t, std::uint32_t) {}
-void fui_canvas_destroy_offscreen(std::uint32_t) {}
+    std::uint32_t request_id, std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t,
+    std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t, std::uint32_t, bool) {
+    effindom::v2::native::RejectUnsupportedFile(
+        effindom::v2::native::UnsupportedFileOperation::ProcessInWorker, request_id);
+}
+void fui_file_process_worker_cancel(std::uint32_t) {
+    effindom::v2::native::ReportUnsupportedFuiCapability(
+        "fui_file_process_worker_cancel", "Browser file-processing Workers are unavailable on native hosts.");
+}
+
+// Browser navigation and URL chrome. Native NavLink navigation to an external
+// URI remains implemented by fui_navigate_to in NativeFuiRuntimeBridge.cpp.
+void fui_reload_page() {
+    effindom::v2::native::ReportUnsupportedFuiCapability(
+        "fui_reload_page", "Browser page reload is unavailable on native hosts.");
+}
+bool fui_can_navigate_back() { return false; }
+bool fui_can_navigate_forward() { return false; }
+void fui_navigate_back() {
+    effindom::v2::native::ReportUnsupportedFuiCapability(
+        "fui_navigate_back", "Browser history navigation is unavailable on native hosts.");
+}
+void fui_navigate_forward() {
+    effindom::v2::native::ReportUnsupportedFuiCapability(
+        "fui_navigate_forward", "Browser history navigation is unavailable on native hosts.");
+}
+void fui_show_url_preview(std::uintptr_t, std::uint32_t) {}
+void fui_hide_url_preview() {}
 
 } // extern "C"

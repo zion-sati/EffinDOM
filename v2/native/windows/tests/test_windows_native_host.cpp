@@ -1,5 +1,6 @@
 #include "NativeHost.h"
 #include "NativeHostCharacterization.h"
+#include "NativeWorkerDemoContract.h"
 #include "NativeFuiBridge.h"
 #include "NativeInputTypes.h"
 #include "UiRuntime.h"
@@ -1052,4 +1053,9 @@ TEST_CASE("Windows native application remount is deterministic and lifecycle rem
     REQUIRE(first.size() == remounted.size());
     CHECK(first == remounted);
     CHECK(host.IsIdle());
+}
+
+TEST_CASE("Windows native demo runs the browser prime Worker contract without a platform branch",
+    "[v2][native][windows][worker][demo]") {
+    effindom::v2::native::tests::CharacterizeNativeWorkerDemo<NativeHost>();
 }

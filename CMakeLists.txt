@@ -1,4 +1,14 @@
 cmake_minimum_required(VERSION 3.20)
+
+if(CMAKE_HOST_SYSTEM_NAME STREQUAL "Darwin" AND NOT CMAKE_OSX_DEPLOYMENT_TARGET)
+    set(
+        CMAKE_OSX_DEPLOYMENT_TARGET
+        "13.0"
+        CACHE STRING
+        "Minimum supported macOS version"
+        FORCE)
+endif()
+
 project(EffinDom LANGUAGES CXX)
 
 include(cmake/EffinDomTargetArchitecture.cmake)

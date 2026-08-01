@@ -31,6 +31,9 @@ public:
     std::uint32_t CurrentModifiers() const override;
     bool PostUiDispatch(std::uint64_t callback_id) override;
     bool CancelUiDispatch(std::uint64_t callback_id) override;
+    bool PostUiTask(std::function<bool()> task) override;
+    void StartTimer(std::uint32_t timer_id, std::int32_t delay_ms) override;
+    void CancelTimer(std::uint32_t timer_id) override;
     void SetClipboardText(const std::string& text) override;
     std::string ClipboardText() const override;
     void RequestClipboardRead(std::uint64_t handle) override;
@@ -53,6 +56,10 @@ public:
     void SetNativePointerCapture(bool captured) override;
     void SetCursor(std::uint32_t style) override;
     void RequestFontLoad(std::uint32_t font_id, const std::string& source) override;
+    void ReportMissingFontCoverage(
+        std::uint32_t primary_font_id,
+        std::uint32_t coverage_kind,
+        const std::string& sample_text) override;
     void LoadSvg(std::uint32_t svg_id, const std::string& source) override;
     void ReleaseSvg(std::uint32_t svg_id) override;
     void LoadTexture(std::uint32_t texture_id, const std::string& source) override;
@@ -69,10 +76,6 @@ public:
         float y,
         const std::string& data = {}) override;
     std::size_t FallbackFontCountForTesting() const override;
-    void RequestMissingFontCoverageForTesting(
-        std::uint32_t primary_font_id,
-        std::uint32_t coverage_kind,
-        const std::string& sample_text) override;
 
 private:
     void RequestFrame();

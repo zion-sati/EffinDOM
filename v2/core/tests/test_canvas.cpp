@@ -2,6 +2,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "Engine.h"
+#include "CommandBuilder.h"
 #include "EngineInternal.h"
 
 #include <array>
@@ -259,31 +260,56 @@ TEST_CASE("Canvas draw batch ignores invalid input", "[canvas]") {
     SkCanvas* canvas = surface->getCanvas();
     canvas->clear(SK_ColorTRANSPARENT);
 
-    const std::array<std::uint32_t, 2> truncated = {
-        10U,
-        FloatWord(0.0f),
+    const std::array<std::uint32_t, 10> truncated_after_valid_command = {
+        10U, FloatWord(0.0f), FloatWord(0.0f), FloatWord(8.0f), FloatWord(8.0f),
+        kRed, 0U, FloatWord(0.0f),
+        10U, FloatWord(0.0f),
+    };
+    const std::array<std::uint32_t, 9> unknown_after_valid_command = {
+        10U, FloatWord(0.0f), FloatWord(0.0f), FloatWord(8.0f), FloatWord(8.0f),
+        kRed, 0U, FloatWord(0.0f),
+        999U,
     };
 
-    engine.CanvasDrawBatch(nullptr, truncated.data(), static_cast<std::uint32_t>(truncated.size()));
-    engine.CanvasDrawBatch(canvas, nullptr, 0U);
-    engine.CanvasDrawBatch(canvas, truncated.data(), static_cast<std::uint32_t>(truncated.size()));
+    CHECK(engine.CanvasDrawBatch(nullptr, nullptr, 0U));
+    CHECK_FALSE(engine.CanvasDrawBatch(
+        nullptr,
+        truncated_after_valid_command.data(),
+        static_cast<std::uint32_t>(truncated_after_valid_command.size())));
+    CHECK_FALSE(engine.CanvasDrawBatch(canvas, nullptr, 1U));
+    CHECK_FALSE(engine.CanvasDrawBatch(
+        canvas,
+        truncated_after_valid_command.data(),
+        static_cast<std::uint32_t>(truncated_after_valid_command.size())));
+    CHECK_FALSE(engine.CanvasDrawBatch(
+        canvas,
+        unknown_after_valid_command.data(),
+        static_cast<std::uint32_t>(unknown_after_valid_command.size())));
 
     const auto pixels = SnapshotRgba(surface, 16, 16);
-    CHECK_FALSE(PixelHasAlpha(pixels, 16, 0, 0));
+    for (int y = 0; y < 16; ++y) {
+        for (int x = 0; x < 16; ++x) {
+            CHECK_FALSE(PixelHasAlpha(pixels, 16, x, y));
+        }
+    }
 }
 
 TEST_CASE("Path management", "[path]") {
     Engine engine;
 
     SECTION("create and destroy paths") {
+        CHECK(engine.PathCountForTesting() == 0U);
         const std::uint32_t id1 = engine.CreatePath();
         REQUIRE(id1 > 0);
         const std::uint32_t id2 = engine.CreatePath();
         REQUIRE(id2 > id1);
 
-        engine.DestroyPath(id1);
-        engine.DestroyPath(id2);
-        SUCCEED("No crash on double destroy or invalid destroy");
+        CHECK(engine.PathCountForTesting() == 2U);
+        CHECK(engine.DestroyPath(id1));
+        CHECK_FALSE(engine.DestroyPath(id1));
+        CHECK_FALSE(engine.DestroyPath(0U));
+        CHECK(engine.DestroyPath(id2));
+        CHECK(engine.PathCountForTesting() == 0U);
     }
 
     SECTION("drawing an empty path does nothing") {
@@ -336,6 +362,94 @@ TEST_CASE("Path management", "[path]") {
 
         engine.DestroyPath(path_id);
     }
+
+    SECTION("rejects unknown IDs and invalid geometry without mutating a live path") {
+        const std::uint32_t path_id = engine.CreatePath();
+        const float nan = std::numeric_limits<float>::quiet_NaN();
+        const float infinity = std::numeric_limits<float>::infinity();
+
+        CHECK_FALSE(engine.PathMoveTo(999U, 1.0f, 1.0f));
+        CHECK_FALSE(engine.PathMoveTo(path_id, nan, 1.0f));
+        CHECK_FALSE(engine.PathLineTo(path_id, 1.0f, infinity));
+        CHECK_FALSE(engine.PathQuadTo(path_id, 1.0f, 1.0f, nan, 2.0f));
+        CHECK_FALSE(engine.PathCubicTo(path_id, 1.0f, 1.0f, 2.0f, infinity, 3.0f, 3.0f));
+        CHECK_FALSE(engine.PathAddRect(path_id, 0.0f, 0.0f, 0.0f, 8.0f));
+        CHECK_FALSE(engine.PathAddRect(path_id, 0.0f, 0.0f, 8.0f, -1.0f));
+        CHECK_FALSE(engine.PathAddCircle(path_id, 4.0f, 4.0f, 0.0f));
+        CHECK_FALSE(engine.PathClose(999U));
+
+        auto surface = MakeRasterSurface(16, 16);
+        surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+        engine.CanvasDrawPath(surface->getCanvas(), path_id, kRed, kRed, 2.0f);
+        const auto pixels = SnapshotRgba(surface, 16, 16);
+        for (int y = 0; y < 16; ++y) {
+            for (int x = 0; x < 16; ++x) {
+                CHECK_FALSE(PixelHasAlpha(pixels, 16, x, y));
+            }
+        }
+        CHECK(engine.DestroyPath(path_id));
+    }
+}
+
+TEST_CASE("Texture uploads validate atomically and preserve pixels outside dirty rectangles", "[canvas][texture]") {
+    Engine engine;
+    const std::array<std::uint8_t, 4> one_red_pixel = {255U, 0U, 0U, 255U};
+    std::vector<std::uint8_t> red_pixels(4U * 4U * 4U, 0U);
+    for (std::size_t index = 0U; index < red_pixels.size(); index += 4U) {
+        red_pixels[index] = 255U;
+        red_pixels[index + 3U] = 255U;
+    }
+
+    CHECK_FALSE(engine.RegisterTextureRgba(0U, red_pixels.data(), 4U, 4U, red_pixels.size()));
+    CHECK_FALSE(engine.RegisterTextureRgba(1U, nullptr, 4U, 4U, red_pixels.size()));
+    CHECK_FALSE(engine.RegisterTextureRgba(1U, red_pixels.data(), 0U, 4U, red_pixels.size()));
+    CHECK_FALSE(engine.RegisterTextureRgba(1U, red_pixels.data(), 4U, 4U, red_pixels.size() - 1U));
+    CHECK_FALSE(engine.RegisterTextureRgba(1U, red_pixels.data(), 4U, 4U, red_pixels.size() + 1U));
+    CHECK_FALSE(engine.RegisterTextureRgba(
+        1U, one_red_pixel.data(), UINT32_MAX, UINT32_MAX, one_red_pixel.size()));
+    CHECK(engine.TextureCountForTesting() == 0U);
+
+    REQUIRE(engine.RegisterTextureRgba(1U, red_pixels.data(), 4U, 4U, red_pixels.size()));
+    CHECK(engine.TextureCountForTesting() == 1U);
+    CHECK(engine.GetTextureSizeForTesting(1U) == std::pair<std::uint32_t, std::uint32_t>{4U, 4U});
+
+    const std::array<std::uint8_t, 4> blue_pixel = {0U, 0U, 255U, 255U};
+    CHECK_FALSE(engine.RegisterTextureSubRgba(1U, nullptr, 1U, 1U, 1U, 1U, 4U, 4U, 4U));
+    CHECK_FALSE(engine.RegisterTextureSubRgba(1U, blue_pixel.data(), 4U, 0U, 1U, 1U, 4U, 4U, 4U));
+    CHECK_FALSE(engine.RegisterTextureSubRgba(1U, blue_pixel.data(), 1U, 1U, 1U, 1U, 5U, 4U, 4U));
+    CHECK_FALSE(engine.RegisterTextureSubRgba(1U, blue_pixel.data(), 1U, 1U, 1U, 1U, 4U, 4U, 3U));
+    REQUIRE(engine.RegisterTextureSubRgba(1U, blue_pixel.data(), 2U, 1U, 1U, 1U, 4U, 4U, 4U));
+
+    auto surface = MakeRasterSurface(4, 4);
+    surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+    engine.CanvasDrawImage(surface->getCanvas(), 1U, 0.0f, 0.0f, 4.0f, 4.0f, ED_IMAGE_SAMPLING_NEAREST, 0U);
+    const auto pixels = SnapshotRgba(surface, 4, 4);
+    const std::size_t unchanged = (1U * 4U + 1U) * 4U;
+    const std::size_t changed = (1U * 4U + 2U) * 4U;
+    CHECK(pixels[unchanged] == 255U);
+    CHECK(pixels[unchanged + 2U] == 0U);
+    CHECK(pixels[changed] == 0U);
+    CHECK(pixels[changed + 2U] == 255U);
+
+    CHECK(engine.UnregisterTexture(1U));
+    CHECK_FALSE(engine.UnregisterTexture(1U));
+    CHECK_FALSE(engine.UnregisterTexture(0U));
+    CHECK(engine.TextureCountForTesting() == 0U);
+}
+
+TEST_CASE("A first dirty texture upload creates a transparent full image", "[canvas][texture]") {
+    Engine engine;
+    const std::array<std::uint8_t, 4> green_pixel = {0U, 255U, 0U, 255U};
+    REQUIRE(engine.RegisterTextureSubRgba(
+        7U, green_pixel.data(), 0U, 0U, 1U, 1U, 2U, 2U, green_pixel.size()));
+
+    auto surface = MakeRasterSurface(2, 2);
+    surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+    engine.CanvasDrawImage(surface->getCanvas(), 7U, 0.0f, 0.0f, 2.0f, 2.0f, ED_IMAGE_SAMPLING_NEAREST, 0U);
+    const auto pixels = SnapshotRgba(surface, 2, 2);
+    CHECK(pixels[1U] == 255U);
+    CHECK(pixels[3U] == 255U);
+    CHECK(pixels[(1U * 2U + 1U) * 4U + 3U] == 0U);
 }
 
 TEST_CASE("Offscreen surfaces", "[offscreen]") {
@@ -344,11 +458,14 @@ TEST_CASE("Offscreen surfaces", "[offscreen]") {
     SECTION("create and destroy") {
         const std::uint32_t id = engine.CreateOffscreenSurface(64, 64);
         REQUIRE(id > 0);
+        CHECK(engine.OffscreenSurfaceCountForTesting() == 1U);
 
         void* canvas = engine.GetOffscreenCanvas(id);
         REQUIRE(canvas != nullptr);
 
-        engine.DestroyOffscreenSurface(id);
+        CHECK(engine.DestroyOffscreenSurface(id));
+        CHECK_FALSE(engine.DestroyOffscreenSurface(id));
+        CHECK(engine.OffscreenSurfaceCountForTesting() == 0U);
         REQUIRE(engine.GetOffscreenCanvas(id) == nullptr);
     }
 
@@ -362,7 +479,7 @@ TEST_CASE("Offscreen surfaces", "[offscreen]") {
         EdCanvasDrawRect(skCanvas, 0, 0, 16, 16, kRed, 0, 0);
 
         std::vector<std::uint8_t> pixels(32 * 32 * 4);
-        engine.ReadOffscreenPixels(id, pixels.data());
+        REQUIRE(engine.ReadOffscreenPixels(id, pixels.data(), 32U, 32U));
 
         // Check a pixel inside the red rect
         const std::size_t idx = (8U * 32U + 8U) * 4U;
@@ -372,12 +489,25 @@ TEST_CASE("Offscreen surfaces", "[offscreen]") {
         const std::size_t out_idx = (24U * 32U + 24U) * 4U;
         CHECK(pixels[out_idx + 3] == 0);
 
-        engine.DestroyOffscreenSurface(id);
+        CHECK(engine.DestroyOffscreenSurface(id));
     }
 
     SECTION("zero-size offscreen returns 0") {
         REQUIRE(engine.CreateOffscreenSurface(0, 10) == 0);
         REQUIRE(engine.CreateOffscreenSurface(10, 0) == 0);
+        REQUIRE(engine.CreateOffscreenSurface(std::numeric_limits<std::uint32_t>::max(), 1U) == 0U);
+    }
+
+    SECTION("invalid readback is atomic") {
+        const std::uint32_t id = engine.CreateOffscreenSurface(2U, 2U);
+        REQUIRE(id != 0U);
+        std::array<std::uint8_t, 16> pixels{};
+        pixels.fill(0xA5U);
+        CHECK_FALSE(engine.ReadOffscreenPixels(0U, pixels.data(), 2U, 2U));
+        CHECK_FALSE(engine.ReadOffscreenPixels(id, nullptr, 2U, 2U));
+        CHECK_FALSE(engine.ReadOffscreenPixels(id, pixels.data(), 1U, 2U));
+        CHECK(std::all_of(pixels.begin(), pixels.end(), [](std::uint8_t value) { return value == 0xA5U; }));
+        CHECK(engine.DestroyOffscreenSurface(id));
     }
 }
 
@@ -406,5 +536,23 @@ TEST_CASE("RenderNodeToRgba validation", "[canvas]") {
 
     SECTION("unknown handle returns 0") {
         REQUIRE(engine.RenderNodeToRgba(9999, 10, 10, buffer.data(), buffer_capacity, 1.0f, 0.0f, 0.0f) == 0);
+    }
+
+    SECTION("generic retained nodes render top-left premultiplied RGBA") {
+        constexpr std::uint64_t handle = (1ULL << 32U) | 1ULL;
+        effindom::v2::test::CommandBuilder builder;
+        builder.CreateNode(handle);
+        builder.SetBounds(handle, 2.0f, 3.0f, 4.0f, 4.0f, false);
+        builder.SetBoxStyle(handle, 0xFF000080U, 0.0f, 0.0f, 0.0f, 0.0f);
+        REQUIRE(engine.ExecuteCommandBuffer(
+            builder.words().data(), static_cast<std::uint32_t>(builder.words().size())).parsed_commands == 3U);
+        std::array<std::uint8_t, 8U * 8U * 4U> pixels{};
+        REQUIRE(engine.RenderNodeToRgba(
+            handle, 8U, 8U, pixels.data(), static_cast<std::uint32_t>(pixels.size()),
+            1.0f, 0.0f, 0.0f) == pixels.size());
+        CHECK(pixels[0U] == 128U);
+        CHECK(pixels[1U] == 0U);
+        CHECK(pixels[2U] == 0U);
+        CHECK(pixels[3U] == 128U);
     }
 }

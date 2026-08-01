@@ -5,6 +5,7 @@
 #include "NativeHostCore.h"
 #include "NativePlatformFactory.h"
 #include "NativePlatformHost.h"
+#include "NativeTimerCoordinator.h"
 #include "UiPlatformHost.h"
 #include "fui_host_abi.h"
 
@@ -15,9 +16,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <cmath>
+#include <chrono>
+#include <condition_variable>
 #include <cstdint>
+#include <deque>
 #include <filesystem>
+#include <functional>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -45,6 +51,9 @@ struct TestPlatformState {
     bool fail_next_prepare = false;
     std::uint64_t posted_dispatch = 0U;
     std::uint64_t cancelled_dispatch = 0U;
+    std::uint32_t started_timer = 0U;
+    std::int32_t timer_delay = 0;
+    std::uint32_t cancelled_timer = 0U;
     std::uint64_t clipboard_read_handle = 0U;
     std::string clipboard;
     std::string caption;
@@ -141,12 +150,22 @@ public:
         : state_(std::move(state)), ui_host_(state_),
           core_(NativeInputRouterOptions{false, false, false}, NativeHostCoreCallbacks{
               {},
-              [] {
+              [this] {
+                  if (timer_coordinator_ != nullptr) timer_coordinator_->Clear();
                   __fui_clear_ui_dispatches();
                   __fui_clear_native_file_dialog_callbacks();
               },
           }) {
         state_->visible = visible;
+        timer_coordinator_ = std::make_unique<NativeTimerCoordinator>(
+            [this](NativeTimerCoordinator::UiTask task) {
+                {
+                    std::lock_guard lock(ui_task_mutex_);
+                    ui_tasks_.push_back(std::move(task));
+                }
+                ui_task_changed_.notify_all();
+                return true;
+            });
         auto surface = std::make_unique<TestGraphicsSurface>(state_, 640, 480);
         surface_ = surface.get();
         auto graphics = NativeGraphicsCoordinator::Create(
@@ -174,15 +193,28 @@ public:
     }
 
     ~TestPlatformHost() override {
+        timer_coordinator_.reset();
         ui::ClearGlobalUiPlatformHost(ui_host_);
         core_.ReleaseGraphics();
     }
 
     NativeHostCore& Core() override { return core_; }
     const NativeHostCore& Core() const override { return core_; }
-    bool PumpEvent(bool) override {
+    bool PumpEvent(bool wait_when_idle) override {
         ++state_->pump_count;
-        return false;
+        std::deque<NativeTimerCoordinator::UiTask> tasks;
+        {
+            std::unique_lock lock(ui_task_mutex_);
+            if (wait_when_idle && ui_tasks_.empty()) {
+                ui_task_changed_.wait_for(lock, std::chrono::milliseconds(50), [this] {
+                    return !ui_tasks_.empty();
+                });
+            }
+            tasks.swap(ui_tasks_);
+        }
+        bool rendered = false;
+        for (auto& task : tasks) rendered = task() || rendered;
+        return rendered;
     }
     void Resize(std::uint32_t width, std::uint32_t height) override {
         surface_->Resize(static_cast<int>(width * 2U), static_cast<int>(height * 2U));
@@ -198,6 +230,14 @@ public:
     }
     std::uint32_t CurrentPointerButtons() const override { return 0U; }
     std::uint32_t CurrentModifiers() const override { return 0U; }
+    bool PostUiTask(std::function<bool()> task) override {
+        {
+            std::lock_guard lock(ui_task_mutex_);
+            ui_tasks_.push_back(std::move(task));
+        }
+        ui_task_changed_.notify_all();
+        return true;
+    }
     bool PostUiDispatch(std::uint64_t callback_id) override {
         state_->posted_dispatch = callback_id;
         return true;
@@ -205,6 +245,15 @@ public:
     bool CancelUiDispatch(std::uint64_t callback_id) override {
         state_->cancelled_dispatch = callback_id;
         return true;
+    }
+    void StartTimer(std::uint32_t timer_id, std::int32_t delay_ms) override {
+        state_->started_timer = timer_id;
+        state_->timer_delay = delay_ms;
+        timer_coordinator_->Start(timer_id, delay_ms);
+    }
+    void CancelTimer(std::uint32_t timer_id) override {
+        state_->cancelled_timer = timer_id;
+        timer_coordinator_->Cancel(timer_id);
     }
     void SetClipboardText(const std::string& text) override { state_->clipboard = text; }
     std::string ClipboardText() const override { return state_->clipboard; }
@@ -249,6 +298,13 @@ public:
         state_->font_id = font_id;
         state_->font_source = source;
     }
+    void ReportMissingFontCoverage(
+        std::uint32_t font_id,
+        std::uint32_t,
+        const std::string& sample) override {
+        state_->font_id = font_id;
+        state_->font_source = sample;
+    }
     void LoadSvg(std::uint32_t svg_id, const std::string&) override { state_->svg_id = svg_id; }
     void ReleaseSvg(std::uint32_t svg_id) override { state_->svg_id = svg_id; }
     void LoadTexture(std::uint32_t texture_id, const std::string&) override {
@@ -272,19 +328,16 @@ public:
         state_->drop_data = data;
     }
     std::size_t FallbackFontCountForTesting() const override { return 0U; }
-    void RequestMissingFontCoverageForTesting(
-        std::uint32_t font_id,
-        std::uint32_t,
-        const std::string& sample) override {
-        state_->font_id = font_id;
-        state_->font_source = sample;
-    }
 
 private:
     std::shared_ptr<TestPlatformState> state_;
     TestUiPlatformHost ui_host_;
     NativeHostCore core_;
     TestGraphicsSurface* surface_ = nullptr;
+    std::unique_ptr<NativeTimerCoordinator> timer_coordinator_;
+    std::mutex ui_task_mutex_;
+    std::condition_variable ui_task_changed_;
+    std::deque<NativeTimerCoordinator::UiTask> ui_tasks_;
 };
 
 class TestPlatformFactory final : public NativePlatformFactory {

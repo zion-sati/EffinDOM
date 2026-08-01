@@ -438,7 +438,9 @@ void ed_register_texture_sub_rgba(
     std::uint32_t sub_h,
     std::uint32_t full_w,
     std::uint32_t full_h) {
-    g_state.engine.RegisterTextureSubRgba(texture_id, sub_rgba, sub_x, sub_y, sub_w, sub_h, full_w, full_h);
+    const std::size_t byte_length = static_cast<std::size_t>(sub_w) * static_cast<std::size_t>(sub_h) * 4U;
+    g_state.engine.RegisterTextureSubRgba(
+        texture_id, sub_rgba, sub_x, sub_y, sub_w, sub_h, full_w, full_h, byte_length);
 }
 
 EMSCRIPTEN_KEEPALIVE
@@ -695,7 +697,11 @@ void* ed_canvas_get_offscreen_canvas(uint32_t offscreen_id) {
 
 EMSCRIPTEN_KEEPALIVE
 void ed_canvas_read_offscreen_pixels(uint32_t offscreen_id, uint8_t* out_rgba) {
-    g_state.engine.ReadOffscreenPixels(offscreen_id, out_rgba);
+    const auto dimensions = g_state.engine.GetOffscreenDimensions(offscreen_id);
+    if (dimensions.has_value()) {
+        g_state.engine.ReadOffscreenPixels(
+            offscreen_id, out_rgba, dimensions->first, dimensions->second);
+    }
 }
 
 EMSCRIPTEN_KEEPALIVE

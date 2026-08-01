@@ -51,6 +51,25 @@ runtime device failure recreates the backend that was already selected.
 
 Asset registration, release, completion, fallback-ID ownership, and frame invalidation are shared behavior. Only OS resource discovery and effects are platform strategies.
 
+## Browser-only FUI capabilities on desktop
+
+The native host reports `FUI_HOST_ENVIRONMENT_DESKTOP` and exposes only the
+capabilities returned by `fui_get_host_capabilities()`. Browser-only SDK
+services are not silently emulated:
+
+| FUI surface | Native behavior | Native application alternative |
+| --- | --- | --- |
+| `Fetch` | rejects immediately through its error callback | Rust networking or another application-language native client |
+| browser `Worker` and file-processing Worker | rejects immediately through its error callback | native threads, async executors, or process APIs |
+| browser file handles, streams, and picker-backed writes | reports zero capabilities and rejects direct operations | native file I/O plus the desktop file-dialog host API |
+| browser history-backed persisted state and scroll restoration | unavailable; reads report no state and writes are ignored with a diagnostic | application-owned persistence; a retained native persistence adapter is a separate future feature |
+| reload, Back/Forward, and browser URL preview chrome | unavailable | application-owned native navigation; external `NavLink` targets still open through the native URI service |
+| DOM editor and password-manager metadata | intentionally not projected | the native editor and accessibility adapters own desktop text behavior |
+
+Unsupported public operations emit one diagnostic per capability and complete
+through their normal error callback where one exists. This keeps failure
+predictable without making desktop FUI applications depend on browser services.
+
 ## Packaging
 
 - macOS uses an executable-relative `../lib` runtime path and app bundle-compatible resource layout.

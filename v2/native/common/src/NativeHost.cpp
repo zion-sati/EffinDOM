@@ -5,12 +5,23 @@
 #include "NativeHostCore.h"
 #include "NativeWindowIcon.h"
 #include "NativeFuiBridge.h"
+#include "NativeFuiRsWorkerAdapter.h"
 #include "NativeFuiRuntimeBridge.h"
+#include "NativeWorkerHost.h"
 #include "Engine.h"
+#include "UiRuntime.h"
 #include "effindom_ui.h"
 
+#include <fstream>
+#include <limits>
 #include <stdexcept>
 #include <utility>
+
+extern "C" {
+void __fui_on_worker_progress(std::uint32_t, const std::uint8_t*, std::uint32_t);
+void __fui_on_worker_complete(std::uint32_t, const std::uint8_t*, std::uint32_t);
+void __fui_on_worker_error(std::uint32_t, const std::uint8_t*, std::uint32_t);
+}
 
 namespace effindom::v2::native {
 
@@ -22,18 +33,54 @@ NativeHost::NativeHost(bool visible) {
     const std::filesystem::path icon = FindPackagedApplicationIcon();
     if (!icon.empty()) platform_->SetApplicationIcon(icon);
     SetActiveNativePlatformHost(platform_.get());
+    std::size_t worker_count = 0U;
+    const auto* workers = fui_native_worker_registry(&worker_count);
+    worker_host_ = std::make_unique<NativeWorkerHost>(
+        workers,
+        worker_count,
+        [this](NativeWorkerCoordinator::UiTask task) {
+            return platform_->PostUiTask(std::move(task));
+        },
+        NativeWorkerHostCallbacks{
+            [](std::uint32_t id, const std::string& text) {
+                __fui_on_worker_progress(
+                    id,
+                    reinterpret_cast<const std::uint8_t*>(text.data()),
+                    static_cast<std::uint32_t>(text.size()));
+            },
+            [](std::uint32_t id, const std::string& text) {
+                __fui_on_worker_complete(
+                    id,
+                    reinterpret_cast<const std::uint8_t*>(text.data()),
+                    static_cast<std::uint32_t>(text.size()));
+            },
+            [](std::uint32_t id, const std::string& text) {
+                __fui_on_worker_error(
+                    id,
+                    reinterpret_cast<const std::uint8_t*>(text.data()),
+                    static_cast<std::uint32_t>(text.size()));
+            },
+        });
+    SetActiveNativeWorkerHost(worker_host_.get());
 }
 
 NativeHost::~NativeHost() {
+    SetActiveNativeWorkerHost(nullptr);
+    worker_host_->SetSessionGeneration(++worker_session_generation_);
+    worker_host_.reset();
     platform_->Core().UnmountApplication();
     if (ActiveNativePlatformHost() == platform_.get()) SetActiveNativePlatformHost(nullptr);
 }
 
 void NativeHost::MountApplication() {
+    worker_host_->SetSessionGeneration(++worker_session_generation_);
     platform_->Core().MountApplication();
     ui_set_platform_family(platform_->PlatformFamily());
 }
-void NativeHost::Unmount() { platform_->Core().UnmountApplication(); }
+void NativeHost::Unmount() {
+    worker_host_->SetSessionGeneration(++worker_session_generation_);
+    platform_->Core().UnmountApplication();
+}
 void NativeHost::RequestFrame() { platform_->Core().RequestFrame(); }
 bool NativeHost::RunNextFrame() { return platform_->Core().RunNextFrame(); }
 void NativeHost::DrainFrames(std::uint32_t maximum_frames) { platform_->Core().DrainFrames(maximum_frames); }
@@ -111,11 +158,35 @@ std::uint64_t NativeHost::HitTest(float x, float y) const { return platform_->Co
 bool NativeHost::HasFontForTesting(std::uint32_t font_id) const {
     return platform_->Core().GetEngine().HasFontForTesting(font_id);
 }
+bool NativeHost::LoadFontForTesting(std::uint32_t font_id, const std::filesystem::path& path) {
+    std::ifstream input(path, std::ios::binary | std::ios::ate);
+    if (!input.good()) return false;
+    const std::streamoff size = input.tellg();
+    if (size <= 0 || static_cast<std::uint64_t>(size) > std::numeric_limits<std::uint32_t>::max()) {
+        return false;
+    }
+    input.seekg(0, std::ios::beg);
+    std::vector<std::uint8_t> bytes(static_cast<std::size_t>(size));
+    if (!input.read(reinterpret_cast<char*>(bytes.data()), size)) return false;
+    if (!ui::GetRuntime().RegisterFont(
+            font_id, bytes.data(), static_cast<std::uint32_t>(bytes.size()))) {
+        return false;
+    }
+    platform_->Core().GetEngine().RegisterFont(
+        font_id, bytes.data(), static_cast<std::uint32_t>(bytes.size()));
+    return HasFontForTesting(font_id);
+}
 bool NativeHost::FontHasGlyphForTesting(std::uint32_t font_id, std::uint32_t codepoint) const {
     return platform_->Core().GetEngine().FontHasGlyphForTesting(font_id, codepoint);
 }
 std::optional<std::pair<float, float>> NativeHost::SvgSizeForTesting(std::uint32_t svg_id) const {
     return platform_->Core().GetEngine().GetSvgSizeForTesting(svg_id);
+}
+void NativeHost::RegisterSvgForTesting(std::uint32_t svg_id, std::string_view source) {
+    platform_->Core().GetEngine().RegisterSvg(
+        svg_id,
+        reinterpret_cast<const std::uint8_t*>(source.data()),
+        static_cast<std::uint32_t>(source.size()));
 }
 std::optional<std::pair<std::uint32_t, std::uint32_t>> NativeHost::TextureSizeForTesting(
     std::uint32_t texture_id) const {
@@ -124,12 +195,18 @@ std::optional<std::pair<std::uint32_t, std::uint32_t>> NativeHost::TextureSizeFo
 std::size_t NativeHost::TextureCountForTesting() const {
     return platform_->Core().GetEngine().TextureCountForTesting();
 }
+std::size_t NativeHost::PathCountForTesting() const {
+    return platform_->Core().GetEngine().PathCountForTesting();
+}
+std::size_t NativeHost::OffscreenSurfaceCountForTesting() const {
+    return platform_->Core().GetEngine().OffscreenSurfaceCountForTesting();
+}
 std::size_t NativeHost::FallbackFontCountForTesting() const { return platform_->FallbackFontCountForTesting(); }
 void NativeHost::RequestMissingFontCoverageForTesting(
     std::uint32_t primary_font_id,
     std::uint32_t coverage_kind,
     const std::string& sample_text) {
-    platform_->RequestMissingFontCoverageForTesting(primary_font_id, coverage_kind, sample_text);
+    platform_->ReportMissingFontCoverage(primary_font_id, coverage_kind, sample_text);
 }
 NativeHostState NativeHost::State() const { return platform_->Core().State(); }
 const NativeAccessibilitySnapshot& NativeHost::AccessibilitySnapshotForTesting() const {

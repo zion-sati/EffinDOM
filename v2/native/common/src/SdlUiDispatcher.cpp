@@ -29,6 +29,23 @@ bool SdlUiDispatcher::Cancel(std::uint64_t callback_id) {
     return Enqueue(Operation::Cancel, callback_id);
 }
 
+bool SdlUiDispatcher::PostTask(std::function<bool()> task) {
+    if (!task) return false;
+    std::uint64_t work_id = 0U;
+    {
+        std::lock_guard lock(mutex_);
+        work_id = next_work_id_++;
+        queue_.push_back(WorkItem{Operation::Task, 0U, std::move(task), work_id});
+    }
+    if (PushWakeEvent()) return true;
+    std::lock_guard lock(mutex_);
+    const auto iterator = std::find_if(queue_.begin(), queue_.end(), [=](const WorkItem& item) {
+        return item.work_id == work_id;
+    });
+    if (iterator != queue_.end()) queue_.erase(iterator);
+    return false;
+}
+
 bool SdlUiDispatcher::HandleEvent(const SDL_Event& event) {
     if (event.type != event_type_) return false;
     std::deque<WorkItem> work;
@@ -37,11 +54,13 @@ bool SdlUiDispatcher::HandleEvent(const SDL_Event& event) {
         work.swap(queue_);
     }
     bool rendered_work = false;
-    for (const WorkItem& item : work) {
+    for (WorkItem& item : work) {
         if (item.operation == Operation::Run) {
             rendered_work = __fui_run_ui_dispatch(item.callback_id) || rendered_work;
-        } else {
+        } else if (item.operation == Operation::Cancel) {
             __fui_cancel_ui_dispatch(item.callback_id);
+        } else {
+            rendered_work = item.task() || rendered_work;
         }
     }
     return rendered_work;
@@ -54,27 +73,33 @@ void SdlUiDispatcher::Clear() {
         discarded.swap(queue_);
     }
     for (const WorkItem& item : discarded) {
-        __fui_cancel_ui_dispatch(item.callback_id);
+        if (item.operation != Operation::Task) __fui_cancel_ui_dispatch(item.callback_id);
     }
 }
 
 bool SdlUiDispatcher::Enqueue(Operation operation, std::uint64_t callback_id) {
     if (callback_id == 0U) return false;
+    std::uint64_t work_id = 0U;
     {
         std::lock_guard lock(mutex_);
-        queue_.push_back(WorkItem{operation, callback_id});
+        work_id = next_work_id_++;
+        queue_.push_back(WorkItem{operation, callback_id, {}, work_id});
     }
+    if (PushWakeEvent()) return true;
+
+    std::lock_guard lock(mutex_);
+    const auto iterator = std::find_if(queue_.begin(), queue_.end(), [=](const WorkItem& item) {
+        return item.work_id == work_id;
+    });
+    if (iterator != queue_.end()) queue_.erase(iterator);
+    return false;
+}
+
+bool SdlUiDispatcher::PushWakeEvent() {
     SDL_Event event{};
     event.type = event_type_;
     event.user.windowID = SDL_GetWindowID(window_);
-    if (SDL_PushEvent(&event)) return true;
-
-    std::lock_guard lock(mutex_);
-    const auto iterator = std::find_if(queue_.rbegin(), queue_.rend(), [=](const WorkItem& item) {
-        return item.operation == operation && item.callback_id == callback_id;
-    });
-    if (iterator != queue_.rend()) queue_.erase(std::next(iterator).base());
-    return false;
+    return SDL_PushEvent(&event);
 }
 
 } // namespace effindom::v2::native

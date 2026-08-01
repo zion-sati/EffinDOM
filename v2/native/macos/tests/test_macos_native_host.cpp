@@ -1,5 +1,6 @@
 #include "NativeHost.h"
 #include "NativeHostCharacterization.h"
+#include "NativeWorkerDemoContract.h"
 #include "fui_host_abi.h"
 #include "NativeInputTypes.h"
 #include "graphics/MacosMetalSurface.h"
@@ -31,6 +32,7 @@ extern "C" std::uint64_t __fui_native_action_handle();
 extern "C" std::uint64_t __fui_native_application_root_handle();
 extern "C" std::uint64_t __fui_native_scroll_handle();
 extern "C" std::uint64_t __fui_native_body_text_handle();
+extern "C" std::uint64_t __fui_native_system_fallback_text_handle();
 extern "C" std::uint64_t __fui_native_selection_text_handle();
 extern "C" std::uint64_t __fui_native_click_text_handle();
 extern "C" std::uint64_t __fui_native_context_link_handle();
@@ -39,6 +41,15 @@ extern "C" std::uint64_t __fui_native_context_svg_handle();
 extern "C" std::uint64_t __fui_native_context_editor_handle();
 extern "C" std::uint64_t __fui_native_scroll_view_handle();
 extern "C" std::uint64_t __fui_native_drop_zone_handle();
+extern "C" std::uint64_t __fui_native_worker_panel_handle();
+extern "C" void __fui_native_worker_start_prime();
+extern "C" void __fui_native_worker_cancel();
+extern "C" void __fui_native_worker_start_fail();
+extern "C" std::uint32_t __fui_native_worker_status();
+extern "C" float __fui_native_worker_progress();
+extern "C" bool __fui_native_worker_detail_has_prime_and_clock();
+extern "C" bool __fui_native_worker_detail_has_failure_and_clock();
+extern "C" bool __fui_native_worker_threads_are_split();
 extern "C" bool __fui_native_context_menu_visible();
 extern "C" void __fui_native_schedule_ui_dispatch();
 extern "C" void __fui_native_schedule_cancelled_ui_dispatch();
@@ -342,6 +353,7 @@ TEST_CASE("macOS retries Metal when a runtime recovery attempt fails",
 
 TEST_CASE("native input, resize, density, and clipboard services are live", "[v2][native][macos][n3c]") {
     NativeHost host(false);
+    host.Resize(1000U, 900U);
     host.MountApplication();
     host.DrainFrames();
     const auto baseline_activations = host.State().activation_count;
@@ -964,4 +976,39 @@ TEST_CASE("native application remount is deterministic and lifecycle remains idl
     REQUIRE(first.size() == remounted.size());
     CHECK(first == remounted);
     CHECK(host.IsIdle());
+}
+
+TEST_CASE("mounted native demo resolves its visible CJK sample through macOS system fallback",
+    "[v2][native][macos][assets][fallback]") {
+    NativeHost host(false);
+    host.MountApplication();
+    host.DrainFrames();
+
+    const std::uint64_t sample = __fui_native_system_fallback_text_handle();
+    REQUIRE(sample != 0U);
+    float x = 0.0f;
+    float y = 0.0f;
+    float width = 0.0f;
+    float height = 0.0f;
+    REQUIRE(ui_get_bounds(sample, &x, &y, &width, &height));
+    ui_set_scroll_offset(__fui_native_scroll_view_handle(), 0.0f, std::max(0.0f, y - 120.0f));
+    host.RequestFrame();
+
+    bool has_cjk_glyph = false;
+    for (std::uint32_t attempt = 0U; attempt < 200U && !has_cjk_glyph; ++attempt) {
+        host.DrainFrames();
+        std::uint32_t fallback_count = 0U;
+        const std::uint32_t* fallbacks = ui_get_live_fallback_font_buffer(&fallback_count);
+        for (std::uint32_t index = 0U; index < fallback_count; ++index) {
+            has_cjk_glyph = has_cjk_glyph || host.FontHasGlyphForTesting(fallbacks[index], 0x4F60U);
+        }
+        if (!has_cjk_glyph) SDL_Delay(5U);
+    }
+    CHECK(has_cjk_glyph);
+
+}
+
+TEST_CASE("native demo runs the browser prime Worker contract without a platform branch",
+    "[v2][native][macos][worker][demo]") {
+    effindom::v2::native::tests::CharacterizeNativeWorkerDemo<NativeHost>();
 }

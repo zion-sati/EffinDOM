@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <optional>
 #include <string>
 #include <utility>
@@ -26,6 +27,9 @@ public:
     virtual std::uint32_t CurrentModifiers() const = 0;
     virtual bool PostUiDispatch(std::uint64_t callback_id) = 0;
     virtual bool CancelUiDispatch(std::uint64_t callback_id) = 0;
+    virtual bool PostUiTask(std::function<bool()> task) = 0;
+    virtual void StartTimer(std::uint32_t timer_id, std::int32_t delay_ms) = 0;
+    virtual void CancelTimer(std::uint32_t timer_id) = 0;
     virtual void SetClipboardText(const std::string& text) = 0;
     virtual std::string ClipboardText() const = 0;
     virtual void RequestClipboardRead(std::uint64_t handle) = 0;
@@ -48,6 +52,10 @@ public:
     virtual void SetNativePointerCapture(bool captured) = 0;
     virtual void SetCursor(std::uint32_t style) = 0;
     virtual void RequestFontLoad(std::uint32_t font_id, const std::string& source) = 0;
+    virtual void ReportMissingFontCoverage(
+        std::uint32_t primary_font_id,
+        std::uint32_t coverage_kind,
+        const std::string& sample_text) = 0;
     virtual void LoadSvg(std::uint32_t svg_id, const std::string& source) = 0;
     virtual void ReleaseSvg(std::uint32_t svg_id) = 0;
     virtual void LoadTexture(std::uint32_t texture_id, const std::string& source) = 0;
@@ -64,10 +72,6 @@ public:
         float y,
         const std::string& data) = 0;
     virtual std::size_t FallbackFontCountForTesting() const = 0;
-    virtual void RequestMissingFontCoverageForTesting(
-        std::uint32_t primary_font_id,
-        std::uint32_t coverage_kind,
-        const std::string& sample_text) = 0;
 };
 
 } // namespace effindom::v2::native

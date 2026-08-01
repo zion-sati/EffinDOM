@@ -6,7 +6,10 @@ if(EFFINDOM_BUILD_NATIVE_FUI_RS_DEMO AND EXISTS "${EFFINDOM_NATIVE_RUST_MANIFEST
     set(EFFINDOM_NATIVE_RUST_TARGET_DIR "${CMAKE_BINARY_DIR}/native-rust")
     set(EFFINDOM_NATIVE_RUST_PROFILE release)
     set(EFFINDOM_NATIVE_RUST_BUILD_ARGS --release)
-    set(EFFINDOM_NATIVE_RUST_ENV CARGO_TARGET_DIR=${EFFINDOM_NATIVE_RUST_TARGET_DIR})
+    set(EFFINDOM_NATIVE_RUST_ENV
+        CARGO_TARGET_DIR=${EFFINDOM_NATIVE_RUST_TARGET_DIR}
+        FUI_NATIVE_WORKER_REGISTRY_RS=${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}/src/native_worker_registry.rs
+        "RUSTFLAGS=--cfg fui_native_worker_registry --check-cfg=cfg(fui_native_worker_registry)")
     if(CMAKE_BUILD_TYPE STREQUAL "Debug")
         set(EFFINDOM_NATIVE_RUST_PROFILE debug)
         set(EFFINDOM_NATIVE_RUST_BUILD_ARGS)
@@ -17,13 +20,16 @@ if(EFFINDOM_BUILD_NATIVE_FUI_RS_DEMO AND EXISTS "${EFFINDOM_NATIVE_RUST_MANIFEST
         "${EFFINDOM_NATIVE_RUST_TARGET_DIR}/${EFFINDOM_RUST_TARGET}/${EFFINDOM_NATIVE_RUST_PROFILE}/effindom_native_fui_rs_app.lib")
     file(GLOB_RECURSE EFFINDOM_NATIVE_RUST_SOURCES CONFIGURE_DEPENDS
         "${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}/src/*.rs"
+        "${CMAKE_SOURCE_DIR}/v2/fui-rs/crates/demo-worker/src/*.rs"
         "${CMAKE_SOURCE_DIR}/v2/fui-rs/src/*.rs"
     )
     add_custom_command(
         OUTPUT "${EFFINDOM_NATIVE_RUST_LIBRARY}"
         COMMAND ${CMAKE_COMMAND} -E env ${EFFINDOM_NATIVE_RUST_ENV}
             cargo build ${EFFINDOM_NATIVE_RUST_BUILD_ARGS} --target ${EFFINDOM_RUST_TARGET} --manifest-path "${EFFINDOM_NATIVE_RUST_MANIFEST}"
-        DEPENDS ${EFFINDOM_NATIVE_RUST_SOURCES} "${EFFINDOM_NATIVE_RUST_MANIFEST}" "${CMAKE_SOURCE_DIR}/v2/fui-rs/Cargo.toml"
+        DEPENDS ${EFFINDOM_NATIVE_RUST_SOURCES} "${EFFINDOM_NATIVE_RUST_MANIFEST}"
+            "${CMAKE_SOURCE_DIR}/v2/fui-rs/crates/demo-worker/Cargo.toml"
+            "${CMAKE_SOURCE_DIR}/v2/fui-rs/Cargo.toml"
         WORKING_DIRECTORY "${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}"
         COMMENT "[EffinDOM native] Building Windows ${EFFINDOM_TARGET_ARCH} FUI-RS application"
         VERBATIM
@@ -145,19 +151,8 @@ if(EFFINDOM_WINDOWS_DEMO_AVAILABLE)
 
     include("${CMAKE_SOURCE_DIR}/v2/native/common/NativeCommonContractTests.cmake")
     effindom_add_native_common_contract_tests(effindom_native_fui_rs_app)
-
-    add_custom_command(TARGET effindom_v2_native_common_contract_tests POST_BUILD
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:effindom_v2_core>"
-            "$<TARGET_FILE_DIR:effindom_v2_native_common_contract_tests>"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:effindom_v2_ui>"
-            "$<TARGET_FILE_DIR:effindom_v2_native_common_contract_tests>"
-        COMMAND ${CMAKE_COMMAND} -E copy_if_different
-            "$<TARGET_FILE:SDL3::SDL3>"
-            "$<TARGET_FILE_DIR:effindom_v2_native_common_contract_tests>"
-        COMMENT "[EffinDOM native] Staging Windows contract-test runtime libraries"
-        VERBATIM)
+    effindom_stage_windows_native_target(effindom_v2_native_common_contract_tests
+        "${EFFINDOM_WINDOWS_TEST_OUTPUT_BIN}" "${EFFINDOM_WINDOWS_TEST_OUTPUT_RESOURCES}")
 
     effindom_stage_windows_native_target(effindom_v2_windows_native
         "${EFFINDOM_WINDOWS_OUTPUT_BIN}" "${EFFINDOM_WINDOWS_OUTPUT_RESOURCES}")

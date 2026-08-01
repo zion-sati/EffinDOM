@@ -1,0 +1,57 @@
+# symbol|classification|state|owner|reference|invalid-input contract
+fui_native_activation_count|native-fallback|intentional-stub|native FUI application override|v2/native/common/src/NativeFuiHostStubs.cpp|Absent application overrides return zero activations.
+fui_register_text_input_metadata|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|Ignore on native because the native editor owns its metadata.
+fui_has_text_selection_snapshot|native-fallback|intentional-stub|native C++ editor|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|Unknown handles return false.
+fui_freeze_text_selection_snapshot|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|Ignore on native because no DOM selection snapshot exists.
+fui_copy_text_selection_snapshot|native-fallback|intentional-stub|native C++ editor|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|Unknown handles return false and callers use the native UI fallback.
+fui_cut_focused_text_selection|native-fallback|intentional-stub|native C++ editor|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|No focused editable selection returns false.
+fui_cut_text_selection_snapshot|native-fallback|intentional-stub|native C++ editor|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|Unknown handles return false and callers use the native UI fallback.
+fui_cut_text_range_snapshot|native-fallback|intentional-stub|native C++ editor|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|Zero handles or empty ranges return false, and reversed ranges are normalized.
+fui_delete_focused_text_range|native-fallback|intentional-stub|native C++ editor|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|No focused editable range returns false.
+fui_commit_text_action_focus|native-fallback|intentional-stub|native C++ editor|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|Unknown handles are ignored.
+fui_start_timer|required|implemented|NativeTimerCoordinator|v2/browser-bridge/src/managed-harness/managed-harness.ts|Unknown IDs are accepted as new timers, and non-positive delay dispatches on a later UI turn.
+fui_cancel_timer|required|implemented|NativeTimerCoordinator|v2/browser-bridge/src/managed-harness/managed-harness.ts|Unknown IDs are safe no-ops.
+fui_bitmap_commit|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-bitmap-host.ts|Reject zero IDs, null pixels, zero dimensions, overflow, and non-exact buffers without mutation.
+fui_bitmap_commit_dirty|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-bitmap-host.ts|A valid first dirty commit creates a zero-filled texture. Reject null pixels, dimension changes, invalid bounds, overflow, and non-exact buffers without mutation.
+fui_bitmap_release|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-bitmap-host.ts|Unknown and zero IDs are safe no-ops.
+fui_render_node_to_rgba|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-bitmap-host.ts|Reject zero or stale handles, null output, zero or overflowing dimensions, non-finite transforms, and short buffers by returning zero without partial output.
+fui_fetch_start|browser-only|intentional-stub|native application networking|v2/browser-bridge/src/managed-harness/managed-harness-fetch-host.ts|Native host does not claim a request was started.
+fui_fetch_cancel|browser-only|intentional-stub|native application networking|v2/browser-bridge/src/managed-harness/managed-harness-fetch-host.ts|Unknown requests are safe no-ops.
+fui_set_persisted_scroll_offset|browser-only|intentional-stub|future native persistence adapter|v2/browser-bridge/src/managed-harness/persisted-ui-state-controller.ts|Invalid keys and offsets are ignored.
+fui_try_get_persisted_scroll_offset|browser-only|intentional-stub|future native persistence adapter|v2/browser-bridge/src/managed-harness/persisted-ui-state-controller.ts|Unavailable state returns false without writing outputs.
+fui_set_persisted_state|browser-only|intentional-stub|future native persistence adapter|v2/browser-bridge/src/managed-harness/persisted-ui-state-controller.ts|Invalid keys and payloads are ignored.
+fui_copy_persisted_state|browser-only|intentional-stub|future native persistence adapter|v2/browser-bridge/src/managed-harness/persisted-ui-state-controller.ts|Unavailable or invalid state returns minus one without partial output.
+fui_worker_start_string|required|implemented|NativeWorkerHost|v2/native/common/src/NativeWorkerHost.cpp|Unknown registry entries report one asynchronous Worker error.
+fui_worker_cancel|required|implemented|NativeWorkerHost|v2/native/common/src/NativeWorkerHost.cpp|Unknown or already terminal worker IDs are ignored safely.
+fui_file_capabilities|deliberately-unsupported|intentional-stub|native file APIs outside this bridge|v2/browser-bridge/src/managed-harness/managed-harness-file-host.ts|Returns zero capabilities.
+fui_file_pick|deliberately-unsupported|intentional-stub|native file APIs outside this bridge|v2/browser-bridge/src/managed-harness/managed-harness-file-host.ts|Rejects through the file-pick result callback, while native dialogs use the separate native host API.
+fui_file_read_chunk|deliberately-unsupported|intentional-stub|native file APIs outside this bridge|v2/browser-bridge/src/managed-harness/managed-harness-file-host.ts|Rejects through the file-read result callback without returning bytes.
+fui_file_save_text|deliberately-unsupported|intentional-stub|native file APIs outside this bridge|v2/browser-bridge/src/managed-harness/managed-harness-file-host.ts|Rejects through the file-save result callback without writing.
+fui_file_save_bytes|deliberately-unsupported|intentional-stub|native file APIs outside this bridge|v2/browser-bridge/src/managed-harness/managed-harness-file-host.ts|Rejects through the file-save result callback without writing.
+fui_file_create_writer|deliberately-unsupported|intentional-stub|native file APIs outside this bridge|v2/browser-bridge/src/managed-harness/managed-harness-file-host.ts|Rejects through the writer-created callback without creating a writer.
+fui_file_writer_write_text|deliberately-unsupported|intentional-stub|native file APIs outside this bridge|v2/browser-bridge/src/managed-harness/managed-harness-file-host.ts|Rejects through the file-write callback without writing.
+fui_file_writer_write_bytes|deliberately-unsupported|intentional-stub|native file APIs outside this bridge|v2/browser-bridge/src/managed-harness/managed-harness-file-host.ts|Rejects through the file-write callback without writing.
+fui_file_writer_finish|deliberately-unsupported|intentional-stub|native file APIs outside this bridge|v2/browser-bridge/src/managed-harness/managed-harness-file-host.ts|Rejects through the file-finish callback without committing a writer.
+fui_file_process_worker_start|browser-only|intentional-stub|native application concurrency|v2/browser-bridge/src/managed-harness/file-processing-worker.ts|Rejects through the file-worker error callback without starting work.
+fui_file_process_worker_cancel|browser-only|intentional-stub|native application concurrency|v2/browser-bridge/src/managed-harness/file-processing-worker.ts|Unknown requests report one unsupported-capability diagnostic and remain safe.
+fui_reload_page|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/managed-history.ts|Reports that browser page reload is unavailable.
+fui_can_navigate_back|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/managed-history.ts|Returns false.
+fui_can_navigate_forward|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/managed-history.ts|Returns false.
+fui_navigate_back|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/managed-history.ts|Reports that browser history navigation is unavailable.
+fui_navigate_forward|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/managed-history.ts|Reports that browser history navigation is unavailable.
+fui_show_url_preview|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/ui-chrome.ts|Native hosts do not project browser URL chrome.
+fui_hide_url_preview|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/ui-chrome.ts|Native hosts do not project browser URL chrome.
+fui_path_create|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Resource exhaustion returns zero.
+fui_path_destroy|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Unknown and zero IDs are safe no-ops.
+fui_path_move_to|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Unknown IDs and non-finite coordinates are rejected without mutation.
+fui_path_line_to|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Unknown IDs and non-finite coordinates are rejected without mutation.
+fui_path_quad_to|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Unknown IDs and non-finite coordinates are rejected without mutation.
+fui_path_cubic_to|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Unknown IDs and non-finite coordinates are rejected without mutation.
+fui_path_close|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Unknown and zero IDs are safe no-ops.
+fui_path_add_rect|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Unknown IDs, non-finite values, and non-positive sizes are rejected without mutation.
+fui_path_add_circle|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Unknown IDs, non-finite values, and non-positive radii are rejected without mutation.
+fui_canvas_draw_batch|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Empty batches are safe no-ops. Reject null canvases, null or misaligned non-empty commands, and malformed word streams without partial execution.
+fui_canvas_create_offscreen|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Zero or overflowing dimensions and allocation failure return zero, while IDs are nonzero and wrap-safe.
+fui_canvas_get_offscreen_ptr|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Unknown and zero IDs return zero.
+fui_canvas_read_offscreen_pixels|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Reject unknown IDs, null output, dimension mismatch, and overflow without partial output, with top-left premultiplied RGBA8888 pixels.
+fui_canvas_destroy_offscreen|required|implemented|NativeFuiRuntimeBridge|v2/browser-bridge/src/managed-harness/managed-harness-canvas-host.ts|Unknown and zero IDs are safe no-ops and owned surfaces are released deterministically.

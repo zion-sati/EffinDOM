@@ -8,6 +8,7 @@
 #include "NativeHostCore.h"
 #include "NativeInputRouter.h"
 #include "NativeRasterSurface.h"
+#include "NativeTimerCoordinator.h"
 #include "SdlDropTarget.h"
 #include "SdlEventAdapter.h"
 #include "SdlFileDialogs.h"
@@ -34,6 +35,7 @@ struct LinuxNativePlatform::Impl {
         : core(NativeInputRouterOptions{false, true, false}, NativeHostCoreCallbacks{
               [this] { return platform_services.ProcessPendingAssets(); },
               [this] {
+                  timer_coordinator->Clear();
                   ui_dispatcher->Clear();
                   __fui_clear_ui_dispatches();
                   file_dialogs->Clear();
@@ -97,6 +99,9 @@ struct LinuxNativePlatform::Impl {
             }));
         SDL_Log("EffinDOM Linux video driver: %s", SDL_GetCurrentVideoDriver());
         ui_dispatcher = std::make_unique<SdlUiDispatcher>(window);
+        timer_coordinator = std::make_unique<NativeTimerCoordinator>([this](NativeTimerCoordinator::UiTask task) {
+            return ui_dispatcher->PostTask(std::move(task));
+        });
         drop_target = std::make_unique<SdlDropTarget>(window, core.GetEngine());
         file_dialogs = std::make_unique<SdlFileDialogs>(window, visible, [](const NativeFileDialogCompletion& completion) {
             std::string payload;
@@ -165,6 +170,7 @@ struct LinuxNativePlatform::Impl {
     }
 
     ~Impl() {
+        timer_coordinator.reset();
         system_theme_bridge.reset();
         ui::ClearGlobalUiPlatformHost(platform_services);
         ui_dispatcher->Clear();
@@ -283,6 +289,7 @@ struct LinuxNativePlatform::Impl {
     NativeHostCore core;
     std::unique_ptr<LinuxResizeSyncBridge> resize_sync;
     std::unique_ptr<SdlUiDispatcher> ui_dispatcher;
+    std::unique_ptr<NativeTimerCoordinator> timer_coordinator;
     std::unique_ptr<SdlDropTarget> drop_target;
     std::unique_ptr<SdlFileDialogs> file_dialogs;
     std::unique_ptr<LinuxSystemThemeBridge> system_theme_bridge;
@@ -310,6 +317,15 @@ bool LinuxNativePlatform::PostUiDispatch(std::uint64_t callback_id) {
 }
 bool LinuxNativePlatform::CancelUiDispatch(std::uint64_t callback_id) {
     return impl_->ui_dispatcher->Cancel(callback_id);
+}
+bool LinuxNativePlatform::PostUiTask(std::function<bool()> task) {
+    return impl_->ui_dispatcher->PostTask(std::move(task));
+}
+void LinuxNativePlatform::StartTimer(std::uint32_t timer_id, std::int32_t delay_ms) {
+    impl_->timer_coordinator->Start(timer_id, delay_ms);
+}
+void LinuxNativePlatform::CancelTimer(std::uint32_t timer_id) {
+    impl_->timer_coordinator->Cancel(timer_id);
 }
 void LinuxNativePlatform::RequestFrame() { impl_->core.RequestFrame(); }
 
@@ -479,6 +495,12 @@ void LinuxNativePlatform::SetCursor(std::uint32_t style) { impl_->platform_servi
 void LinuxNativePlatform::RequestFontLoad(std::uint32_t font_id, const std::string& source) {
     impl_->platform_services.RequestFontLoad(font_id, source);
 }
+void LinuxNativePlatform::ReportMissingFontCoverage(
+    std::uint32_t primary_font_id,
+    std::uint32_t coverage_kind,
+    const std::string& sample_text) {
+    impl_->platform_services.ReportMissingFontCoverage(primary_font_id, coverage_kind, sample_text);
+}
 void LinuxNativePlatform::LoadSvg(std::uint32_t svg_id, const std::string& source) {
     impl_->platform_services.LoadSvg(svg_id, source);
 }
@@ -521,13 +543,5 @@ void LinuxNativePlatform::DispatchDropEventForTesting(
 std::size_t LinuxNativePlatform::FallbackFontCountForTesting() const {
     return impl_->platform_services.FallbackFontCountForTesting();
 }
-
-void LinuxNativePlatform::RequestMissingFontCoverageForTesting(
-    std::uint32_t primary_font_id,
-    std::uint32_t coverage_kind,
-    const std::string& sample_text) {
-    impl_->platform_services.ReportMissingFontCoverage(primary_font_id, coverage_kind, sample_text);
-}
-
 
 } // namespace effindom::v2::native

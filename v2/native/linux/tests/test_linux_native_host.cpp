@@ -1,5 +1,6 @@
 #include "NativeHost.h"
 #include "NativeHostCharacterization.h"
+#include "NativeWorkerDemoContract.h"
 #include "LinuxSystemThemeBridge.h"
 #include "LinuxAccessibilityAdapter.h"
 #include "LinuxAccessibilityText.h"
@@ -382,6 +383,11 @@ TEST_CASE("Linux native host reports desktop capabilities", "[v2][native][linux]
     CHECK((fui_get_accent_color() & 0xFFU) == 0xFFU);
 }
 
+TEST_CASE("Linux native demo runs the browser prime Worker contract without a platform branch",
+    "[v2][native][linux][worker][demo]") {
+    effindom::v2::native::tests::CharacterizeNativeWorkerDemo<NativeHost>();
+}
+
 TEST_CASE("Linux raster presentation remains demand driven after logical resize",
     "[v2][native][linux][graphics]") {
     NativeHost host(false);
@@ -619,7 +625,7 @@ TEST_CASE("Linux packaged assets and Fontconfig fallback load through native ser
         1U, UI_MISSING_FONT_COVERAGE_CJK, "\xE4\xBD\xA0\xE5\xA5\xBD");
     bool has_cjk = false;
     for (std::uint32_t attempt = 0U; attempt < 200U && !has_cjk; ++attempt) {
-        host.DrainFrames();
+        host.RunNextFrame();
         std::uint32_t count = 0U;
         const std::uint32_t* fallbacks = ui_get_live_fallback_font_buffer(&count);
         for (std::uint32_t index = 0U; index < count; ++index) {
@@ -629,4 +635,5 @@ TEST_CASE("Linux packaged assets and Fontconfig fallback load through native ser
     }
     CHECK(has_cjk);
     CHECK(host.FallbackFontCountForTesting() >= 1U);
+    host.DrainFrames();
 }

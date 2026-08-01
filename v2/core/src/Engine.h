@@ -5,6 +5,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <optional>
 #include <vector>
@@ -171,6 +172,8 @@ struct GlyphRenderStats {
 
 class EFFINDOM_V2_CORE_INTERNAL_API Engine {
 public:
+    using CustomDrawCallback = std::function<void(std::uint64_t, SkCanvas*)>;
+
     Engine();
     ~Engine();
 
@@ -199,13 +202,13 @@ public:
     void UnregisterFont(std::uint32_t font_id);
     void RegisterSvg(std::uint32_t svg_id, const std::uint8_t* bytes, std::uint32_t length);
     void UnregisterSvg(std::uint32_t svg_id);
-    void RegisterTextureRgba(
+    bool RegisterTextureRgba(
         std::uint32_t texture_id,
         const std::uint8_t* rgba,
         std::uint32_t width,
         std::uint32_t height,
         std::size_t byte_length);
-    void RegisterTextureSubRgba(
+    bool RegisterTextureSubRgba(
         std::uint32_t texture_id,
         const std::uint8_t* sub_rgba,
         std::uint32_t sub_x,
@@ -213,22 +216,24 @@ public:
         std::uint32_t sub_w,
         std::uint32_t sub_h,
         std::uint32_t full_w,
-        std::uint32_t full_h);
-    void UnregisterTexture(std::uint32_t texture_id);
+        std::uint32_t full_h,
+        std::size_t byte_length);
+    bool UnregisterTexture(std::uint32_t texture_id);
+    void SetCustomDrawCallback(CustomDrawCallback callback);
     CommandBufferStats ExecuteCommandBuffer(const std::uint32_t* buffer, std::uint32_t length);
     std::uint64_t HitTest(float logical_x, float logical_y) const;
     void RenderToCanvas(SkCanvas* canvas, double current_time_ms = 0.0) const;
 
     /* Immediate-mode path management. */
     std::uint32_t CreatePath();
-    void DestroyPath(std::uint32_t path_id);
-    void PathMoveTo(std::uint32_t path_id, float x, float y);
-    void PathLineTo(std::uint32_t path_id, float x, float y);
-    void PathQuadTo(std::uint32_t path_id, float cx, float cy, float x, float y);
-    void PathCubicTo(std::uint32_t path_id, float cx1, float cy1, float cx2, float cy2, float x, float y);
-    void PathClose(std::uint32_t path_id);
-    void PathAddRect(std::uint32_t path_id, float x, float y, float w, float h);
-    void PathAddCircle(std::uint32_t path_id, float cx, float cy, float r);
+    bool DestroyPath(std::uint32_t path_id);
+    bool PathMoveTo(std::uint32_t path_id, float x, float y);
+    bool PathLineTo(std::uint32_t path_id, float x, float y);
+    bool PathQuadTo(std::uint32_t path_id, float cx, float cy, float x, float y);
+    bool PathCubicTo(std::uint32_t path_id, float cx1, float cy1, float cx2, float cy2, float x, float y);
+    bool PathClose(std::uint32_t path_id);
+    bool PathAddRect(std::uint32_t path_id, float x, float y, float w, float h);
+    bool PathAddCircle(std::uint32_t path_id, float cx, float cy, float r);
 
     /* Stateful canvas drawing (accesses engine resources like textures, fonts, paths). */
     void CanvasDrawPath(SkCanvas* canvas, std::uint32_t path_id,
@@ -240,13 +245,17 @@ public:
                          std::uint32_t max_aniso = 0) const;
     void CanvasDrawSvg(SkCanvas* canvas, std::uint32_t svg_id,
                        float x, float y, float w, float h) const;
-    void CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::uint32_t word_count) const;
+    bool CanvasDrawBatch(SkCanvas* canvas, const std::uint32_t* words, std::uint32_t word_count) const;
 
     /* Offscreen raster surfaces. */
     std::uint32_t CreateOffscreenSurface(std::uint32_t width, std::uint32_t height);
     void* GetOffscreenCanvas(std::uint32_t offscreen_id) const;
-    void ReadOffscreenPixels(std::uint32_t offscreen_id, std::uint8_t* out_rgba) const;
-    void DestroyOffscreenSurface(std::uint32_t offscreen_id);
+    std::optional<std::pair<std::uint32_t, std::uint32_t>> GetOffscreenDimensions(
+        std::uint32_t offscreen_id) const;
+    bool ReadOffscreenPixels(std::uint32_t offscreen_id, std::uint8_t* out_rgba,
+                             std::uint32_t width, std::uint32_t height) const;
+    bool DestroyOffscreenSurface(std::uint32_t offscreen_id);
+    std::size_t OffscreenSurfaceCountForTesting() const;
 
     /* Render a retained DisplayNode into an RGBA pixel buffer. */
     std::uint32_t RenderNodeToRgba(std::uint64_t handle, std::uint32_t width, std::uint32_t height,
@@ -263,6 +272,7 @@ public:
     std::optional<std::pair<float, float>> GetSvgSizeForTesting(std::uint32_t svg_id) const;
     std::optional<std::pair<std::uint32_t, std::uint32_t>> GetTextureSizeForTesting(std::uint32_t texture_id) const;
     std::size_t TextureCountForTesting() const;
+    std::size_t PathCountForTesting() const;
 
     std::uint32_t physical_width() const;
     std::uint32_t physical_height() const;

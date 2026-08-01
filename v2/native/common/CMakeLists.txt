@@ -21,10 +21,15 @@ add_library(effindom_v2_native_common STATIC
     src/NativeHostCore.cpp
     src/NativeHost.cpp
     src/NativeFuiRuntimeBridge.cpp
+    src/NativeFuiRsWorkerAdapter.cpp
     src/NativeFuiHostStubs.cpp
+    src/NativeFuiUnsupportedCapabilities.cpp
     src/NativeInputRouter.cpp
     src/NativeWindowIcon.cpp
     src/NativeRasterSurface.cpp
+    src/NativeTimerCoordinator.cpp
+    src/NativeWorkerCoordinator.cpp
+    src/NativeWorkerHost.cpp
     src/SdlDropTarget.cpp
     src/SdlEventAdapter.cpp
     src/SdlFileDialogs.cpp
@@ -44,6 +49,8 @@ target_link_libraries(effindom_v2_native_common
     PUBLIC effindom_v2_core effindom_v2_ui SDL3::SDL3
     PRIVATE effindom_compile_flags
 )
+find_package(Threads REQUIRED)
+target_link_libraries(effindom_v2_native_common PRIVATE Threads::Threads)
 if(MSVC)
     target_compile_options(effindom_v2_native_common PRIVATE /wd4251 /wd4275)
 endif()

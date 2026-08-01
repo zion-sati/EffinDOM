@@ -13,13 +13,23 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace effindom::v2::native {
 
 struct NativeHostCoreCallbacks {
+    NativeHostCoreCallbacks(
+        std::function<bool()> process_pending_assets_value = {},
+        std::function<void()> clear_application_state_value = {},
+        std::function<void(std::uint64_t, std::uintptr_t)> dispatch_custom_draw_value = {})
+        : process_pending_assets(std::move(process_pending_assets_value)),
+          clear_application_state(std::move(clear_application_state_value)),
+          dispatch_custom_draw(std::move(dispatch_custom_draw_value)) {}
+
     std::function<bool()> process_pending_assets;
     std::function<void()> clear_application_state;
+    std::function<void(std::uint64_t, std::uintptr_t)> dispatch_custom_draw;
 };
 
 class NativeHostCore final {

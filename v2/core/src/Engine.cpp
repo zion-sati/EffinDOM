@@ -2,8 +2,10 @@
 #include "SvgIntrinsicSize.h"
 
 #include <algorithm>
-#include <utility>
 #include <cmath>
+#include <limits>
+#include <optional>
+#include <utility>
 
 #include <include/core/SkData.h>
 #include <include/core/SkFontMgr.h>
@@ -52,12 +54,27 @@ float NormalizeViewportOffset(float value) {
     return std::isfinite(value) ? value : 0.0f;
 }
 
+std::optional<std::size_t> RgbaByteLength(std::uint32_t width, std::uint32_t height) {
+    if (width == 0U || height == 0U) return std::nullopt;
+    constexpr std::size_t channels = 4U;
+    const std::size_t width_value = width;
+    const std::size_t height_value = height;
+    if (width_value > std::numeric_limits<std::size_t>::max() / height_value) return std::nullopt;
+    const std::size_t pixels = width_value * height_value;
+    if (pixels > std::numeric_limits<std::size_t>::max() / channels) return std::nullopt;
+    return pixels * channels;
+}
+
 } // namespace
 
 Engine::Engine()
     : impl_(std::make_unique<Impl>()) {}
 
 Engine::~Engine() = default;
+
+void Engine::SetCustomDrawCallback(CustomDrawCallback callback) {
+    impl_->custom_draw_callback = std::move(callback);
+}
 
 void Engine::Init(std::uint32_t physical_width, std::uint32_t physical_height, float dpr) {
     impl_->physical_width = physical_width;
@@ -313,7 +330,7 @@ void Engine::UnregisterSvg(std::uint32_t svg_id) {
     if (svg_id != 0U) impl_->svgs.erase(svg_id);
 }
 
-void Engine::RegisterTextureRgba(
+bool Engine::RegisterTextureRgba(
     std::uint32_t texture_id,
     const std::uint8_t* rgba,
     std::uint32_t width,
@@ -321,25 +338,26 @@ void Engine::RegisterTextureRgba(
     std::size_t byte_length
 ) {
     if (texture_id == 0 || rgba == nullptr || width == 0 || height == 0) {
-        return;
+        return false;
     }
-    const std::size_t expected = static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4U;
-    if (byte_length < expected) {
-        return;
-    }
+    const auto expected = RgbaByteLength(width, height);
+    if (!expected.has_value() || byte_length != *expected) return false;
 
-    detail::TextureRecord& texture = impl_->textures[texture_id];
+    detail::TextureRecord texture;
     texture.width = width;
     texture.height = height;
-    texture.pixels.assign(rgba, rgba + expected);
+    texture.pixels.assign(rgba, rgba + *expected);
     const SkImageInfo info = SkImageInfo::Make(width, height, kRGBA_8888_SkColorType, kPremul_SkAlphaType);
     texture.raster_image = SkImages::RasterFromData(
         info,
-        SkData::MakeWithCopy(texture.pixels.data(), expected),
+        SkData::MakeWithCopy(texture.pixels.data(), *expected),
         static_cast<size_t>(width) * 4U);
+    if (!texture.raster_image) return false;
+    impl_->textures[texture_id] = std::move(texture);
+    return true;
 }
 
-void Engine::RegisterTextureSubRgba(
+bool Engine::RegisterTextureSubRgba(
     std::uint32_t texture_id,
     const std::uint8_t* sub_rgba,
     std::uint32_t sub_x,
@@ -347,53 +365,52 @@ void Engine::RegisterTextureSubRgba(
     std::uint32_t sub_w,
     std::uint32_t sub_h,
     std::uint32_t full_w,
-    std::uint32_t full_h
+    std::uint32_t full_h,
+    std::size_t byte_length
 ) {
     if (texture_id == 0 || sub_rgba == nullptr || sub_w == 0 || sub_h == 0 || full_w == 0 || full_h == 0) {
-        return;
+        return false;
     }
+    const auto sub_bytes = RgbaByteLength(sub_w, sub_h);
+    const auto full_bytes = RgbaByteLength(full_w, full_h);
+    if (!sub_bytes.has_value() || !full_bytes.has_value() || byte_length != *sub_bytes) return false;
+    if (sub_x >= full_w || sub_y >= full_h || sub_w > full_w - sub_x || sub_h > full_h - sub_y) return false;
 
-    detail::TextureRecord& texture = impl_->textures[texture_id];
-
-    // Create full-size buffer if this is a new texture
-    if (texture.width == 0) {
+    detail::TextureRecord texture;
+    const auto existing = impl_->textures.find(texture_id);
+    if (existing == impl_->textures.end()) {
         texture.width = full_w;
         texture.height = full_h;
-        const std::size_t total_bytes = static_cast<std::size_t>(full_w) * static_cast<std::size_t>(full_h) * 4U;
-        texture.pixels.assign(total_bytes, 0U);
+        texture.pixels.assign(*full_bytes, 0U);
+    } else {
+        if (existing->second.width != full_w || existing->second.height != full_h) return false;
+        texture = existing->second;
     }
 
-    // Clamp sub-rect to texture bounds
-    const std::uint32_t clamped_x = std::min(sub_x, texture.width);
-    const std::uint32_t clamped_y = std::min(sub_y, texture.height);
-    const std::uint32_t clamped_w = std::min(sub_w, texture.width - clamped_x);
-    const std::uint32_t clamped_h = std::min(sub_h, texture.height - clamped_y);
-
-    if (clamped_w == 0 || clamped_h == 0) return;
-
-    // Copy sub-row into the pixel buffer (row by row for correct stride)
-    for (std::uint32_t row = 0; row < clamped_h; ++row) {
-        const std::size_t src_offset = static_cast<std::size_t>(row) * static_cast<std::size_t>(clamped_w) * 4U;
-        const std::size_t dst_offset = (static_cast<std::size_t>(clamped_y + row) * static_cast<std::size_t>(texture.width) + static_cast<std::size_t>(clamped_x)) * 4U;
-        std::memcpy(texture.pixels.data() + dst_offset, sub_rgba + src_offset, static_cast<std::size_t>(clamped_w) * 4U);
+    for (std::uint32_t row = 0; row < sub_h; ++row) {
+        const std::size_t src_offset = static_cast<std::size_t>(row) * static_cast<std::size_t>(sub_w) * 4U;
+        const std::size_t dst_offset =
+            (static_cast<std::size_t>(sub_y + row) * static_cast<std::size_t>(full_w) + sub_x) * 4U;
+        std::memcpy(
+            texture.pixels.data() + dst_offset,
+            sub_rgba + src_offset,
+            static_cast<std::size_t>(sub_w) * 4U);
     }
 
-    // Rebuild the SkImage from the updated pixel buffer
-    const std::size_t total_bytes = static_cast<std::size_t>(texture.width) * static_cast<std::size_t>(texture.height) * 4U;
     const SkImageInfo info = SkImageInfo::Make(
-        static_cast<int>(texture.width), static_cast<int>(texture.height),
+        static_cast<int>(full_w), static_cast<int>(full_h),
         kRGBA_8888_SkColorType, kPremul_SkAlphaType);
     texture.raster_image = SkImages::RasterFromData(
         info,
-        SkData::MakeWithCopy(texture.pixels.data(), total_bytes),
-        static_cast<size_t>(texture.width) * 4U);
+        SkData::MakeWithCopy(texture.pixels.data(), *full_bytes),
+        static_cast<size_t>(full_w) * 4U);
+    if (!texture.raster_image) return false;
+    impl_->textures[texture_id] = std::move(texture);
+    return true;
 }
 
-void Engine::UnregisterTexture(std::uint32_t texture_id) {
-    if (texture_id == 0U) {
-        return;
-    }
-    impl_->textures.erase(texture_id);
+bool Engine::UnregisterTexture(std::uint32_t texture_id) {
+    return texture_id != 0U && impl_->textures.erase(texture_id) != 0U;
 }
 
 bool Engine::HasFontForTesting(std::uint32_t font_id) const {
@@ -420,6 +437,8 @@ std::optional<std::pair<std::uint32_t, std::uint32_t>> Engine::GetTextureSizeFor
 }
 
 std::size_t Engine::TextureCountForTesting() const { return impl_->textures.size(); }
+
+std::size_t Engine::PathCountForTesting() const { return impl_->paths.size(); }
 
 std::optional<NodeDebugView> Engine::GetNodeForTesting(std::uint64_t handle) const {
     const detail::DisplayNode* node = impl_->Resolve(handle);

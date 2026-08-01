@@ -22,6 +22,46 @@ std::uint64_t __fui_native_context_editor_handle();
 std::uint64_t __fui_native_scroll_handle();
 std::uint64_t __fui_native_scroll_view_handle();
 std::uint32_t __fui_native_activation_count();
+std::uint64_t __fui_native_custom_draw_handle();
+std::uint64_t __fui_native_custom_draw_text_handle();
+std::uint32_t __fui_native_custom_draw_calls();
+std::uint32_t __fui_native_custom_draw_features();
+std::uint32_t __fui_native_waveform_texture_id();
+std::uint32_t __fui_native_offscreen_texture_id();
+std::uint32_t __fui_native_retained_texture_id();
+std::uint64_t __fui_native_bitmap_draw_handle();
+std::uint64_t __fui_native_offscreen_draw_handle();
+std::uint64_t __fui_native_retained_draw_handle();
+std::uint64_t __fui_native_retained_source_handle();
+bool __fui_native_animation_running();
+std::uint32_t __fui_native_animation_step_count();
+std::uint32_t __fui_native_bitmap_full_upload_count();
+std::uint32_t __fui_native_bitmap_dirty_upload_count();
+std::uint32_t __fui_native_bitmap_clear_count();
+std::uint32_t __fui_native_offscreen_composition_count();
+std::uint32_t __fui_native_offscreen_sample_rgba();
+std::uint32_t __fui_native_retained_raster_count();
+std::uint64_t __fui_native_animation_start_handle();
+std::uint64_t __fui_native_animation_pause_handle();
+std::uint64_t __fui_native_animation_step_handle();
+std::uint64_t __fui_native_animation_reset_handle();
+std::uint64_t __fui_native_bitmap_full_handle();
+std::uint64_t __fui_native_bitmap_dirty_handle();
+std::uint64_t __fui_native_bitmap_clear_handle();
+std::uint64_t __fui_native_offscreen_compose_handle();
+std::uint64_t __fui_native_retained_raster_handle();
+void __fui_native_start_drawing_animation();
+void __fui_native_pause_drawing_animation();
+void __fui_native_step_drawing_animation();
+void __fui_native_reset_drawing_animation();
+void __fui_native_recompose_offscreen();
+void __fui_native_rasterize_retained();
+void __fui_native_update_waveform();
+void __fui_native_set_custom_draw_visible(bool visible);
+std::uint32_t __fui_native_timer_fire_count();
+void __fui_native_schedule_custom_draw_timer(std::int32_t delay_ms);
+void __fui_native_cancel_custom_draw_timer();
+bool __fui_native_tool_tip_visible();
 
 bool __fui_on_pointer_event_with_metadata(
     std::uint32_t event_type,
@@ -77,5 +117,6 @@ void __fui_on_scroll(
     float content_height,
     float viewport_width,
     float viewport_height);
+void fui_dispatch_custom_draw(std::uint64_t handle, std::uintptr_t canvas_ptr);
 
 } // extern "C"

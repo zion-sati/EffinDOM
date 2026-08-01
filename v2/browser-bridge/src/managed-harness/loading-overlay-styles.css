@@ -2,19 +2,28 @@
   font-family: ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --effindom-loader-color: #38bdf8;
   --effindom-loader-background: rgba(6, 12, 21, 0.88);
+  --effindom-loader-overlay-background: linear-gradient(145deg, rgba(2, 6, 23, 0.76), rgba(15, 23, 42, 0.90));
+  --effindom-loader-text: #e2e8f0;
+  --effindom-loader-border: rgba(148, 163, 184, 0.28);
+  --effindom-loader-shadow: rgba(2, 6, 23, 0.34);
+  --effindom-loader-kicker: #7dd3fc;
+  --effindom-loader-detail: #cbd5e1;
+  --effindom-loader-error-border: rgba(248, 113, 113, 0.50);
+  --effindom-loader-error-background: rgba(69, 10, 10, 0.86);
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
   padding: 24px;
   box-sizing: border-box;
-  background: linear-gradient(145deg, rgba(2, 6, 23, 0.76), rgba(15, 23, 42, 0.90));
+  background: var(--effindom-loader-overlay-background);
   backdrop-filter: blur(10px);
   z-index: 2;
-  color: #e2e8f0;
+  color: var(--effindom-loader-text);
   opacity: 1;
   transition: opacity 140ms ease;
   cursor: default;
+  pointer-events: none;
   user-select: none;
   -webkit-user-select: none;
 }
@@ -24,11 +33,11 @@
 .effindom-loading-card {
   max-width: 420px;
   padding: 24px 26px;
-  border: 1px solid rgba(148, 163, 184, 0.28);
+  border: 1px solid var(--effindom-loader-border);
   border-radius: 20px;
   background: var(--effindom-loader-background);
   text-align: center;
-  box-shadow: 0 22px 60px rgba(2, 6, 23, 0.34);
+  box-shadow: 0 22px 60px var(--effindom-loader-shadow);
 }
 
 .effindom-loading-visual {
@@ -57,8 +66,8 @@
 .effindom-loading-node-b { animation-delay: -0.9s; }
 .effindom-loading-overlay[data-state="error"] .effindom-loading-visual { display: none; }
 .effindom-loading-overlay[data-state="error"] .effindom-loading-card {
-  border-color: rgba(248, 113, 113, 0.50);
-  background: rgba(69, 10, 10, 0.86);
+  border-color: var(--effindom-loader-error-border);
+  background: var(--effindom-loader-error-background);
 }
 
 .effindom-loading-kicker {
@@ -67,11 +76,26 @@
   font-weight: 700;
   letter-spacing: 0.12em;
   text-transform: uppercase;
-  color: #7dd3fc;
+  color: var(--effindom-loader-kicker);
 }
 
 .effindom-loading-title { margin: 0; font-size: 24px; line-height: 1.2; }
-.effindom-loading-detail { margin: 10px 0 0; font-size: 14px; line-height: 1.5; color: #cbd5e1; }
+.effindom-loading-detail { margin: 10px 0 0; font-size: 14px; line-height: 1.5; color: var(--effindom-loader-detail); }
+
+@media (prefers-color-scheme: light) {
+  .effindom-loading-overlay {
+    --effindom-loader-color: #0284c7;
+    --effindom-loader-background: rgba(255, 255, 255, 0.92);
+    --effindom-loader-overlay-background: linear-gradient(145deg, rgba(248, 250, 252, 0.82), rgba(226, 232, 240, 0.94));
+    --effindom-loader-text: #0f172a;
+    --effindom-loader-border: rgba(100, 116, 139, 0.28);
+    --effindom-loader-shadow: rgba(15, 23, 42, 0.18);
+    --effindom-loader-kicker: #0369a1;
+    --effindom-loader-detail: #475569;
+    --effindom-loader-error-border: rgba(220, 38, 38, 0.38);
+    --effindom-loader-error-background: rgba(254, 226, 226, 0.94);
+  }
+}
 
 @keyframes effindom-loading-frame {
   0% { stroke-dashoffset: 164; opacity: 0.35; }

@@ -36,6 +36,14 @@ NativeHostCore::NativeHostCore(NativeInputRouterOptions input_options,
     : input_router_(engine_, input_options), accessibility_([this] { RequestFrame(); }),
       callbacks_(std::move(callbacks)),
       start_time_(Clock::now()) {
+    engine_.SetCustomDrawCallback([this](std::uint64_t handle, SkCanvas* canvas) {
+        const auto canvas_pointer = reinterpret_cast<std::uintptr_t>(canvas);
+        if (callbacks_.dispatch_custom_draw) {
+            callbacks_.dispatch_custom_draw(handle, canvas_pointer);
+            return;
+        }
+        fui_dispatch_custom_draw(handle, canvas_pointer);
+    });
     effindom::v2::ui::GetRuntime().SetAccessibilityTextEventCallback(
         [this](effindom::v2::ui::UiEventSink::AccessibilityTextEventKind event,
             std::uint64_t handle) {
@@ -50,6 +58,7 @@ NativeHostCore::NativeHostCore(NativeInputRouterOptions input_options,
 }
 
 NativeHostCore::~NativeHostCore() {
+    engine_.SetCustomDrawCallback({});
     effindom::v2::ui::GetRuntime().SetAccessibilityTextEventCallback({});
 }
 

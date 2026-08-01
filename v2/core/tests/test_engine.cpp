@@ -44,6 +44,40 @@ namespace detail = effindom::v2::detail;
 using effindom::v2::test::CommandBuilder;
 using effindom::v2::test::Handle;
 
+TEST_CASE("v2 custom draw strategy receives ordered handles and the active canvas", "[v2][core][custom-draw]") {
+    Engine engine;
+    engine.Init(32U, 24U, 1.0f);
+
+    constexpr std::uint64_t first = (7ULL << 32U) | 3ULL;
+    constexpr std::uint64_t second = (9ULL << 32U) | 5ULL;
+    CommandBuilder builder;
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_DRAW_CUSTOM, first},
+        SceneInstructionDebugView{OP_DRAW_CUSTOM, second},
+    });
+    engine.ExecuteCommandBuffer(
+        builder.words().data(), static_cast<std::uint32_t>(builder.words().size()));
+
+    const sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(32, 24));
+    REQUIRE(surface);
+    std::vector<std::pair<std::uint64_t, SkCanvas*>> calls;
+    engine.SetCustomDrawCallback([&calls](std::uint64_t handle, SkCanvas* canvas) {
+        calls.emplace_back(handle, canvas);
+    });
+
+    engine.RenderToCanvas(surface->getCanvas());
+
+    REQUIRE(calls.size() == 2U);
+    CHECK(calls[0].first == first);
+    CHECK(calls[0].second == surface->getCanvas());
+    CHECK(calls[1].first == second);
+    CHECK(calls[1].second == surface->getCanvas());
+
+    engine.SetCustomDrawCallback({});
+    engine.RenderToCanvas(surface->getCanvas());
+    CHECK(calls.size() == 2U);
+}
+
 bool EnvironmentVariableIsSet(const char* name) {
 #if defined(_WIN32)
     char* value = nullptr;
@@ -2565,8 +2599,8 @@ TEST_CASE("v2 immediate image sampling is carried through batched draws", "[v2][
     engine.CanvasDrawBatch(canvas, words.data(), static_cast<std::uint32_t>(words.size()));
 
     std::vector<std::uint8_t> rendered(8U * 8U * 4U);
-    engine.ReadOffscreenPixels(offscreen, rendered.data());
-    engine.DestroyOffscreenSurface(offscreen);
+    REQUIRE(engine.ReadOffscreenPixels(offscreen, rendered.data(), 8U, 8U));
+    REQUIRE(engine.DestroyOffscreenSurface(offscreen));
 
     CHECK(HasOpaquePixelDifferentFrom(
         rendered,

@@ -5,6 +5,7 @@
 #include "NativeInputRouter.h"
 #include "NativePlatformHost.h"
 #include "NativeUtf8.h"
+#include "NativeWorkerHost.h"
 #include "fui_host_abi.h"
 
 #include "effindom_ui.h"
@@ -12,6 +13,7 @@
 #include "SDL3/SDL.h"
 
 #include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <string>
 
@@ -19,11 +21,172 @@ namespace effindom::v2::native {
 namespace {
 
 NativePlatformHost* active_host = nullptr;
+NativeFuiDrawingMetrics drawing_metrics{};
 
 } // namespace
 
 void SetActiveNativePlatformHost(NativePlatformHost* host) { active_host = host; }
 NativePlatformHost* ActiveNativePlatformHost() { return active_host; }
+NativeFuiDrawingMetrics NativeFuiDrawingMetricsForTesting() { return drawing_metrics; }
+void ResetNativeFuiDrawingMetricsForTesting() { drawing_metrics = {}; }
+
+bool DrawCanvasBatch(
+    NativeHostCore& host,
+    std::uintptr_t canvas_pointer,
+    std::uintptr_t words_pointer,
+    std::uint32_t word_count) {
+    if (word_count == 0U) return true;
+    if (canvas_pointer == 0U || words_pointer == 0U) return false;
+    if ((words_pointer % alignof(std::uint32_t)) != 0U) return false;
+
+    const bool drawn = host.GetEngine().CanvasDrawBatch(
+        reinterpret_cast<SkCanvas*>(canvas_pointer),
+        reinterpret_cast<const std::uint32_t*>(words_pointer),
+        word_count);
+    if (drawn) {
+        ++drawing_metrics.batch_count;
+        drawing_metrics.batch_bytes += static_cast<std::uint64_t>(word_count) * sizeof(std::uint32_t);
+    }
+    return drawn;
+}
+
+std::uint32_t CreatePath(NativeHostCore& host) { return host.GetEngine().CreatePath(); }
+bool DestroyPath(NativeHostCore& host, std::uint32_t path_id) {
+    return host.GetEngine().DestroyPath(path_id);
+}
+bool PathMoveTo(NativeHostCore& host, std::uint32_t path_id, float x, float y) {
+    return host.GetEngine().PathMoveTo(path_id, x, y);
+}
+bool PathLineTo(NativeHostCore& host, std::uint32_t path_id, float x, float y) {
+    return host.GetEngine().PathLineTo(path_id, x, y);
+}
+bool PathQuadTo(NativeHostCore& host, std::uint32_t path_id, float cx, float cy, float x, float y) {
+    return host.GetEngine().PathQuadTo(path_id, cx, cy, x, y);
+}
+bool PathCubicTo(
+    NativeHostCore& host,
+    std::uint32_t path_id,
+    float cx1,
+    float cy1,
+    float cx2,
+    float cy2,
+    float x,
+    float y) {
+    return host.GetEngine().PathCubicTo(path_id, cx1, cy1, cx2, cy2, x, y);
+}
+bool PathClose(NativeHostCore& host, std::uint32_t path_id) {
+    return host.GetEngine().PathClose(path_id);
+}
+bool PathAddRect(
+    NativeHostCore& host,
+    std::uint32_t path_id,
+    float x,
+    float y,
+    float width,
+    float height) {
+    return host.GetEngine().PathAddRect(path_id, x, y, width, height);
+}
+bool PathAddCircle(
+    NativeHostCore& host,
+    std::uint32_t path_id,
+    float cx,
+    float cy,
+    float radius) {
+    return host.GetEngine().PathAddCircle(path_id, cx, cy, radius);
+}
+
+bool CommitBitmap(
+    NativeHostCore& host,
+    std::uint32_t texture_id,
+    std::uintptr_t pixels_pointer,
+    std::uint32_t byte_length,
+    std::uint32_t width,
+    std::uint32_t height) {
+    const bool committed = host.GetEngine().RegisterTextureRgba(
+        texture_id,
+        reinterpret_cast<const std::uint8_t*>(pixels_pointer),
+        width,
+        height,
+        byte_length);
+    if (committed) {
+        ++drawing_metrics.bitmap_upload_count;
+        drawing_metrics.bitmap_upload_bytes += byte_length;
+        host.RequestFrame();
+    }
+    return committed;
+}
+
+bool CommitBitmapDirty(
+    NativeHostCore& host,
+    std::uint32_t texture_id,
+    std::uintptr_t pixels_pointer,
+    std::uint32_t byte_length,
+    std::uint32_t full_width,
+    std::uint32_t full_height,
+    std::uint32_t sub_x,
+    std::uint32_t sub_y,
+    std::uint32_t sub_width,
+    std::uint32_t sub_height) {
+    const bool committed = host.GetEngine().RegisterTextureSubRgba(
+        texture_id,
+        reinterpret_cast<const std::uint8_t*>(pixels_pointer),
+        sub_x,
+        sub_y,
+        sub_width,
+        sub_height,
+        full_width,
+        full_height,
+        byte_length);
+    if (committed) {
+        ++drawing_metrics.dirty_upload_count;
+        drawing_metrics.dirty_upload_bytes += byte_length;
+        host.RequestFrame();
+    }
+    return committed;
+}
+
+bool ReleaseBitmap(NativeHostCore& host, std::uint32_t texture_id) {
+    const bool released = host.GetEngine().UnregisterTexture(texture_id);
+    if (released) host.RequestFrame();
+    return released;
+}
+
+std::uint32_t CreateOffscreenSurface(NativeHostCore& host, std::uint32_t width, std::uint32_t height) {
+    return host.GetEngine().CreateOffscreenSurface(width, height);
+}
+
+std::uintptr_t GetOffscreenCanvas(NativeHostCore& host, std::uint32_t offscreen_id) {
+    return reinterpret_cast<std::uintptr_t>(host.GetEngine().GetOffscreenCanvas(offscreen_id));
+}
+
+bool ReadOffscreenPixels(
+    NativeHostCore& host,
+    std::uint32_t offscreen_id,
+    std::uintptr_t output_pointer,
+    std::uint32_t width,
+    std::uint32_t height) {
+    return host.GetEngine().ReadOffscreenPixels(
+        offscreen_id, reinterpret_cast<std::uint8_t*>(output_pointer), width, height);
+}
+
+bool DestroyOffscreenSurface(NativeHostCore& host, std::uint32_t offscreen_id) {
+    return host.GetEngine().DestroyOffscreenSurface(offscreen_id);
+}
+
+std::uint32_t RenderNodeToRgba(
+    NativeHostCore& host,
+    std::uint64_t handle,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uintptr_t output_pointer,
+    std::uint32_t output_capacity,
+    float scale,
+    float x,
+    float y) {
+    return host.GetEngine().RenderNodeToRgba(
+        handle, width, height, reinterpret_cast<std::uint8_t*>(output_pointer),
+        output_capacity, scale, x, y);
+}
 
 } // namespace effindom::v2::native
 
@@ -43,6 +206,32 @@ bool fui_dispatch_to_ui(std::uint64_t callback_id) {
 }
 bool fui_cancel_ui_dispatch_async(std::uint64_t callback_id) {
     return Host() != nullptr && Host()->CancelUiDispatch(callback_id);
+}
+void fui_worker_start_string(
+    std::uint32_t worker_id,
+    std::uintptr_t artifact_pointer,
+    std::uint32_t artifact_length,
+    std::uintptr_t entry_pointer,
+    std::uint32_t entry_length,
+    std::uintptr_t input_pointer,
+    std::uint32_t input_length) {
+    auto* workers = effindom::v2::native::ActiveNativeWorkerHost();
+    if (workers == nullptr) return;
+    workers->Start(
+        worker_id,
+        effindom::v2::native::Utf8(artifact_pointer, artifact_length),
+        effindom::v2::native::Utf8(entry_pointer, entry_length),
+        effindom::v2::native::Utf8(input_pointer, input_length));
+}
+void fui_worker_cancel(std::uint32_t worker_id) {
+    auto* workers = effindom::v2::native::ActiveNativeWorkerHost();
+    if (workers != nullptr) workers->Cancel(worker_id);
+}
+void fui_start_timer(std::uint32_t timer_id, std::int32_t delay_ms) {
+    if (Host() != nullptr) Host()->StartTimer(timer_id, delay_ms);
+}
+void fui_cancel_timer(std::uint32_t timer_id) {
+    if (Host() != nullptr) Host()->CancelTimer(timer_id);
 }
 bool fui_native_clipboard_write(const std::uint8_t* text, std::uint32_t length) {
     if (Host() == nullptr) return false;
@@ -134,13 +323,120 @@ void fui_load_texture(std::uint32_t texture_id, std::uintptr_t pointer, std::uin
     if (Host() != nullptr) Host()->LoadTexture(texture_id, effindom::v2::native::Utf8(pointer, length));
 }
 void fui_release_texture(std::uint32_t texture_id) { if (Host() != nullptr) Host()->ReleaseTexture(texture_id); }
-void fui_reload_page() {}
-bool fui_can_navigate_back() { return false; }
-bool fui_can_navigate_forward() { return false; }
-void fui_navigate_back() {}
-void fui_navigate_forward() {}
-void fui_show_url_preview(std::uintptr_t, std::uint32_t) {}
-void fui_hide_url_preview() {}
+void fui_bitmap_commit(
+    std::uint32_t texture_id,
+    std::uintptr_t pixels_pointer,
+    std::uint32_t byte_length,
+    std::uint32_t width,
+    std::uint32_t height) {
+    if (Host() != nullptr) {
+        effindom::v2::native::CommitBitmap(
+            Host()->Core(), texture_id, pixels_pointer, byte_length, width, height);
+    }
+}
+void fui_bitmap_commit_dirty(
+    std::uint32_t texture_id,
+    std::uintptr_t pixels_pointer,
+    std::uint32_t byte_length,
+    std::uint32_t full_width,
+    std::uint32_t full_height,
+    std::uint32_t sub_x,
+    std::uint32_t sub_y,
+    std::uint32_t sub_width,
+    std::uint32_t sub_height) {
+    if (Host() != nullptr) {
+        effindom::v2::native::CommitBitmapDirty(
+            Host()->Core(), texture_id, pixels_pointer, byte_length,
+            full_width, full_height, sub_x, sub_y, sub_width, sub_height);
+    }
+}
+void fui_bitmap_release(std::uint32_t texture_id) {
+    if (Host() != nullptr) effindom::v2::native::ReleaseBitmap(Host()->Core(), texture_id);
+}
+std::uint32_t fui_render_node_to_rgba(
+    std::uint64_t handle,
+    std::uint32_t width,
+    std::uint32_t height,
+    std::uintptr_t output_pointer,
+    std::uint32_t output_capacity,
+    float scale,
+    float x,
+    float y) {
+    return Host() == nullptr ? 0U : effindom::v2::native::RenderNodeToRgba(
+        Host()->Core(), handle, width, height, output_pointer, output_capacity, scale, x, y);
+}
+std::uint32_t fui_path_create() {
+    return Host() == nullptr ? 0U : effindom::v2::native::CreatePath(Host()->Core());
+}
+void fui_path_destroy(std::uint32_t path_id) {
+    if (Host() != nullptr) effindom::v2::native::DestroyPath(Host()->Core(), path_id);
+}
+void fui_path_move_to(std::uint32_t path_id, float x, float y) {
+    if (Host() != nullptr) effindom::v2::native::PathMoveTo(Host()->Core(), path_id, x, y);
+}
+void fui_path_line_to(std::uint32_t path_id, float x, float y) {
+    if (Host() != nullptr) effindom::v2::native::PathLineTo(Host()->Core(), path_id, x, y);
+}
+void fui_path_quad_to(std::uint32_t path_id, float cx, float cy, float x, float y) {
+    if (Host() != nullptr) effindom::v2::native::PathQuadTo(Host()->Core(), path_id, cx, cy, x, y);
+}
+void fui_path_cubic_to(
+    std::uint32_t path_id,
+    float cx1,
+    float cy1,
+    float cx2,
+    float cy2,
+    float x,
+    float y) {
+    if (Host() != nullptr) {
+        effindom::v2::native::PathCubicTo(Host()->Core(), path_id, cx1, cy1, cx2, cy2, x, y);
+    }
+}
+void fui_path_close(std::uint32_t path_id) {
+    if (Host() != nullptr) effindom::v2::native::PathClose(Host()->Core(), path_id);
+}
+void fui_path_add_rect(std::uint32_t path_id, float x, float y, float width, float height) {
+    if (Host() != nullptr) {
+        effindom::v2::native::PathAddRect(Host()->Core(), path_id, x, y, width, height);
+    }
+}
+void fui_path_add_circle(std::uint32_t path_id, float cx, float cy, float radius) {
+    if (Host() != nullptr) {
+        effindom::v2::native::PathAddCircle(Host()->Core(), path_id, cx, cy, radius);
+    }
+}
+std::uint32_t fui_canvas_create_offscreen(std::uint32_t width, std::uint32_t height) {
+    return Host() == nullptr ? 0U :
+        effindom::v2::native::CreateOffscreenSurface(Host()->Core(), width, height);
+}
+std::uintptr_t fui_canvas_get_offscreen_ptr(std::uint32_t offscreen_id) {
+    return Host() == nullptr ? 0U :
+        effindom::v2::native::GetOffscreenCanvas(Host()->Core(), offscreen_id);
+}
+void fui_canvas_read_offscreen_pixels(
+    std::uint32_t offscreen_id,
+    std::uintptr_t output_pointer,
+    std::uint32_t width,
+    std::uint32_t height) {
+    if (Host() != nullptr) {
+        effindom::v2::native::ReadOffscreenPixels(
+            Host()->Core(), offscreen_id, output_pointer, width, height);
+    }
+}
+void fui_canvas_destroy_offscreen(std::uint32_t offscreen_id) {
+    if (Host() != nullptr) {
+        effindom::v2::native::DestroyOffscreenSurface(Host()->Core(), offscreen_id);
+    }
+}
+void fui_canvas_draw_batch(
+    std::uintptr_t canvas_pointer,
+    std::uintptr_t words_pointer,
+    std::uint32_t word_count) {
+    if (Host() != nullptr) {
+        effindom::v2::native::DrawCanvasBatch(
+            Host()->Core(), canvas_pointer, words_pointer, word_count);
+    }
+}
 void fui_navigate_to(std::uintptr_t pointer, std::uint32_t length, bool) {
     if (Host() != nullptr) Host()->OpenExternalUrl(effindom::v2::native::Utf8(pointer, length));
 }
@@ -200,7 +496,18 @@ void as_on_request_clipboard_read(ui_handle_t handle) {
 void as_on_request_font_load(std::uint32_t font_id, const std::uint8_t* url, std::uint32_t length) {
     if (Host() != nullptr) Host()->RequestFontLoad(font_id, effindom::v2::native::Utf8(url, length));
 }
-void as_on_missing_font_coverage(std::uint32_t, std::uint32_t, const std::uint8_t*, std::uint32_t) {}
+void as_on_missing_font_coverage(
+    std::uint32_t font_id,
+    std::uint32_t coverage_kind,
+    const std::uint8_t* sample,
+    std::uint32_t length) {
+    if (Host() != nullptr) {
+        Host()->ReportMissingFontCoverage(
+            font_id,
+            coverage_kind,
+            effindom::v2::native::Utf8(sample, length));
+    }
+}
 void as_on_request_semantic_announcement(ui_handle_t) {}
 
 } // extern "C"
