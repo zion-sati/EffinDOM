@@ -155,12 +155,15 @@ TEST_CASE("native worker cancel is idempotent and permits generation-safe id reu
     EventLog log;
     std::mutex gate_mutex;
     std::condition_variable gate;
+    bool first_entered = false;
     bool release_first = false;
     std::atomic<std::uint32_t> invocation = 0U;
     auto adapter = std::make_shared<FunctionAdapter>(
         [&](const NativeWorkerStartRequest&, NativeWorkerReporter& reporter) {
             if (++invocation == 1U) {
                 std::unique_lock lock(gate_mutex);
+                first_entered = true;
+                gate.notify_all();
                 gate.wait(lock, [&] { return release_first || reporter.IsCancelled(); });
                 return;
             }
@@ -170,6 +173,10 @@ TEST_CASE("native worker cancel is idempotent and permits generation-safe id reu
 
     workers.Cancel(9U);
     workers.Start(9U, "workers.wasm", "entry", "first");
+    {
+        std::unique_lock lock(gate_mutex);
+        REQUIRE(gate.wait_for(lock, std::chrono::seconds(1), [&] { return first_entered; }));
+    }
     workers.Cancel(9U);
     workers.Cancel(9U);
     workers.Start(9U, "workers.wasm", "entry", "second");
@@ -326,7 +333,10 @@ TEST_CASE("native worker lifecycle stress returns cooperative work to a clean ba
         }));
     }
     const auto cancellation_latency = std::chrono::steady_clock::now() - cancellation_started;
-    CHECK(cancellation_latency < std::chrono::seconds(1));
+    // wait_for above enforces one-second cancellation observation. This
+    // measurement also includes scheduler delay while reacquiring the mutex,
+    // which is material when the 96-thread stress case runs under emulation.
+    CHECK(cancellation_latency < std::chrono::seconds(2));
 
     release.store(true);
     {

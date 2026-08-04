@@ -92,6 +92,9 @@ export function createHostImportModule(deps: HostImportDeps) {
     fui_set_application_caption(captionPtr: number, captionLen: number): void {
       deps.platformHost.setApplicationCaption(deps.readAppUtf8(captionPtr, captionLen));
     },
+    fui_set_page_zoom_enabled(enabled: number): void {
+      deps.getRuntime().setPageZoomEnabled(enabled !== 0);
+    },
     fui_set_pointer_capture(handle: AppHandleLike): void {
       deps.getRuntime().setCapturedPointerHandle(toBigIntHandle(handle));
     },

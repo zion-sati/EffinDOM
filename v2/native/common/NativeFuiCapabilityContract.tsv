@@ -1,5 +1,4 @@
 # symbol|classification|state|owner|reference|invalid-input contract
-fui_native_activation_count|native-fallback|intentional-stub|native FUI application override|v2/native/common/src/NativeFuiHostStubs.cpp|Absent application overrides return zero activations.
 fui_register_text_input_metadata|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|Ignore on native because the native editor owns its metadata.
 fui_has_text_selection_snapshot|native-fallback|intentional-stub|native C++ editor|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|Unknown handles return false.
 fui_freeze_text_selection_snapshot|browser-only|intentional-stub|none|v2/browser-bridge/src/managed-harness/text-session-bridge.ts|Ignore on native because no DOM selection snapshot exists.

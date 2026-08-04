@@ -16,8 +16,9 @@ NativeAccessibilityTextStatus TextStatus(UiTextAccessibilityQueryStatus status) 
 
 class RuntimeAccessibilityTextProvider final : public NativeAccessibilityTextProvider {
 public:
-    explicit RuntimeAccessibilityTextProvider(std::function<void()> request_frame)
-        : request_frame_(std::move(request_frame)) {}
+    RuntimeAccessibilityTextProvider(std::function<void()> request_frame,
+        NativeAccessibilityRectProjector project_rect)
+        : request_frame_(std::move(request_frame)), project_rect_(std::move(project_rect)) {}
 
     bool GetInfo(std::uint64_t handle, NativeAccessibilityTextInfo& output) const override {
         std::uint32_t flags = 0U;
@@ -57,7 +58,12 @@ public:
         status = ui_copy_accessibility_text_range_rects(handle, revision, start, end,
             count == 0U ? nullptr : reinterpret_cast<float*>(output.data()), count, &written);
         if (status != UI_TEXT_ACCESSIBILITY_QUERY_OK) output.clear();
-        else output.resize(written);
+        else {
+            output.resize(written);
+            if (project_rect_) {
+                for (auto& rect : output) rect = project_rect_(rect);
+            }
+        }
         return TextStatus(status);
     }
 
@@ -89,6 +95,7 @@ public:
 
 private:
     std::function<void()> request_frame_;
+    NativeAccessibilityRectProjector project_rect_;
 };
 
 constexpr std::uint32_t kFixedRecordWords = 14U;
@@ -147,7 +154,7 @@ bool DecodeSnapshot(const std::uint32_t* words, std::uint32_t length,
         if (length - offset < kFixedRecordWords) return false;
         const std::uint32_t role = words[offset];
         if (role < static_cast<std::uint32_t>(NativeAccessibilityRole::Button) ||
-            role > static_cast<std::uint32_t>(NativeAccessibilityRole::ComboBox)) return false;
+            role > static_cast<std::uint32_t>(NativeAccessibilityRole::TabPanel)) return false;
         NativeAccessibilityNode node;
         node.role = static_cast<NativeAccessibilityRole>(role);
         node.handle = static_cast<std::uint64_t>(words[offset + 1U]) |
@@ -197,6 +204,7 @@ const char* ActivationKey(NativeAccessibilityRole role) {
         case NativeAccessibilityRole::CheckBox:
         case NativeAccessibilityRole::Radio:
         case NativeAccessibilityRole::Switch:
+        case NativeAccessibilityRole::Tab:
             return " ";
         default:
             return "Enter";
@@ -205,9 +213,13 @@ const char* ActivationKey(NativeAccessibilityRole role) {
 
 } // namespace
 
-NativeAccessibilityCoordinator::NativeAccessibilityCoordinator(std::function<void()> request_frame)
-    : request_frame_(std::move(request_frame)),
-      text_provider_(std::make_shared<RuntimeAccessibilityTextProvider>(request_frame_)) {}
+NativeAccessibilityCoordinator::NativeAccessibilityCoordinator(
+    std::function<void()> request_frame, NativeAccessibilityRectProjector project_rect,
+    NativeAccessibilityKeyDispatcher dispatch_key)
+    : request_frame_(std::move(request_frame)), project_rect_(std::move(project_rect)),
+      dispatch_key_(std::move(dispatch_key)),
+      text_provider_(std::make_shared<RuntimeAccessibilityTextProvider>(
+          request_frame_, project_rect_)) {}
 
 NativeAccessibilityCoordinator::~NativeAccessibilityCoordinator() { Clear(); }
 
@@ -224,10 +236,23 @@ bool NativeAccessibilityCoordinator::Sync(const std::uint32_t* words, std::uint3
     std::uint64_t focused_handle) {
     NativeAccessibilitySnapshot decoded;
     if (!DecodeSnapshot(words, length, focused_handle, decoded)) return false;
-    if (EqualSnapshot(snapshot_, decoded)) return true;
-    snapshot_ = std::move(decoded);
-    if (adapter_) adapter_->Update(snapshot_);
+    scene_snapshot_ = std::move(decoded);
+    RefreshProjection();
     return true;
+}
+
+void NativeAccessibilityCoordinator::RefreshProjection() {
+    NativeAccessibilitySnapshot projected = scene_snapshot_;
+    if (project_rect_) {
+        for (auto& node : projected.nodes) {
+            const auto rect = project_rect_({
+                node.bounds.x, node.bounds.y, node.bounds.width, node.bounds.height});
+            node.bounds = {rect.x, rect.y, rect.width, rect.height};
+        }
+    }
+    if (EqualSnapshot(snapshot_, projected)) return;
+    snapshot_ = std::move(projected);
+    if (adapter_) adapter_->Update(snapshot_);
 }
 
 void NativeAccessibilityCoordinator::Announce(std::uint64_t handle) {
@@ -271,9 +296,16 @@ void NativeAccessibilityCoordinator::PerformAction(
             break;
     }
     if (key != nullptr) {
-        const auto length = static_cast<std::uint32_t>(std::strlen(key));
-        ui_on_key_event(UI_KEY_EVENT_DOWN, reinterpret_cast<const std::uint8_t*>(key), length, 0U);
-        ui_on_key_event(UI_KEY_EVENT_UP, reinterpret_cast<const std::uint8_t*>(key), length, 0U);
+        if (dispatch_key_) {
+            dispatch_key_(key, true);
+            dispatch_key_(key, false);
+        } else {
+            const auto length = static_cast<std::uint32_t>(std::strlen(key));
+            ui_on_key_event(UI_KEY_EVENT_DOWN,
+                reinterpret_cast<const std::uint8_t*>(key), length, 0U);
+            ui_on_key_event(UI_KEY_EVENT_UP,
+                reinterpret_cast<const std::uint8_t*>(key), length, 0U);
+        }
     }
     if (request_frame_) request_frame_();
 }
@@ -281,6 +313,7 @@ void NativeAccessibilityCoordinator::PerformAction(
 void NativeAccessibilityCoordinator::Clear() {
     if (adapter_) adapter_->Clear();
     snapshot_ = {};
+    scene_snapshot_ = {};
 }
 
 const NativeAccessibilitySnapshot& NativeAccessibilityCoordinator::Snapshot() const { return snapshot_; }

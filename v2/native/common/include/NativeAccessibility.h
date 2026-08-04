@@ -25,6 +25,9 @@ enum class NativeAccessibilityRole : std::uint32_t {
     Switch = 14U,
     Slider = 15U,
     ComboBox = 16U,
+    TabList = 17U,
+    Tab = 18U,
+    TabPanel = 19U,
 };
 
 enum class NativeAccessibilityCheckedState : std::uint32_t {
@@ -135,6 +138,10 @@ struct NativeAccessibilitySnapshot {
 
 using NativeAccessibilityActionHandler =
     std::function<void(NativeAccessibilityAction, std::uint64_t)>;
+using NativeAccessibilityRectProjector =
+    std::function<NativeAccessibilityTextRect(const NativeAccessibilityTextRect&)>;
+using NativeAccessibilityKeyDispatcher =
+    std::function<void(const std::string&, bool)>;
 
 class NativeAccessibilityAdapter {
 public:
@@ -153,11 +160,14 @@ public:
 
 class NativeAccessibilityCoordinator final {
 public:
-    explicit NativeAccessibilityCoordinator(std::function<void()> request_frame);
+    explicit NativeAccessibilityCoordinator(std::function<void()> request_frame,
+        NativeAccessibilityRectProjector project_rect = {},
+        NativeAccessibilityKeyDispatcher dispatch_key = {});
     ~NativeAccessibilityCoordinator();
 
     void Attach(std::unique_ptr<NativeAccessibilityAdapter> adapter);
     bool Sync(const std::uint32_t* words, std::uint32_t length, std::uint64_t focused_handle);
+    void RefreshProjection();
     void Announce(std::uint64_t handle);
     void NotifyTextChanged(NativeAccessibilityTextEvent event, std::uint64_t handle);
     void PerformAction(NativeAccessibilityAction action, std::uint64_t handle);
@@ -168,9 +178,12 @@ public:
 
 private:
     std::function<void()> request_frame_;
+    NativeAccessibilityRectProjector project_rect_;
+    NativeAccessibilityKeyDispatcher dispatch_key_;
     std::unique_ptr<NativeAccessibilityAdapter> adapter_;
     std::shared_ptr<NativeAccessibilityTextProvider> text_provider_;
     NativeAccessibilitySnapshot snapshot_{};
+    NativeAccessibilitySnapshot scene_snapshot_{};
 };
 
 } // namespace effindom::v2::native

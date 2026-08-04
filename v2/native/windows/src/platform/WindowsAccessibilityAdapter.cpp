@@ -59,6 +59,9 @@ CONTROLTYPEID ControlType(NativeAccessibilityRole role) {
         case NativeAccessibilityRole::Switch: return UIA_CheckBoxControlTypeId;
         case NativeAccessibilityRole::Slider: return UIA_SliderControlTypeId;
         case NativeAccessibilityRole::ComboBox: return UIA_ComboBoxControlTypeId;
+        case NativeAccessibilityRole::TabList: return UIA_TabControlTypeId;
+        case NativeAccessibilityRole::Tab: return UIA_TabItemControlTypeId;
+        case NativeAccessibilityRole::TabPanel: return UIA_PaneControlTypeId;
     }
     return UIA_CustomControlTypeId;
 }
@@ -66,7 +69,8 @@ CONTROLTYPEID ControlType(NativeAccessibilityRole role) {
 bool IsInvokable(NativeAccessibilityRole role) {
     return role == NativeAccessibilityRole::Button || role == NativeAccessibilityRole::Link ||
         role == NativeAccessibilityRole::CheckBox || role == NativeAccessibilityRole::Radio ||
-        role == NativeAccessibilityRole::Switch || role == NativeAccessibilityRole::ComboBox;
+        role == NativeAccessibilityRole::Switch || role == NativeAccessibilityRole::ComboBox ||
+        role == NativeAccessibilityRole::Tab;
 }
 
 bool IsToggle(NativeAccessibilityRole role) {

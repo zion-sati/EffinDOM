@@ -5,7 +5,6 @@
 namespace effindom::v2::native {
 
 struct NativeHostState {
-    std::uint32_t activation_count = 0;
     std::uint32_t mount_count = 0;
     std::uint32_t dispose_count = 0;
     std::uint64_t frame_count = 0;

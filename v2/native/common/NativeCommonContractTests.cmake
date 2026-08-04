@@ -12,13 +12,14 @@ function(effindom_add_native_common_contract_tests native_app_target)
     add_executable(effindom_v2_native_common_contract_tests
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_accessibility.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_custom_drawing.cpp"
+        "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_input_contract.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_platform_factory.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_timer_coordinator.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_worker_coordinator.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_fui_rs_worker_adapter.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_worker_host.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_unsupported_capabilities.cpp"
-        "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_demo_drawing_showcase.cpp"
+        "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_universal_demo.cpp"
         "${CMAKE_SOURCE_DIR}/v2/native/common/tests/test_native_window_icon.cpp"
     )
     target_include_directories(effindom_v2_native_common_contract_tests PRIVATE

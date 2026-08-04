@@ -183,7 +183,10 @@ struct LinuxVulkanSurface::Impl {
 
     bool PreviousPresentCompleted() {
         if (!hardware_present_wait || last_present_id == 0U) return true;
-        const VkResult result = wait_for_present(device, swapchain, last_present_id, 0U);
+        // Wait for the compositor's actual presentation boundary instead of
+        // polling and relying on the removed fixed 60 Hz host sleep.
+        const VkResult result = wait_for_present(
+            device, swapchain, last_present_id, 50'000'000U);
         if (result == VK_SUCCESS) {
             last_present_id = 0U;
             return true;

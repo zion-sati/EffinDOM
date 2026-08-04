@@ -1,4 +1,4 @@
-import type { BuildMode, DevToolsDomMirrorMode, PageZoomMode } from '@effindomv2/runtime';
+import type { BuildMode, DevToolsDomMirrorMode } from '@effindomv2/runtime';
 
 import {
   pushManagedHistoryEntry,
@@ -38,7 +38,6 @@ export interface RoutedHarnessConfig<
   readonly routes: readonly TRoute[];
   readonly buildMode?: BuildMode;
   readonly devToolsDomMirror?: DevToolsDomMirrorMode;
-  readonly pageZoom?: PageZoomMode;
   readonly hostEvents?: HostEventsDefinition;
   readonly hostServices?: HostServicesDefinition;
   readonly workerHostServices?: WorkerHostServicesBundleConfig;
@@ -185,7 +184,6 @@ export function startRoutedHarness<
   startManagedHarness({
     ...(config.buildMode === undefined ? {} : { buildMode: config.buildMode }),
     ...(config.devToolsDomMirror === undefined ? {} : { devToolsDomMirror: config.devToolsDomMirror }),
-    ...(config.pageZoom === undefined ? {} : { pageZoom: config.pageZoom }),
     ...(config.loading === undefined ? {} : { loading: config.loading }),
     ...(config.instantiateApp === undefined ? {} : { instantiateApp: config.instantiateApp }),
     onReady: async (controller): Promise<void> => {

@@ -39,6 +39,11 @@ export function installCallbacks(runtimeRef: { current: BridgeRuntime | null }):
         pending?.width ?? 0,
         pending?.height ?? 0,
         pending?.clickCount ?? 0,
+        pending?.isPrimary ?? true,
+        pending?.tangentialPressure ?? 0,
+        pending?.tiltX ?? 0,
+        pending?.tiltY ?? 0,
+        pending?.twist ?? 0,
       ));
     },
     onPointerEventWithMetadata: (
@@ -55,6 +60,11 @@ export function installCallbacks(runtimeRef: { current: BridgeRuntime | null }):
       width,
       height,
       clickCount,
+      isPrimary,
+      tangentialPressure,
+      tiltX,
+      tiltY,
+      twist,
     ) => {
       const entry: PointerEventLog = {
         handle: handleToString(handle),
@@ -70,6 +80,11 @@ export function installCallbacks(runtimeRef: { current: BridgeRuntime | null }):
         width,
         height,
         clickCount,
+        isPrimary,
+        tangentialPressure,
+        tiltX,
+        tiltY,
+        twist,
       };
       logs.pointerEvents.push(entry);
       return false;

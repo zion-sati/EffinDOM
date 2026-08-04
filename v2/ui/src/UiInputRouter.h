@@ -163,7 +163,21 @@ public:
     void ClearAutoScroll();
     void UpdateAutoScroll(std::uint64_t start_handle, float logical_x, float logical_y);
     void HandleWheel(float delta_x, float delta_y);
+    void HandleWheelFrom(
+        std::uint64_t start_handle,
+        float logical_x,
+        float logical_y,
+        float delta_x,
+        float delta_y);
     void HandlePreciseWheel(float delta_x, float delta_y, bool begins_gesture, bool ends_gesture);
+    void HandlePreciseWheelFrom(
+        std::uint64_t start_handle,
+        float logical_x,
+        float logical_y,
+        float delta_x,
+        float delta_y,
+        bool begins_gesture,
+        bool ends_gesture);
     void BeginTouchScroll(std::uint64_t handle, float logical_x, float logical_y, double timestamp_ms);
     void UpdateTouchScroll(float delta_x, float delta_y, double timestamp_ms);
     void EndTouchScroll(double timestamp_ms);

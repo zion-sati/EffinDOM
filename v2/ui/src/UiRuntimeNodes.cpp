@@ -292,7 +292,7 @@ bool UiRuntime::SetNodeId(std::uint64_t handle, const std::uint8_t* utf8_id, std
 
 bool UiRuntime::SetSemanticRole(std::uint64_t handle, std::uint32_t role_enum) {
     UINode* node = ResolveMutable(handle);
-    if (node == nullptr || role_enum > UI_SEMANTIC_COMBOBOX) {
+    if (node == nullptr || role_enum > UI_SEMANTIC_TAB_PANEL) {
         return false;
     }
     const std::string previous_text = node->text_content;
@@ -711,6 +711,12 @@ bool UiRuntime::SetScrollOffset(std::uint64_t handle, float offset_x, float offs
     if (node == nullptr || !node->is_scroll_view) {
         return false;
     }
+    constexpr float kScrollOffsetEpsilon = 0.001f;
+    if (node->smooth_scroll_active &&
+        std::abs(offset_x - node->scroll_offset_x) < kScrollOffsetEpsilon &&
+        std::abs(offset_y - node->scroll_offset_y) < kScrollOffsetEpsilon) {
+        return true;
+    }
     node->pending_scroll_offset_x = offset_x;
     node->pending_scroll_offset_y = offset_y;
     node->has_pending_scroll_offset = true;
@@ -718,6 +724,7 @@ bool UiRuntime::SetScrollOffset(std::uint64_t handle, float offset_x, float offs
     node->scroll_velocity_x = 0.0f;
     node->scroll_velocity_y = 0.0f;
     node->smooth_scroll_active = false;
+    node->smooth_scroll_just_started = false;
     node->smooth_scroll_target_x = offset_x;
     node->smooth_scroll_target_y = offset_y;
     return true;
@@ -775,8 +782,12 @@ bool UiRuntime::SetSmoothScrolling(std::uint64_t handle, bool smooth_scrolling) 
     if (node == nullptr || !node->is_scroll_view) {
         return false;
     }
+    if (node->smooth_scrolling == smooth_scrolling) {
+        return true;
+    }
     node->smooth_scrolling = smooth_scrolling;
     node->smooth_scroll_active = false;
+    node->smooth_scroll_just_started = false;
     node->smooth_scroll_target_x = node->scroll_offset_x;
     node->smooth_scroll_target_y = node->scroll_offset_y;
     return true;

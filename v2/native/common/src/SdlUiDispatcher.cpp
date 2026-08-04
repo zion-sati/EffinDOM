@@ -48,6 +48,10 @@ bool SdlUiDispatcher::PostTask(std::function<bool()> task) {
 
 bool SdlUiDispatcher::HandleEvent(const SDL_Event& event) {
     if (event.type != event_type_) return false;
+    return DrainPending();
+}
+
+bool SdlUiDispatcher::DrainPending() {
     std::deque<WorkItem> work;
     {
         std::lock_guard lock(mutex_);

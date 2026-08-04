@@ -1,0 +1,40 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://effindom.dev/schemas/fui-config.schema.json",
+  "title": "FUI application configuration",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "application": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "pageZoom": { "enum": ["disabled", "enabled"] }
+      }
+    },
+    "web": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "loading": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "delayMs": { "type": "number", "minimum": 0 },
+            "minimumVisibleMs": { "type": "number", "minimum": 0 }
+          }
+        },
+        "devTools": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "domMirror": { "enum": ["disabled", "enabled", "on-requested"] }
+          }
+        }
+      }
+    }
+  }
+}

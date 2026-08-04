@@ -4,6 +4,7 @@
 #include "NativeAccessibility.h"
 #include "NativeHostState.h"
 #include "NativeInputRouter.h"
+#include "NativePageZoomController.h"
 
 #include "Engine.h"
 
@@ -17,6 +18,17 @@
 #include <vector>
 
 namespace effindom::v2::native {
+
+constexpr bool ShouldCommitNativeRuntimeFrame(
+    bool pending_visual_work,
+    bool ui_animation_frame_requested,
+    bool managed_commit_applied,
+    bool viewport_changed,
+    bool input_commit_requested) {
+    return pending_visual_work ||
+        (!managed_commit_applied &&
+            (ui_animation_frame_requested || viewport_changed || input_commit_requested));
+}
 
 struct NativeHostCoreCallbacks {
     NativeHostCoreCallbacks(
@@ -47,6 +59,12 @@ public:
 
     void RequestFrame();
     void SetSystemDarkMode(bool dark_mode);
+    void SetPageZoomEnabled(bool enabled);
+    bool IsPageZoomEnabled() const;
+    NativePageZoomController& PageZoom();
+    const NativePageZoomController& PageZoom() const;
+    bool DispatchTrackpadPinch(float screen_x, float screen_y,
+        float delta_y, float scale_multiplier);
     bool RunNextFrame();
     void DrainFrames(std::uint32_t maximum_frames);
     void ApplyManagedCommittedCommands();
@@ -86,6 +104,7 @@ private:
     void ApplyCommittedCommands();
 
     Engine engine_{};
+    NativePageZoomController page_zoom_;
     NativeInputRouter input_router_;
     NativeAccessibilityCoordinator accessibility_;
     NativeHostCoreCallbacks callbacks_;

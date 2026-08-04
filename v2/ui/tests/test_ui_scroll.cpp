@@ -384,6 +384,117 @@ TEST_CASE("v2 ui precise wheel streams bypass coarse smoothing and retain their 
     CHECK(runtime.Resolve(scroll)->scroll_offset_y == Approx(10.0f));
 }
 
+TEST_CASE("v2 ui coordinate-aware coarse wheel ignores stale pointer state and remains smooth", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(content, 480.0f, UI_SIZE_UNIT_PIXEL);
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, content);
+    ui_commit_frame();
+
+    auto& runtime = GetRuntime();
+    runtime.Input().state().last_pointer_logical_x = 300.0f;
+    runtime.Input().state().last_pointer_logical_y = 220.0f;
+    runtime.HandleWheelEventAt(scroll, 40.0f, 40.0f, 0.0f, 96.0f);
+
+    REQUIRE(runtime.Resolve(scroll) != nullptr);
+    CHECK(runtime.Resolve(scroll)->scroll_offset_y == Approx(0.0f));
+    CHECK(runtime.Resolve(scroll)->smooth_scroll_target_y == Approx(96.0f));
+    CHECK(runtime.Resolve(scroll)->smooth_scroll_active);
+}
+
+TEST_CASE("v2 ui coarse wheel starts with one nominal frame after a long idle", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(content != UI_INVALID_HANDLE);
+
+    ui_set_root(root);
+    ui_set_width(root, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(content, 480.0f, UI_SIZE_UNIT_PIXEL);
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, content);
+    ui_commit_frame(0.0);
+
+    auto& runtime = GetRuntime();
+    runtime.HandleWheelEventAt(scroll, 40.0f, 40.0f, 0.0f, 96.0f);
+    ui_commit_frame(1000.0);
+
+    REQUIRE(runtime.Resolve(scroll) != nullptr);
+    CHECK(runtime.Resolve(scroll)->scroll_offset_y > 0.0f);
+    CHECK(runtime.Resolve(scroll)->scroll_offset_y < 48.0f);
+    CHECK(runtime.Resolve(scroll)->smooth_scroll_active);
+}
+
+TEST_CASE("v2 ui same-offset synchronization preserves a coarse wheel target", "[v2][ui][input]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t scroll = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t content = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(scroll != UI_INVALID_HANDLE);
+    REQUIRE(content != UI_INVALID_HANDLE);
+    ui_set_root(root);
+    ui_set_width(root, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 240.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(scroll, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(scroll, 120.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(content, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(content, 480.0f, UI_SIZE_UNIT_PIXEL);
+    ui_node_add_child(root, scroll);
+    ui_node_add_child(scroll, content);
+    ui_commit_frame(0.0);
+
+    auto& runtime = GetRuntime();
+    runtime.HandleWheelEventAt(scroll, 40.0f, 40.0f, 0.0f, 96.0f);
+    ui_commit_frame(16.0);
+    REQUIRE(runtime.Resolve(scroll) != nullptr);
+    const float intermediate_offset = runtime.Resolve(scroll)->scroll_offset_y;
+    REQUIRE(intermediate_offset > 0.0f);
+    REQUIRE(intermediate_offset < 96.0f);
+
+    REQUIRE(runtime.SetSmoothScrolling(scroll, true));
+    CHECK(runtime.Resolve(scroll)->smooth_scroll_active);
+    CHECK(runtime.Resolve(scroll)->smooth_scroll_target_y == Approx(96.0f));
+    REQUIRE(runtime.SetScrollOffset(scroll, 0.0f, intermediate_offset));
+    CHECK(runtime.Resolve(scroll)->smooth_scroll_active);
+    CHECK(runtime.Resolve(scroll)->smooth_scroll_target_y == Approx(96.0f));
+
+    ui_commit_frame(16.0);
+    CHECK(runtime.Resolve(scroll)->smooth_scroll_active);
+    CHECK(runtime.Resolve(scroll)->smooth_scroll_target_y == Approx(96.0f));
+    ui_commit_frame(32.0);
+    CHECK(runtime.Resolve(scroll)->scroll_offset_y > intermediate_offset);
+}
+
 
 TEST_CASE("v2 ui pull-to-refresh reports true for non-scroll starts and top-of-scroll targets", "[v2][ui][input]") {
     using effindom::v2::ui::GetRuntime;

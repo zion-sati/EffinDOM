@@ -15,7 +15,11 @@ public:
         std::error_code error;
         std::filesystem::remove_all(path_, error);
         std::filesystem::create_directories(path_ / "assets", error);
+        std::filesystem::create_directories(path_ / "app", error);
+        std::filesystem::create_directories(path_ / "fonts", error);
         std::ofstream(path_ / "assets" / "sample file.txt") << "asset";
+        std::ofstream(path_ / "app" / "root-texture.png") << "texture";
+        std::ofstream(path_ / "fonts" / "root-font.ttf") << "font";
     }
 
     ~TemporaryAssetRoot() {
@@ -45,6 +49,15 @@ TEST_CASE("native asset locator resolves roots and encoded file sources", "[v2][
     CHECK(std::filesystem::equivalent(
         ResolveNativeAssetPath(environment, "file://assets/sample%20file.txt"),
         root.Path() / "assets" / "sample file.txt"));
+    CHECK(std::filesystem::equivalent(
+        ResolveNativeAssetPath(environment, "/root-texture.png"),
+        root.Path() / "app" / "root-texture.png"));
+    CHECK(std::filesystem::equivalent(
+        ResolveNativeAssetPath(environment, "/root-font.ttf"),
+        root.Path() / "fonts" / "root-font.ttf"));
+    CHECK(std::filesystem::equivalent(
+        ResolveNativeAssetPath(environment, "/v2/fui-rs/fonts/root-font.ttf"),
+        root.Path() / "fonts" / "root-font.ttf"));
     CHECK(ResolveNativeAssetPath(environment, "assets/missing.txt").empty());
     CHECK(ResolveNativeAssetPath(environment, "https://effindom.dev/asset").empty());
     CHECK(ResolveNativeAssetPath(environment, "data:text/plain,asset").empty());

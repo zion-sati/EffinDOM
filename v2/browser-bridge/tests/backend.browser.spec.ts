@@ -61,6 +61,45 @@ test('browser bridge boots core/ui wasm and renders a red canvas through the bri
   expect(fs.existsSync(shot)).toBe(true);
 });
 
+test('browser frame controller follows explicit app animation demand and becomes idle', async ({ page }) => {
+  await gotoBridgePage(page);
+
+  await page.evaluate(() => {
+    const runtime = window.EffinDomBrowserBridge?.getRuntime();
+    if (runtime === null || runtime === undefined) {
+      throw new Error('Bridge runtime is unavailable.');
+    }
+    const probe = { frameCount: 0, active: true };
+    (window as unknown as { __appFrameProbe: typeof probe }).__appFrameProbe = probe;
+    runtime.setAppFrameController({
+      onFrame: () => {
+        probe.frameCount += 1;
+        if (probe.frameCount === 3) {
+          probe.active = false;
+        }
+      },
+      needsAnimationFrame: () => probe.active,
+    });
+  });
+
+  await page.waitForFunction(() => (
+    window as unknown as { __appFrameProbe?: { frameCount: number } }
+  ).__appFrameProbe?.frameCount === 3);
+  await page.waitForTimeout(100);
+  const settledCount = await page.evaluate(() => (
+    window as unknown as { __appFrameProbe: { frameCount: number } }
+  ).__appFrameProbe.frameCount);
+  await page.waitForTimeout(100);
+  const finalCount = await page.evaluate(() => {
+    const runtime = window.EffinDomBrowserBridge?.getRuntime();
+    runtime?.setAppFrameController(null);
+    return (window as unknown as { __appFrameProbe: { frameCount: number } }).__appFrameProbe.frameCount;
+  });
+
+  expect(settledCount).toBe(3);
+  expect(finalCount).toBe(3);
+});
+
 test('browser bridge reports runtime and built-in font startup progress', async ({ page }) => {
   await page.addInitScript(() => {
     const progress: { label: string; completed: number; total: number }[] = [];

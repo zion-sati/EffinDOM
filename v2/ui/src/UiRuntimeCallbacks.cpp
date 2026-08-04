@@ -185,50 +185,40 @@ EMSCRIPTEN_KEEPALIVE void as_on_request_semantic_announcement(ui_handle_t handle
 
 #if defined(_MSC_VER)
 #define EFFINDOM_WEAK_CALLBACK
-static UiHostCallbacks g_host_callbacks{};
 #else
 #define EFFINDOM_WEAK_CALLBACK __attribute__((weak))
 #endif
+static UiHostCallbacks g_host_callbacks{};
 
 extern "C" {
 
 void ui_set_host_callbacks(const UiHostCallbacks* callbacks) {
-#if defined(_MSC_VER)
     g_host_callbacks = callbacks == nullptr ? UiHostCallbacks{} : *callbacks;
-#else
-    (void)callbacks;
-#endif
 }
 
 EFFINDOM_WEAK_CALLBACK void as_on_focus_changed(ui_handle_t handle, bool is_focused) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_focus_changed != nullptr) {
         g_host_callbacks.on_focus_changed(handle, is_focused);
         return;
     }
-#endif
     (void)handle;
     (void)is_focused;
 }
 
 EFFINDOM_WEAK_CALLBACK bool as_on_pointer_event(ui_handle_t handle, UiEvent event_enum) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_pointer_event != nullptr) {
         return g_host_callbacks.on_pointer_event(handle, event_enum);
     }
-#endif
     (void)handle;
     (void)event_enum;
     return false;
 }
 
 EFFINDOM_WEAK_CALLBACK void as_on_text_changed(ui_handle_t handle, const uint8_t* utf8_str, uint32_t len) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_text_changed != nullptr) {
         g_host_callbacks.on_text_changed(handle, utf8_str, len);
         return;
     }
-#endif
     (void)handle;
     (void)utf8_str;
     (void)len;
@@ -240,12 +230,10 @@ EFFINDOM_WEAK_CALLBACK void as_on_text_replaced(
     uint32_t end_idx,
     const uint8_t* utf8_str,
     uint32_t len) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_text_replaced != nullptr) {
         g_host_callbacks.on_text_replaced(handle, start_idx, end_idx, utf8_str, len);
         return;
     }
-#endif
     (void)handle;
     (void)start_idx;
     (void)end_idx;
@@ -261,12 +249,10 @@ EFFINDOM_WEAK_CALLBACK void as_on_scroll(
     float content_height,
     float viewport_width,
     float viewport_height) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_scroll != nullptr) {
         g_host_callbacks.on_scroll(handle, offset_x, offset_y, content_width, content_height, viewport_width, viewport_height);
         return;
     }
-#endif
     (void)handle;
     (void)offset_x;
     (void)offset_y;
@@ -277,24 +263,20 @@ EFFINDOM_WEAK_CALLBACK void as_on_scroll(
 }
 
 EFFINDOM_WEAK_CALLBACK void as_on_selection_changed(ui_handle_t handle, uint32_t start_idx, uint32_t end_idx) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_selection_changed != nullptr) {
         g_host_callbacks.on_selection_changed(handle, start_idx, end_idx);
         return;
     }
-#endif
     (void)handle;
     (void)start_idx;
     (void)end_idx;
 }
 
 EFFINDOM_WEAK_CALLBACK void as_on_cross_selection_changed(ui_handle_t area_handle, const uint8_t* utf8_str, uint32_t len) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_cross_selection_changed != nullptr) {
         g_host_callbacks.on_cross_selection_changed(area_handle, utf8_str, len);
         return;
     }
-#endif
     (void)area_handle;
     (void)utf8_str;
     (void)len;
@@ -305,12 +287,10 @@ EFFINDOM_WEAK_CALLBACK void as_on_clipboard_write(
     uint32_t plain_text_len,
     const uint8_t* utf8_rich_json,
     uint32_t rich_json_len) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_clipboard_write != nullptr) {
         g_host_callbacks.on_clipboard_write(utf8_plain_text, plain_text_len, utf8_rich_json, rich_json_len);
         return;
     }
-#endif
     (void)utf8_plain_text;
     (void)plain_text_len;
     (void)utf8_rich_json;
@@ -318,34 +298,28 @@ EFFINDOM_WEAK_CALLBACK void as_on_clipboard_write(
 }
 
 EFFINDOM_WEAK_CALLBACK void as_on_request_clipboard_read(ui_handle_t handle) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_request_clipboard_read != nullptr) {
         g_host_callbacks.on_request_clipboard_read(handle);
         return;
     }
-#endif
     (void)handle;
 }
 
 EFFINDOM_WEAK_CALLBACK void as_on_request_font_load(uint32_t font_id, const uint8_t* utf8_url, uint32_t len) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_request_font_load != nullptr) {
         g_host_callbacks.on_request_font_load(font_id, utf8_url, len);
         return;
     }
-#endif
     (void)font_id;
     (void)utf8_url;
     (void)len;
 }
 
 EFFINDOM_WEAK_CALLBACK void as_on_missing_font_coverage(uint32_t font_id, uint32_t coverage_kind, const uint8_t* utf8_sample, uint32_t len) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_missing_font_coverage != nullptr) {
         g_host_callbacks.on_missing_font_coverage(font_id, coverage_kind, utf8_sample, len);
         return;
     }
-#endif
     (void)font_id;
     (void)coverage_kind;
     (void)utf8_sample;
@@ -353,12 +327,10 @@ EFFINDOM_WEAK_CALLBACK void as_on_missing_font_coverage(uint32_t font_id, uint32
 }
 
 EFFINDOM_WEAK_CALLBACK void as_on_request_semantic_announcement(ui_handle_t handle) {
-#if defined(_MSC_VER)
     if (g_host_callbacks.on_request_semantic_announcement != nullptr) {
         g_host_callbacks.on_request_semantic_announcement(handle);
         return;
     }
-#endif
     (void)handle;
 }
 

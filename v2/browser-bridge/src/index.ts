@@ -32,10 +32,26 @@ export type {
   ResolvedDevToolsDomMirrorConfig,
 } from './runtime-config';
 
+export type {
+  FuiApplicationConfig,
+  FuiConfig,
+  FuiDevToolsDomMirrorMode,
+  FuiPageZoomMode,
+  FuiWebConfig,
+  FuiWebDevToolsConfig,
+  FuiWebLoadingConfig,
+} from './fui-config';
+
+export {
+  FUI_CONFIG_SCHEMA_URL,
+  FUI_CONFIG_SCHEMA_VERSION,
+  createFuiConfigBootstrapScript,
+  parseFuiConfig,
+} from './fui-config';
+
 export {
   BuildMode,
   DevToolsDomMirrorMode,
-  PageZoomMode,
   EFFINDOM_RUNTIME_ARTIFACT_DIR,
   EFFINDOM_RUNTIME_BRIDGE_SCRIPT,
   EFFINDOM_RUNTIME_DIST_DIR,
@@ -47,7 +63,6 @@ export {
   createRuntimeConfigScript,
   normalizeBuildMode,
   normalizeDevToolsDomMirrorMode,
-  normalizePageZoomMode,
   normalizeRuntimeConfig,
   resolveDevToolsDomMirrorConfig,
   resolveRuntimeAssetUrls,

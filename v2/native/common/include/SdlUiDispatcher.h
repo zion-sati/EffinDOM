@@ -18,6 +18,7 @@ public:
     bool Cancel(std::uint64_t callback_id);
     bool PostTask(std::function<bool()> task);
     bool HandleEvent(const SDL_Event& event);
+    bool DrainPending();
     void Clear();
 
 private:

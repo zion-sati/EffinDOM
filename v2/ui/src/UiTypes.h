@@ -241,6 +241,7 @@ struct UINode {
     float smooth_scroll_target_y = 0.0f;
     bool smooth_scrolling = true;
     bool smooth_scroll_active = false;
+    bool smooth_scroll_just_started = false;
     bool scroll_enabled_x = true;
     bool scroll_enabled_y = true;
     float friction = 0.95f;

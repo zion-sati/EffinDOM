@@ -217,6 +217,8 @@ bool WindowsPlatformServices::LoadDefaultFont(std::uint32_t font_id, const char*
     return assets_.LoadDefaultFont(font_id, name);
 }
 
+bool WindowsPlatformServices::LoadBuiltInFonts() { return assets_.LoadBuiltInFonts(); }
+
 bool WindowsPlatformServices::LoadFont(std::uint32_t font_id, const std::filesystem::path& path) {
     return assets_.LoadFont(font_id, path);
 }

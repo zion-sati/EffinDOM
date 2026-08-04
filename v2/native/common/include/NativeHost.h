@@ -2,6 +2,7 @@
 
 #include "NativeAccessibility.h"
 #include "NativeHostState.h"
+#include "NativePageZoomController.h"
 
 #include <cstdint>
 #include <filesystem>
@@ -32,6 +33,8 @@ public:
     void DrainFrames(std::uint32_t maximum_frames = 120U);
     bool PumpEvent(bool wait_when_idle);
     bool ShouldPresentAfterLastEvent() const;
+    void WaitForAnimationFrame();
+    void SetAnimationFrameActive(bool active);
     void Resize(std::uint32_t logical_width, std::uint32_t logical_height);
     void RecreateGraphicsSurface();
     void DispatchPointer(
@@ -41,7 +44,13 @@ public:
         std::int32_t button = 0,
         std::uint32_t buttons = 0xFFFFFFFFU,
         std::int32_t click_count = 1);
-    void DispatchPointerMove(float x, float y, std::uint32_t modifiers = 0U);
+    void DispatchPointerMove(
+        float x,
+        float y,
+        std::uint32_t modifiers = 0U,
+        std::uint32_t buttons = 0xFFFFFFFFU);
+    void SetPointerCaptureForTesting(std::uint64_t handle);
+    std::uint64_t LastPointerTargetForTesting() const;
     void DispatchWheel(float delta_x, float delta_y);
     void DispatchKey(const std::string& key, bool down, std::uint32_t modifiers = 0U);
     void DispatchWindowFocusLost();
@@ -83,11 +92,15 @@ public:
     bool WriteScreenshot(const std::filesystem::path& path, std::string& error) const;
     bool IsIdle() const;
     bool IsRunning() const;
+    bool IsPageZoomEnabledForTesting() const;
+    bool SetPageZoomForTesting(float scale, float screen_x, float screen_y);
+    NativePageZoomState PageZoomStateForTesting() const;
 
 private:
     std::unique_ptr<NativePlatformHost> platform_;
     std::unique_ptr<NativeWorkerHost> worker_host_;
     std::uint64_t worker_session_generation_ = 0U;
+    std::optional<bool> packaged_page_zoom_enabled_;
 };
 
 } // namespace effindom::v2::native

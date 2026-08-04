@@ -594,6 +594,21 @@ bool UiRuntime::SetTextSelectionRange(std::uint64_t handle, std::uint32_t select
     return true;
 }
 
+bool UiRuntime::GetTextSelectionRange(
+    std::uint64_t handle, std::uint32_t& selection_start, std::uint32_t& selection_end) const {
+    const UINode* node = Resolve(handle);
+    if (node == nullptr || !node->is_text_node || !node->is_selectable) return false;
+    selection_start = node->selection_start;
+    selection_end = node->selection_end;
+    return true;
+}
+
+std::optional<std::string_view> UiRuntime::GetEditableTextDocument(std::uint64_t handle) const {
+    const UINode* node = Resolve(handle);
+    if (node == nullptr || !node->is_text_node || !node->is_editable) return std::nullopt;
+    return std::string_view(node->text_content);
+}
+
 void UiRuntime::HandleCopy(const UINode& node) const {
     if (node.is_obscured || node.selection_start == node.selection_end) {
         return;

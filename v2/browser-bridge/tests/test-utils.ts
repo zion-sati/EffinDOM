@@ -527,10 +527,21 @@ interface RuntimeConfigOverrides {
   readonly expectedRuntimeSetHash?: string;
   readonly buildMode?: 'debug' | 'release';
   readonly devToolsDomMirror?: 'disabled' | 'enabled' | 'on-requested';
+}
+
+interface ApplicationConfigOverrides {
   readonly pageZoom?: 'disabled' | 'enabled';
 }
 
-async function gotoBridgePage(page: Page, query = '', runtimeConfig: RuntimeConfigOverrides = {}): Promise<void> {
+async function gotoBridgePage(
+  page: Page,
+  query = '',
+  runtimeConfig: RuntimeConfigOverrides = {},
+  applicationConfig: ApplicationConfigOverrides = {},
+): Promise<void> {
+  await page.addInitScript((config: ApplicationConfigOverrides) => {
+    window.__effindomFuiConfig = { version: 1, application: config };
+  }, applicationConfig);
   await page.addInitScript((config: RuntimeConfigOverrides) => {
     window.__effindomRuntime = {
       manifestUrls: ['/v2/browser-bridge/effindom.v2.manifest.json'],

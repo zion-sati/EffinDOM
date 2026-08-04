@@ -349,6 +349,9 @@ public:
     bool ClearCurrentSelection(bool notify_callback);
     bool CopyCurrentSelection() const;
     bool SetTextSelectionRange(std::uint64_t handle, std::uint32_t selection_start, std::uint32_t selection_end);
+    bool GetTextSelectionRange(
+        std::uint64_t handle, std::uint32_t& selection_start, std::uint32_t& selection_end) const;
+    std::optional<std::string_view> GetEditableTextDocument(std::uint64_t handle) const;
     bool CanUndoTextEdit(std::uint64_t handle) const;
     bool CanRedoTextEdit(std::uint64_t handle) const;
     bool HasTextSelection(std::uint64_t handle) const;
@@ -390,7 +393,21 @@ public:
         std::int32_t click_count = 0,
         std::uint32_t modifiers = 0);
     void HandleWheelEvent(float delta_x, float delta_y);
+    void HandleWheelEventAt(
+        std::uint64_t start_handle,
+        float logical_x,
+        float logical_y,
+        float delta_x,
+        float delta_y);
     void HandlePreciseWheelEvent(float delta_x, float delta_y, bool begins_gesture, bool ends_gesture);
+    void HandlePreciseWheelEventAt(
+        std::uint64_t start_handle,
+        float logical_x,
+        float logical_y,
+        float delta_x,
+        float delta_y,
+        bool begins_gesture,
+        bool ends_gesture);
     void BeginTouchScroll(std::uint64_t handle, float logical_x, float logical_y, double timestamp_ms = -1.0);
     void UpdateTouchScroll(float delta_x, float delta_y, double timestamp_ms = -1.0);
     void EndTouchScroll(double timestamp_ms = -1.0);

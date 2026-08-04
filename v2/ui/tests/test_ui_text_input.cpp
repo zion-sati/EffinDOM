@@ -1080,6 +1080,14 @@ TEST_CASE("v2 ui ime update emits caret, timestamp, and text callback", "[v2][ui
     CHECK(GetRuntime().Resolve(text)->text_content == "Hello");
     CHECK(GetRuntime().Resolve(text)->selection_start == 2U);
     CHECK(GetRuntime().Resolve(text)->selection_end == 2U);
+    std::uint32_t selection_start = 0U;
+    std::uint32_t selection_end = 0U;
+    CHECK(GetRuntime().GetTextSelectionRange(text, selection_start, selection_end));
+    CHECK(selection_start == 2U);
+    CHECK(selection_end == 2U);
+    const auto editable_text = GetRuntime().GetEditableTextDocument(text);
+    REQUIRE(editable_text.has_value());
+    CHECK(*editable_text == "Hello");
 }
 
 TEST_CASE("v2 ui editable insert undo restores prior empty state", "[v2][ui][text-edit]") {

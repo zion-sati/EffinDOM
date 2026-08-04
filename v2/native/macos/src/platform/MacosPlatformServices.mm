@@ -113,6 +113,8 @@ bool MacosPlatformServices::LoadDefaultFont(std::uint32_t font_id, const char* n
     return assets_.LoadDefaultFont(font_id, name);
 }
 
+bool MacosPlatformServices::LoadBuiltInFonts() { return assets_.LoadBuiltInFonts(); }
+
 bool MacosPlatformServices::LoadFont(std::uint32_t font_id, const std::filesystem::path& path) {
     return assets_.LoadFont(font_id, path);
 }

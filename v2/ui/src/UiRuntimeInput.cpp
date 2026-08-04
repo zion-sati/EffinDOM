@@ -540,12 +540,39 @@ void UiRuntime::HandleWheelEvent(float delta_x, float delta_y) {
     Input().HandleWheel(delta_x, delta_y);
 }
 
+void UiRuntime::HandleWheelEventAt(
+    std::uint64_t start_handle,
+    float logical_x,
+    float logical_y,
+    float delta_x,
+    float delta_y) {
+    Input().HandleWheelFrom(start_handle, logical_x, logical_y, delta_x, delta_y);
+}
+
 void UiRuntime::HandlePreciseWheelEvent(
     float delta_x,
     float delta_y,
     bool begins_gesture,
     bool ends_gesture) {
     Input().HandlePreciseWheel(delta_x, delta_y, begins_gesture, ends_gesture);
+}
+
+void UiRuntime::HandlePreciseWheelEventAt(
+    std::uint64_t start_handle,
+    float logical_x,
+    float logical_y,
+    float delta_x,
+    float delta_y,
+    bool begins_gesture,
+    bool ends_gesture) {
+    Input().HandlePreciseWheelFrom(
+        start_handle,
+        logical_x,
+        logical_y,
+        delta_x,
+        delta_y,
+        begins_gesture,
+        ends_gesture);
 }
 
 void UiRuntime::BeginTouchScroll(std::uint64_t handle, float logical_x, float logical_y, double timestamp_ms) {

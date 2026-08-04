@@ -8,12 +8,13 @@ union SDL_Event;
 struct SDL_Window;
 
 namespace effindom::v2 {
-class Engine;
 namespace native {
+
+class NativeInputRouter;
 
 class SdlDropTarget final {
 public:
-    SdlDropTarget(SDL_Window* window, Engine& engine);
+    SdlDropTarget(SDL_Window* window, NativeInputRouter& input_router);
 
     bool HandleEvent(const SDL_Event& event);
     void Clear();
@@ -34,7 +35,7 @@ private:
     std::vector<std::uint8_t> EncodePayload() const;
 
     SDL_Window* window_;
-    Engine& engine_;
+    NativeInputRouter& input_router_;
     bool active_ = false;
     bool entered_ = false;
     float x_ = 0.0f;

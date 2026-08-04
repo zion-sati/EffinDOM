@@ -89,6 +89,31 @@ TEST_CASE("native accessibility decodes semantic records and suppresses unchange
     CHECK(state->updates == 2U);
 }
 
+TEST_CASE("native accessibility projects semantic and lazy text geometry with viewport changes",
+    "[v2][native][accessibility][zoom]") {
+    float scale = 2.0f;
+    auto projector = [&scale](const NativeAccessibilityTextRect& rect) {
+        return NativeAccessibilityTextRect{
+            rect.x * scale - 5.0f, rect.y * scale - 7.0f,
+            rect.width * scale, rect.height * scale};
+    };
+    auto state = std::make_shared<AdapterState>();
+    NativeAccessibilityCoordinator coordinator([] {}, projector);
+    coordinator.Attach(std::make_unique<RecordingAdapter>(state));
+    const auto words = SemanticBuffer(42U, 10U, 0U, "Zoomed");
+    REQUIRE(coordinator.Sync(words.data(), static_cast<std::uint32_t>(words.size()), 0U));
+    REQUIRE(state->snapshot.nodes.size() == 1U);
+    CHECK(state->snapshot.nodes[0].bounds.x == 15.0f);
+    CHECK(state->snapshot.nodes[0].bounds.y == 33.0f);
+    CHECK(state->snapshot.nodes[0].bounds.width == 200.0f);
+    const auto updates = state->updates;
+    scale = 3.0f;
+    coordinator.RefreshProjection();
+    CHECK(state->updates == updates + 1U);
+    CHECK(state->snapshot.nodes[0].bounds.x == 25.0f);
+    CHECK(state->snapshot.nodes[0].bounds.width == 300.0f);
+}
+
 TEST_CASE("native accessibility rejects malformed buffers atomically",
     "[v2][native][accessibility]") {
     auto state = std::make_shared<AdapterState>();
@@ -103,6 +128,34 @@ TEST_CASE("native accessibility rejects malformed buffers atomically",
     CHECK(state->updates == update_count);
     REQUIRE(state->snapshot.nodes.size() == 1U);
     CHECK(state->snapshot.nodes.front().label == "Action");
+}
+
+TEST_CASE("native accessibility accepts tab semantic roles",
+    "[v2][native][accessibility][tabs]") {
+    auto state = std::make_shared<AdapterState>();
+    NativeAccessibilityCoordinator coordinator([] {});
+    coordinator.Attach(std::make_unique<RecordingAdapter>(state));
+    const auto words = SemanticBuffer(88U, 18U, 0U, "Overview");
+
+    REQUIRE(coordinator.Sync(words.data(), static_cast<std::uint32_t>(words.size()), 0U));
+    REQUIRE(state->snapshot.nodes.size() == 1U);
+    CHECK(state->snapshot.nodes.front().role == NativeAccessibilityRole::Tab);
+}
+
+TEST_CASE("native accessibility dispatches retained activation through the native key route",
+    "[v2][native][accessibility][actions]") {
+    std::uint32_t frames = 0U;
+    std::vector<std::pair<std::string, bool>> keys;
+    NativeAccessibilityCoordinator coordinator(
+        [&frames] { ++frames; }, {},
+        [&keys](const std::string& key, bool down) { keys.emplace_back(key, down); });
+    const auto words = SemanticBuffer(88U, 18U, 0U, "Advanced");
+    REQUIRE(coordinator.Sync(words.data(), static_cast<std::uint32_t>(words.size()), 0U));
+
+    coordinator.PerformAction(NativeAccessibilityAction::Press, 88U);
+
+    CHECK(keys == std::vector<std::pair<std::string, bool>>{{" ", true}, {" ", false}});
+    CHECK(frames == 1U);
 }
 
 TEST_CASE("native accessibility announcements resolve stable semantic handles",

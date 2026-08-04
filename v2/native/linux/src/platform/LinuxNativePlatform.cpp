@@ -43,7 +43,10 @@ struct LinuxNativePlatform::Impl {
                   __fui_clear_native_file_dialog_callbacks();
               },
           }),
-          input_adapter(core.InputRouter(), SdlEventAdapterOptions{false, true, false}),
+          input_adapter(core.InputRouter(), SdlEventAdapterOptions{false, true, false},
+              &core.PageZoom(), [this](float x, float y, float delta_y, float scale) {
+                  return core.DispatchTrackpadPinch(x, y, delta_y, scale);
+              }),
           platform_services(core.GetEngine(), [this] { RequestFrame(); },
               [this](std::uint64_t handle) { core.AnnounceSemantic(handle); }, visible) {
         // Use the staged Cairo backend deterministically. Some distro plugin
@@ -102,7 +105,7 @@ struct LinuxNativePlatform::Impl {
         timer_coordinator = std::make_unique<NativeTimerCoordinator>([this](NativeTimerCoordinator::UiTask task) {
             return ui_dispatcher->PostTask(std::move(task));
         });
-        drop_target = std::make_unique<SdlDropTarget>(window, core.GetEngine());
+        drop_target = std::make_unique<SdlDropTarget>(window, core.InputRouter());
         file_dialogs = std::make_unique<SdlFileDialogs>(window, visible, [](const NativeFileDialogCompletion& completion) {
             std::string payload;
             if (completion.status == NativeFileDialogStatus::Selected) {
@@ -139,24 +142,11 @@ struct LinuxNativePlatform::Impl {
         }
         core.AttachGraphics(std::move(graphics));
         ui::SetGlobalUiPlatformHost(platform_services);
-        UiHostCallbacks callbacks{};
-        callbacks.on_focus_changed = &as_on_focus_changed;
-        callbacks.on_pointer_event = &as_on_pointer_event;
-        callbacks.on_text_changed = &as_on_text_changed;
-        callbacks.on_text_replaced = &as_on_text_replaced;
-        callbacks.on_scroll = &as_on_scroll;
-        callbacks.on_selection_changed = &as_on_selection_changed;
-        callbacks.on_cross_selection_changed = &as_on_cross_selection_changed;
-        callbacks.on_clipboard_write = &as_on_clipboard_write;
-        callbacks.on_request_clipboard_read = &as_on_request_clipboard_read;
-        callbacks.on_request_font_load = &as_on_request_font_load;
-        callbacks.on_missing_font_coverage = &as_on_missing_font_coverage;
-        callbacks.on_request_semantic_announcement = &as_on_request_semantic_announcement;
-        ui_set_host_callbacks(&callbacks);
+        RegisterNativeFuiHostCallbacks();
         core.InitializeEngine();
-        platform_services.LoadDefaultFont(1U, "NotoSans-Regular.ttf");
-        platform_services.LoadDefaultFont(2U, "NotoSans-Bold.ttf");
-        platform_services.LoadDefaultFont(7U, "NotoSansMono-Regular.ttf");
+        if (!platform_services.LoadBuiltInFonts()) {
+            throw std::runtime_error("native built-in font initialization failed");
+        }
         system_theme_bridge = std::make_unique<LinuxSystemThemeBridge>(
             window,
             [this](std::uint32_t color) {
@@ -189,6 +179,7 @@ struct LinuxNativePlatform::Impl {
     void ApplyManagedCommittedCommands() { core.ApplyManagedCommittedCommands(); }
     bool RunNextFrame() {
         const bool presented = core.RunNextFrame();
+        input_adapter.SyncTextInput(window);
         if (presented) resize_sync->DidPresentFrame();
         return presented;
     }
@@ -339,7 +330,11 @@ bool LinuxNativePlatform::PumpEvent(bool wait_when_idle) {
     }
     SDL_Event event{};
     const bool has_event = impl_->NextEvent(event, wait_when_idle);
-    if (!has_event) return false;
+    if (!has_event) {
+        const bool gesture_changed = impl_->input_adapter.AdvanceGestureClock(impl_->NowMilliseconds());
+        if (gesture_changed) RequestFrame();
+        return gesture_changed;
+    }
     impl_->CoalesceResizeGeometry(event);
     impl_->resize_sync->HandleSdlEvent(event);
     impl_->present_after_last_event = SdlEventAdapter::EndsInputBatch(event.type);
@@ -480,7 +475,7 @@ std::uint32_t LinuxNativePlatform::HostCapabilities() const {
            FUI_HOST_CAPABILITY_CLIPBOARD_WRITE |
            FUI_HOST_CAPABILITY_FILE_DIALOGS;
 }
-bool LinuxNativePlatform::IsCoarsePointer() const { return false; }
+bool LinuxNativePlatform::IsCoarsePointer() const { return impl_->input_adapter.IsCoarsePointer(); }
 void LinuxNativePlatform::SetApplicationCaption(const std::string& caption) {
     SDL_SetWindowTitle(impl_->window, caption.c_str());
 }

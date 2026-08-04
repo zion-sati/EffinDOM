@@ -1,0 +1,29 @@
+{
+  "valid": [
+    {
+      "name": "minimal",
+      "config": { "version": 1 }
+    },
+    {
+      "name": "all initial settings",
+      "config": {
+        "$schema": "https://effindom.dev/schemas/fui-config.schema.json",
+        "version": 1,
+        "application": { "pageZoom": "disabled" },
+        "web": {
+          "loading": { "delayMs": 125, "minimumVisibleMs": 250 },
+          "devTools": { "domMirror": "on-requested" }
+        }
+      }
+    }
+  ],
+  "invalid": [
+    { "name": "unsupported version", "config": { "version": 2 } },
+    { "name": "secret section", "config": { "version": 1, "secrets": {} } },
+    { "name": "misspelled application key", "config": { "version": 1, "application": { "pageZom": "enabled" } } },
+    { "name": "invalid page zoom", "config": { "version": 1, "application": { "pageZoom": "automatic" } } },
+    { "name": "negative delay", "config": { "version": 1, "web": { "loading": { "delayMs": -1 } } } },
+    { "name": "invalid DOM mirror", "config": { "version": 1, "web": { "devTools": { "domMirror": "sometimes" } } } },
+    { "name": "generated route data", "config": { "version": 1, "web": { "routes": [] } } }
+  ]
+}

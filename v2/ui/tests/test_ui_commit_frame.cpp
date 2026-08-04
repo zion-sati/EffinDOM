@@ -62,6 +62,7 @@ TEST_CASE("v2 ui frame coordinator emits lifecycle and prepared commands before 
         HandleHigh(created),
         ED_FADE_NONE,
     };
+    CHECK(runtime.HasPendingVisualWork());
 
     ui_commit_frame();
     const auto words = ReadCommandBuffer();

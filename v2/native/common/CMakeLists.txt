@@ -21,13 +21,17 @@ add_library(effindom_v2_native_common STATIC
     src/NativeHostCore.cpp
     src/NativeHost.cpp
     src/NativeFuiRuntimeBridge.cpp
+    src/NativeFuiConfig.cpp
     src/NativeFuiRsWorkerAdapter.cpp
     src/NativeFuiHostStubs.cpp
     src/NativeFuiUnsupportedCapabilities.cpp
     src/NativeInputRouter.cpp
+    src/NativePageZoomController.cpp
     src/NativeWindowIcon.cpp
     src/NativeRasterSurface.cpp
     src/NativeTimerCoordinator.cpp
+    src/NativeTextInputCoordinator.cpp
+    src/NativeTouchGestureController.cpp
     src/NativeWorkerCoordinator.cpp
     src/NativeWorkerHost.cpp
     src/SdlDropTarget.cpp

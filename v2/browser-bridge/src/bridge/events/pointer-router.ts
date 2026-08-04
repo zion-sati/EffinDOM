@@ -62,6 +62,11 @@ interface PendingPointerMove {
   pressure: number;
   width: number;
   height: number;
+  isPrimary: boolean;
+  tangentialPressure: number;
+  tiltX: number;
+  tiltY: number;
+  twist: number;
 }
 
 interface ActivePageZoomGesture {
@@ -228,6 +233,11 @@ export function installPointerHandlers(
     width: number,
     height: number,
     clickCount: number,
+    isPrimary = true,
+    tangentialPressure = 0,
+    tiltX = 0,
+    tiltY = 0,
+    twist = 0,
   ): boolean => {
     const metadata = {
       eventType,
@@ -243,6 +253,11 @@ export function installPointerHandlers(
       width,
       height,
       clickCount,
+      isPrimary,
+      tangentialPressure,
+      tiltX,
+      tiltY,
+      twist,
     };
     window.__effindomPendingPointerMetadata = metadata;
     window.__effindomLastPointerEventHandled = false;
@@ -300,6 +315,11 @@ export function installPointerHandlers(
       pending.width,
       pending.height,
       0,
+      pending.isPrimary,
+      pending.tangentialPressure,
+      pending.tiltX,
+      pending.tiltY,
+      pending.twist,
     );
     commitIfVisualWork(runtime);
     if (pending.handle === 0n) {
@@ -319,6 +339,11 @@ export function installPointerHandlers(
           pending.width,
           pending.height,
           0,
+          pending.isPrimary,
+          pending.tangentialPressure,
+          pending.tiltX,
+          pending.tiltY,
+          pending.twist,
         );
       }
     }
@@ -1033,6 +1058,11 @@ export function installPointerHandlers(
     const pressure = event.pressure;
     const pointerWidth = event.width;
     const pointerHeight = event.height;
+    const isPrimary = event.isPrimary;
+    const tangentialPressure = event.tangentialPressure;
+    const tiltX = event.tiltX;
+    const tiltY = event.tiltY;
+    const twist = event.twist;
     let clickCount = 0;
     if (event.pointerType === 'touch' && event.cancelable) {
       event.preventDefault();
@@ -1088,6 +1118,11 @@ export function installPointerHandlers(
         pointerWidth,
         pointerHeight,
         0,
+        isPrimary,
+        tangentialPressure,
+        tiltX,
+        tiltY,
+        twist,
       );
       runtime.commitFrame();
       return;
@@ -1337,6 +1372,11 @@ export function installPointerHandlers(
         pointerWidth,
         pointerHeight,
         clickCount,
+        isPrimary,
+        tangentialPressure,
+        tiltX,
+        tiltY,
+        twist,
       );
       if (isTouchEvent) {
         tryScheduleLongPressGesture(handle, pointerId, pointerType, screenPosition, modifiers);
@@ -1381,6 +1421,11 @@ export function installPointerHandlers(
         pressure,
         width: pointerWidth,
         height: pointerHeight,
+        isPrimary,
+        tangentialPressure,
+        tiltX,
+        tiltY,
+        twist,
       });
       return;
     } else {
@@ -1403,6 +1448,11 @@ export function installPointerHandlers(
         pointerWidth,
         pointerHeight,
         0,
+        isPrimary,
+        tangentialPressure,
+        tiltX,
+        tiltY,
+        twist,
       );
       runtime.commitFrame();
       if (shouldCommitDeferredTouchFocus) {
@@ -1430,6 +1480,11 @@ export function installPointerHandlers(
           pointerWidth,
           pointerHeight,
           clickCount,
+          isPrimary,
+          tangentialPressure,
+          tiltX,
+          tiltY,
+          twist,
         );
       }
       }

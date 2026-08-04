@@ -17,7 +17,10 @@
 #include <cstring>
 #include <chrono>
 #include <filesystem>
+#include <fstream>
+#include <iterator>
 #include <limits>
+#include <string>
 #include <string_view>
 #include <thread>
 #include <vector>
@@ -51,6 +54,12 @@ bool HasAlpha(const std::vector<std::uint8_t>& pixels, int width, int x, int y) 
 std::array<std::uint8_t, 4> Pixel(const std::vector<std::uint8_t>& pixels, int width, int x, int y) {
     const std::size_t offset = static_cast<std::size_t>((y * width + x) * 4);
     return {pixels[offset], pixels[offset + 1U], pixels[offset + 2U], pixels[offset + 3U]};
+}
+
+std::vector<std::uint8_t> ReadFileBytes(const std::filesystem::path& path) {
+    std::ifstream stream(path, std::ios::binary);
+    return std::vector<std::uint8_t>(
+        std::istreambuf_iterator<char>(stream), std::istreambuf_iterator<char>());
 }
 
 } // namespace
@@ -113,6 +122,70 @@ TEST_CASE("native immediate drawing delegates one validated batch to the engine"
     CHECK(HasAlpha(pixels, 32, 2, 2));
     CHECK(HasAlpha(pixels, 32, 10, 10));
     CHECK_FALSE(HasAlpha(pixels, 32, 18, 18));
+}
+
+TEST_CASE("native immediate drawing renders retained rich text directly and into bitmap pixels",
+    "[v2][native][custom-draw][text]") {
+    NativeHostCore host(NativeInputRouterOptions{}, NativeHostCoreCallbacks{});
+    const auto font_bytes = ReadFileBytes(
+        std::filesystem::path(EFFINDOM_TEST_SOURCE_ROOT) / "v2/fonts/DejaVuSans.ttf");
+    REQUIRE_FALSE(font_bytes.empty());
+    host.GetEngine().RegisterFont(
+        7U, font_bytes.data(), static_cast<std::uint32_t>(font_bytes.size()));
+
+    constexpr std::uint64_t text_handle = (17ULL << 32U) | 41ULL;
+    CommandBuilder builder;
+    builder.CreateNode(text_handle);
+    builder.SetBounds(text_handle, 0.0f, 0.0f, 96.0f, 40.0f, false);
+    builder.SetGlyphRunColored(text_handle, 7U, 24.0f, {
+        effindom::v2::GlyphPlacement{36U, 0.0f, 24.0f, 7U, 0xff0000ffU},
+        effindom::v2::GlyphPlacement{37U, 18.0f, 24.0f, 7U, 0x00ff00ffU},
+    });
+    REQUIRE(host.GetEngine().ExecuteCommandBuffer(
+        builder.words().data(), static_cast<std::uint32_t>(builder.words().size()))
+        .parsed_commands == 3U);
+
+    const sk_sp<SkSurface> surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(128, 64));
+    REQUIRE(surface);
+    surface->getCanvas()->clear(SK_ColorTRANSPARENT);
+    const std::vector<std::uint32_t> words = {
+        30U,
+        static_cast<std::uint32_t>(text_handle),
+        static_cast<std::uint32_t>(text_handle >> 32U),
+        FloatWord(12.0f),
+        FloatWord(8.0f),
+    };
+    REQUIRE(effindom::v2::native::DrawCanvasBatch(
+        host,
+        reinterpret_cast<std::uintptr_t>(surface->getCanvas()),
+        reinterpret_cast<std::uintptr_t>(words.data()),
+        static_cast<std::uint32_t>(words.size())));
+
+    const auto direct_pixels = SnapshotRgba(surface, 128, 64);
+    CHECK(std::count_if(direct_pixels.begin() + 3, direct_pixels.end(),
+              [index = std::size_t{3}](std::uint8_t alpha) mutable {
+                  const bool selected = index % 4U == 3U && alpha != 0U;
+                  ++index;
+                  return selected;
+              }) > 20);
+
+    std::vector<std::uint8_t> bitmap_pixels(128U * 64U * 4U, 0U);
+    REQUIRE(effindom::v2::native::RenderNodeToRgba(
+        host,
+        text_handle,
+        128U,
+        64U,
+        reinterpret_cast<std::uintptr_t>(bitmap_pixels.data()),
+        static_cast<std::uint32_t>(bitmap_pixels.size()),
+        1.0f,
+        12.0f,
+        8.0f) == bitmap_pixels.size());
+    CHECK(std::count_if(bitmap_pixels.begin() + 3, bitmap_pixels.end(),
+              [index = std::size_t{3}](std::uint8_t alpha) mutable {
+                  const bool selected = index % 4U == 3U && alpha != 0U;
+                  ++index;
+                  return selected;
+              }) > 20);
 }
 
 TEST_CASE("native immediate drawing rejects invalid boundaries and malformed streams atomically", "[v2][native][custom-draw]") {
@@ -357,232 +430,4 @@ TEST_CASE("native offscreen and retained raster validation is atomic", "[v2][nat
         host, handle, 8U, 8U, reinterpret_cast<std::uintptr_t>(rendered.data()),
         4U, 1.0f, 0.0f, 0.0f) == 0U);
     CHECK(effindom::v2::native::DestroyOffscreenSurface(host, offscreen));
-}
-
-TEST_CASE("real FUI-RS custom drawing updates clips resizes and releases resources", "[v2][native][custom-draw][integration]") {
-    effindom::v2::native::NativeHost host(false);
-    REQUIRE(host.LoadFontForTesting(
-        1U,
-        std::filesystem::path(EFFINDOM_TEST_SOURCE_ROOT) / "v2/fonts/NotoSans-Regular.ttf"));
-    host.MountApplication();
-    constexpr std::string_view svg_source =
-        "<svg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24'>"
-        "<circle cx='12' cy='12' r='9' fill='#0A84FF'/></svg>";
-    host.RegisterSvgForTesting(9001U, svg_source);
-    host.Resize(1000U, 700U);
-    host.DrainFrames();
-
-    const std::uint64_t drawable_handle = __fui_native_custom_draw_handle();
-    const std::uint64_t text_handle = __fui_native_custom_draw_text_handle();
-    REQUIRE(drawable_handle != 0U);
-    REQUIRE(text_handle != 0U);
-    REQUIRE(host.HasFontForTesting(1U));
-
-    float bounds_x = 0.0f;
-    float bounds_y = 0.0f;
-    float bounds_width = 0.0f;
-    float bounds_height = 0.0f;
-    REQUIRE(ui_get_bounds(
-        drawable_handle, &bounds_x, &bounds_y, &bounds_width, &bounds_height));
-    ui_set_scroll_offset(
-        __fui_native_scroll_view_handle(), 0.0f, std::max(0.0f, bounds_y - 120.0f));
-    host.RequestFrame();
-    host.DrainFrames();
-
-    CHECK(__fui_native_custom_draw_calls() > 0U);
-    CHECK(__fui_native_custom_draw_features() == 0x3FU);
-    CHECK(host.PathCountForTesting() == 1U);
-    CHECK(host.OffscreenSurfaceCountForTesting() == 3U);
-    REQUIRE(host.SvgSizeForTesting(9001U).has_value());
-    const std::uint32_t waveform_texture = __fui_native_waveform_texture_id();
-    const std::uint32_t offscreen_texture = __fui_native_offscreen_texture_id();
-    REQUIRE(host.TextureSizeForTesting(waveform_texture) == std::pair{96U, 40U});
-    REQUIRE(host.TextureSizeForTesting(offscreen_texture) == std::pair{40U, 40U});
-
-    REQUIRE(ui_get_visible_bounds(
-        drawable_handle, &bounds_x, &bounds_y, &bounds_width, &bounds_height));
-    CHECK(bounds_width > 560.0f);
-    CHECK(bounds_height == 164.0f);
-    REQUIRE(ui_get_visible_bounds(
-        text_handle, &bounds_x, &bounds_y, &bounds_width, &bounds_height));
-    CHECK(bounds_width > 0.0f);
-    CHECK(bounds_height > 0.0f);
-
-    const sk_sp<SkSurface> callback_surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(1000, 220));
-    REQUIRE(callback_surface);
-    callback_surface->getCanvas()->clear(SK_ColorTRANSPARENT);
-    fui_dispatch_custom_draw(
-        drawable_handle, reinterpret_cast<std::uintptr_t>(callback_surface->getCanvas()));
-    const auto callback_pixels = SnapshotRgba(callback_surface, 1000, 220);
-    CHECK(HasAlpha(callback_pixels, 1000, 20, 20));
-    CHECK_FALSE(HasAlpha(callback_pixels, 1000, 20, 190));
-    bool has_waveform_pixel = false;
-    bool has_offscreen_pixel = false;
-    bool has_path_pixel = false;
-    bool has_svg_pixel = false;
-    bool has_text_pixel = false;
-    bool has_primitive_pixel = false;
-    for (int y = 12; y < 66; ++y) {
-        for (int x = 12; x < 86; ++x) {
-            const auto pixel = Pixel(callback_pixels, 1000, x, y);
-            has_primitive_pixel = has_primitive_pixel ||
-                (pixel[1] > 140U && pixel[0] < 120U && pixel[2] < 180U);
-        }
-        for (int x = 98; x < 156; ++x) {
-            const auto pixel = Pixel(callback_pixels, 1000, x, y);
-            has_path_pixel = has_path_pixel ||
-                (pixel[0] > 180U && pixel[1] < 180U && pixel[2] < 150U);
-        }
-    }
-    for (int y = 18; y < 100; ++y) {
-        for (int x = 190; x < 382; ++x) {
-            const auto pixel = Pixel(callback_pixels, 1000, x, y);
-            has_waveform_pixel = has_waveform_pixel ||
-                (pixel[2] > 180U && pixel[1] > 140U && pixel[0] < 120U);
-        }
-        for (int x = 398; x < 478; ++x) {
-            const auto pixel = Pixel(callback_pixels, 1000, x, y);
-            has_offscreen_pixel = has_offscreen_pixel ||
-                (pixel[0] > 180U && pixel[1] > 100U && pixel[2] < 120U);
-        }
-    }
-    for (int y = 30; y < 86; ++y) {
-        const auto background = Pixel(callback_pixels, 1000, 482, y);
-        for (int x = 494; x < 550; ++x) {
-            const auto pixel = Pixel(callback_pixels, 1000, x, y);
-            has_svg_pixel = has_svg_pixel || pixel != background;
-        }
-    }
-    for (int y = 112; y < 160; ++y) {
-        const auto background = Pixel(callback_pixels, 1000, 450, y);
-        for (int x = 12; x < 380; ++x) {
-            const auto pixel = Pixel(callback_pixels, 1000, x, y);
-            has_text_pixel = has_text_pixel || pixel != background;
-        }
-    }
-    CHECK(has_primitive_pixel);
-    CHECK(has_path_pixel);
-    CHECK(has_waveform_pixel);
-    CHECK(has_offscreen_pixel);
-    CHECK(has_svg_pixel);
-    CHECK(has_text_pixel);
-
-    const sk_sp<SkSurface> density_surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(2000, 440));
-    REQUIRE(density_surface);
-    density_surface->getCanvas()->clear(SK_ColorTRANSPARENT);
-    density_surface->getCanvas()->scale(2.0f, 2.0f);
-    fui_dispatch_custom_draw(
-        drawable_handle, reinterpret_cast<std::uintptr_t>(density_surface->getCanvas()));
-    const auto density_pixels = SnapshotRgba(density_surface, 2000, 440);
-    CHECK(HasAlpha(density_pixels, 2000, 40, 40));
-    CHECK_FALSE(HasAlpha(density_pixels, 2000, 40, 380));
-
-    const std::uint32_t calls_before_hide = __fui_native_custom_draw_calls();
-    __fui_native_set_custom_draw_visible(false);
-    host.DrainFrames();
-    CHECK_FALSE(ui_get_visible_bounds(
-        drawable_handle, &bounds_x, &bounds_y, &bounds_width, &bounds_height));
-    CHECK(__fui_native_custom_draw_calls() == calls_before_hide);
-    __fui_native_set_custom_draw_visible(true);
-    host.DrainFrames();
-    CHECK(ui_get_visible_bounds(
-        drawable_handle, &bounds_x, &bounds_y, &bounds_width, &bounds_height));
-    CHECK(__fui_native_custom_draw_calls() > calls_before_hide);
-
-    const auto first_frame = host.SnapshotRgba();
-    const std::uint32_t calls_before_update = __fui_native_custom_draw_calls();
-    __fui_native_update_waveform();
-    host.DrainFrames();
-    const auto updated_frame = host.SnapshotRgba();
-    CHECK(__fui_native_custom_draw_calls() > calls_before_update);
-    CHECK(updated_frame != first_frame);
-    CHECK(host.IsIdle());
-
-    const std::uint32_t calls_before_resize = __fui_native_custom_draw_calls();
-    host.Resize(760U, 520U);
-    host.DrainFrames();
-    CHECK(__fui_native_custom_draw_calls() > calls_before_resize);
-    CHECK(host.State().logical_width == 760.0f);
-    CHECK(host.State().logical_height == 520.0f);
-    CHECK(host.State().pixel_density > 0.0f);
-
-    host.MountApplication();
-    host.DrainFrames();
-    const std::uint64_t remounted_drawable = __fui_native_custom_draw_handle();
-    REQUIRE(remounted_drawable != 0U);
-    REQUIRE(ui_get_bounds(
-        remounted_drawable, &bounds_x, &bounds_y, &bounds_width, &bounds_height));
-    ui_set_scroll_offset(
-        __fui_native_scroll_view_handle(), 0.0f, std::max(0.0f, bounds_y - 120.0f));
-    host.RequestFrame();
-    host.DrainFrames();
-    CHECK(__fui_native_custom_draw_calls() > 0U);
-    CHECK(host.PathCountForTesting() == 1U);
-    CHECK(host.OffscreenSurfaceCountForTesting() == 3U);
-
-    const std::uint32_t remounted_waveform = __fui_native_waveform_texture_id();
-    const std::uint32_t remounted_offscreen = __fui_native_offscreen_texture_id();
-    host.Unmount();
-    CHECK(__fui_native_custom_draw_handle() == 0U);
-    CHECK(host.PathCountForTesting() == 0U);
-    CHECK(host.OffscreenSurfaceCountForTesting() == 0U);
-    CHECK_FALSE(host.TextureSizeForTesting(remounted_waveform).has_value());
-    CHECK_FALSE(host.TextureSizeForTesting(remounted_offscreen).has_value());
-    CHECK(host.IsIdle());
-}
-
-TEST_CASE("real FUI-RS timeout invalidates native custom drawing on the UI thread", "[v2][native][timer][integration]") {
-    effindom::v2::native::NativeHost host(false);
-    host.MountApplication();
-    host.Resize(1000U, 700U);
-    host.DrainFrames();
-    const std::uint32_t calls_before = __fui_native_custom_draw_calls();
-    const std::uint32_t fires_before = __fui_native_timer_fire_count();
-
-    __fui_native_schedule_custom_draw_timer(1);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (__fui_native_timer_fire_count() == fires_before &&
-           std::chrono::steady_clock::now() < deadline) {
-        host.PumpEvent(true);
-        host.DrainFrames();
-    }
-    CHECK(__fui_native_timer_fire_count() == fires_before + 1U);
-    CHECK(__fui_native_custom_draw_calls() > calls_before);
-
-    __fui_native_schedule_custom_draw_timer(0);
-    __fui_native_cancel_custom_draw_timer();
-    for (int attempt = 0; attempt < 4; ++attempt) host.PumpEvent(false);
-    CHECK(__fui_native_timer_fire_count() == fires_before + 1U);
-
-    __fui_native_schedule_custom_draw_timer(1000);
-    host.Unmount();
-    std::this_thread::sleep_for(std::chrono::milliseconds(5));
-    for (int attempt = 0; attempt < 4; ++attempt) host.PumpEvent(false);
-    CHECK(__fui_native_timer_fire_count() == 0U);
-}
-
-TEST_CASE("real FUI-RS tooltip opens through the native timer queue", "[v2][native][timer][tooltip][integration]") {
-    effindom::v2::native::NativeHost host(false);
-    host.MountApplication();
-    host.Resize(1000U, 700U);
-    host.DrainFrames();
-
-    float x = 0.0f;
-    float y = 0.0f;
-    float width = 0.0f;
-    float height = 0.0f;
-    REQUIRE(ui_get_visible_bounds(__fui_native_action_handle(), &x, &y, &width, &height));
-    host.DispatchPointerMove(x + width * 0.5f, y + height * 0.5f);
-    host.DrainFrames();
-
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
-    while (!__fui_native_tool_tip_visible() && std::chrono::steady_clock::now() < deadline) {
-        host.PumpEvent(true);
-        host.DrainFrames();
-    }
-    CHECK(__fui_native_tool_tip_visible());
-
-    host.DispatchPointerMove(1.0f, 1.0f);
-    host.DrainFrames();
-    CHECK_FALSE(__fui_native_tool_tip_visible());
 }

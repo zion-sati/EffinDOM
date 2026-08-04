@@ -20,6 +20,8 @@ public:
     virtual const NativeHostCore& Core() const = 0;
     virtual bool PumpEvent(bool wait_when_idle) = 0;
     virtual bool ShouldPresentAfterLastEvent() const { return false; }
+    virtual void WaitForAnimationFrame() {}
+    virtual void SetAnimationFrameActive(bool) {}
     virtual void Resize(std::uint32_t logical_width, std::uint32_t logical_height) = 0;
     virtual void RecreateGraphicsSurface() = 0;
     virtual void DispatchWindowFocusLost() = 0;

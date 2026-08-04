@@ -6,6 +6,7 @@
 #include "NativeHostCore.h"
 #include "NativeUtf8.h"
 #include "platform/MacosInputSettings.h"
+#include "platform/MacosDisplayLink.h"
 #include "platform/MacosSystemThemeBridge.h"
 #include "platform/MacosAccessibilityAdapter.h"
 #include "fui_host_abi.h"
@@ -57,7 +58,10 @@ struct MacosNativePlatform::Impl {
                   __fui_clear_native_file_dialog_callbacks();
               },
           }),
-          input_adapter(core.InputRouter(), SdlEventAdapterOptions{false, false, true}),
+          input_adapter(core.InputRouter(), SdlEventAdapterOptions{false, false, true},
+              &core.PageZoom(), [this](float x, float y, float delta_y, float scale) {
+                  return core.DispatchTrackpadPinch(x, y, delta_y, scale);
+              }),
           platform_services(core.GetEngine(), [this] { RequestFrame(); },
               [this](std::uint64_t handle) { core.AnnounceSemantic(handle); }, visible) {
         // SDL registers this as AppKit's AppleMomentumScrollSupported default.
@@ -81,20 +85,30 @@ struct MacosNativePlatform::Impl {
             }));
         scroll_wheel_bridge = std::make_unique<MacosScrollWheelBridge>(
             window,
-            [this](const NativePreciseScrollEvent& event) {
-                core.InputRouter().DispatchPreciseWheel(
-                    event.delta_x,
-                    event.delta_y,
-                    event.begins_gesture,
-                    event.ends_gesture,
-                    NowMilliseconds());
+            [this](const NativeMacosScrollEvent& event) {
+                const NativeWheelInput input{
+                    0U, event.x, event.y, event.delta_x, event.delta_y,
+                    NativeWheelDeltaMode::Pixel, event.modifiers, event.precise,
+                    event.begins_gesture, event.ends_gesture, NowMilliseconds(),
+                };
+                if (event.precise) {
+                    core.InputRouter().DispatchPreciseWheel(input);
+                } else {
+                    core.InputRouter().DispatchWheel(input);
+                }
                 RequestFrame();
+            },
+            [this](const NativeMagnifyEvent& event) {
+                const float multiplier = detail::AppKitMagnificationMultiplier(
+                    event.magnification);
+                return core.DispatchTrackpadPinch(
+                    event.x, event.y, -event.magnification, multiplier);
             });
         ui_dispatcher = std::make_unique<SdlUiDispatcher>(window);
         timer_coordinator = std::make_unique<NativeTimerCoordinator>([this](NativeTimerCoordinator::UiTask task) {
             return ui_dispatcher->PostTask(std::move(task));
         });
-        drop_target = std::make_unique<SdlDropTarget>(window, core.GetEngine());
+        drop_target = std::make_unique<SdlDropTarget>(window, core.InputRouter());
         file_dialogs = std::make_unique<SdlFileDialogs>(window, visible, [](const NativeFileDialogCompletion& completion) {
             std::string payload;
             if (completion.status == NativeFileDialogStatus::Selected) {
@@ -123,11 +137,14 @@ struct MacosNativePlatform::Impl {
             throw std::runtime_error(std::string("native graphics initialization failed: ") + SDL_GetError());
         }
         core.AttachGraphics(std::move(graphics));
+        display_link = std::make_unique<MacosDisplayLink>(
+            window, [this] { RenderLiveResizeFrame(false); });
         ui::SetGlobalUiPlatformHost(platform_services);
+        RegisterNativeFuiHostCallbacks();
         core.InitializeEngine();
-        platform_services.LoadDefaultFont(1U, "NotoSans-Regular.ttf");
-        platform_services.LoadDefaultFont(2U, "NotoSans-Bold.ttf");
-        platform_services.LoadDefaultFont(7U, "NotoSansMono-Regular.ttf");
+        if (!platform_services.LoadBuiltInFonts()) {
+            throw std::runtime_error("native built-in font initialization failed");
+        }
         system_theme_bridge = std::make_unique<MacosSystemThemeBridge>(
             [this](std::uint32_t color) {
                 __fui_on_system_accent_color_changed(color);
@@ -149,6 +166,7 @@ struct MacosNativePlatform::Impl {
         file_dialogs->Clear();
         __fui_clear_native_file_dialog_callbacks();
         scroll_wheel_bridge.reset();
+        display_link.reset();
         core.AttachAccessibility(nullptr);
         core.ReleaseGraphics();
         if (window != nullptr) SDL_DestroyWindow(window);
@@ -158,22 +176,38 @@ struct MacosNativePlatform::Impl {
     double NowMilliseconds() const { return core.NowMilliseconds(); }
     void RequestFrame() { core.RequestFrame(); }
     void ApplyManagedCommittedCommands() { core.ApplyManagedCommittedCommands(); }
-    bool RunNextFrame() { return core.RunNextFrame(); }
+    bool RunNextFrame() {
+        const bool presented = core.RunNextFrame();
+        input_adapter.SyncTextInput(window);
+        return presented;
+    }
+
+    void RenderLiveResizeFrame(bool force) {
+        if (live_resize_rendering || !core.IsMounted()) return;
+        live_resize_rendering = true;
+        core.Graphics().SetSuspended(false);
+        try {
+            if (ui_dispatcher->DrainPending()) RequestFrame();
+            if (!force && !core.IsFramePending() && !ui_needs_animation_frame()) {
+                live_resize_rendering = false;
+                return;
+            }
+            RequestFrame();
+            RunNextFrame();
+            display_link->SetActive(core.IsFramePending());
+        } catch (const std::exception& error) {
+            SDL_Log("EffinDOM live resize failed: %s", error.what());
+            core.Stop();
+        }
+        live_resize_rendering = false;
+    }
 
     static bool WatchEvent(void* userdata, SDL_Event* event) {
         auto& host = *static_cast<Impl*>(userdata);
         if (event->type != SDL_EVENT_WINDOW_EXPOSED || event->window.data1 != 1 || host.live_resize_rendering) {
             return true;
         }
-        host.live_resize_rendering = true;
-        try {
-            host.RequestFrame();
-            host.RunNextFrame();
-        } catch (const std::exception& error) {
-            SDL_Log("EffinDOM live resize failed: %s", error.what());
-            host.core.Stop();
-        }
-        host.live_resize_rendering = false;
+        host.RenderLiveResizeFrame(true);
         return true;
     }
 
@@ -185,6 +219,7 @@ struct MacosNativePlatform::Impl {
     std::unique_ptr<SdlFileDialogs> file_dialogs;
     SdlEventAdapter input_adapter;
     std::unique_ptr<MacosScrollWheelBridge> scroll_wheel_bridge;
+    std::unique_ptr<MacosDisplayLink> display_link;
     std::unique_ptr<MacosSystemThemeBridge> system_theme_bridge;
     MacosPlatformServices platform_services;
     bool live_resize_rendering = false;
@@ -218,12 +253,16 @@ void MacosNativePlatform::CancelTimer(std::uint32_t timer_id) {
 }
 void MacosNativePlatform::RequestFrame() { impl_->core.RequestFrame(); }
 
- bool MacosNativePlatform::PumpEvent(bool wait_when_idle) {
+bool MacosNativePlatform::PumpEvent(bool wait_when_idle) {
     SDL_Event event{};
     const bool has_event = wait_when_idle && !impl_->core.IsFramePending()
         ? SDL_WaitEventTimeout(&event, 50)
         : SDL_PollEvent(&event);
-    if (!has_event) return false;
+    if (!has_event) {
+        const bool gesture_changed = impl_->input_adapter.AdvanceGestureClock(impl_->NowMilliseconds());
+        if (gesture_changed) RequestFrame();
+        return gesture_changed;
+    }
     if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
         impl_->core.InputRouter().HandleWindowFocusLost(impl_->NowMilliseconds());
     }
@@ -293,6 +332,14 @@ void MacosNativePlatform::RequestFrame() { impl_->core.RequestFrame(); }
     return true;
 }
 
+void MacosNativePlatform::WaitForAnimationFrame() {
+    impl_->display_link->WaitForRefresh();
+}
+
+void MacosNativePlatform::SetAnimationFrameActive(bool active) {
+    impl_->display_link->SetActive(active);
+}
+
 void MacosNativePlatform::Resize(std::uint32_t logical_width, std::uint32_t logical_height) {
     SDL_SetWindowSize(impl_->window, static_cast<int>(logical_width), static_cast<int>(logical_height));
     SDL_SyncWindow(impl_->window);
@@ -344,7 +391,7 @@ std::uint32_t MacosNativePlatform::HostCapabilities() const {
            FUI_HOST_CAPABILITY_CLIPBOARD_WRITE |
            FUI_HOST_CAPABILITY_FILE_DIALOGS;
 }
-bool MacosNativePlatform::IsCoarsePointer() const { return false; }
+bool MacosNativePlatform::IsCoarsePointer() const { return impl_->input_adapter.IsCoarsePointer(); }
 void MacosNativePlatform::SetApplicationCaption(const std::string& caption) {
     SDL_SetWindowTitle(impl_->window, caption.c_str());
 }

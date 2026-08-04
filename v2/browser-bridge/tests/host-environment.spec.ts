@@ -30,4 +30,17 @@ test('browser FUI host imports report browser environment and operations', () =>
   } as unknown as HostImportDeps);
   captionImports.fui_set_application_caption(1, 21);
   expect(caption).toBe('EffinDOM • browser');
+
+  let pageZoomEnabled = true;
+  const zoomImports = createHostImportModule({
+    getRuntime: () => ({
+      setPageZoomEnabled(enabled: boolean): void {
+        pageZoomEnabled = enabled;
+      },
+    }),
+  } as unknown as HostImportDeps);
+  zoomImports.fui_set_page_zoom_enabled(0);
+  expect(pageZoomEnabled).toBe(false);
+  zoomImports.fui_set_page_zoom_enabled(1);
+  expect(pageZoomEnabled).toBe(true);
 });

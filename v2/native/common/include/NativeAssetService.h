@@ -50,6 +50,7 @@ public:
         NativeAssetEnvironment environment);
 
     bool LoadDefaultFont(std::uint32_t font_id, std::string_view name);
+    bool LoadBuiltInFonts();
     bool LoadFont(std::uint32_t font_id, std::string_view source);
     bool LoadFont(std::uint32_t font_id, const std::filesystem::path& path);
     bool LoadSvg(std::uint32_t svg_id, std::string_view source);

@@ -1,4 +1,4 @@
-import type { BuildMode, DevToolsDomMirrorMode, PageZoomMode } from './runtime-config';
+import type { BuildMode, DevToolsDomMirrorMode } from './runtime-config';
 import type { DebugTreeSnapshot } from './debug-tree';
 import type {
   OpenCanvasApi,
@@ -543,6 +543,11 @@ export interface PointerEventLog {
   readonly width?: number;
   readonly height?: number;
   readonly clickCount?: number;
+  readonly isPrimary?: boolean;
+  readonly tangentialPressure?: number;
+  readonly tiltX?: number;
+  readonly tiltY?: number;
+  readonly twist?: number;
 }
 
 export interface PendingPointerMetadata {
@@ -559,6 +564,11 @@ export interface PendingPointerMetadata {
   readonly width: number;
   readonly height: number;
   readonly clickCount: number;
+  readonly isPrimary: boolean;
+  readonly tangentialPressure: number;
+  readonly tiltX: number;
+  readonly tiltY: number;
+  readonly twist: number;
 }
 
 export interface FocusEventLog {
@@ -681,7 +691,6 @@ export interface BridgeRuntime {
   readonly canvas: HTMLCanvasElement;
   readonly buildMode: BuildMode;
   readonly devToolsDomMirrorMode: DevToolsDomMirrorMode;
-  readonly pageZoomMode: PageZoomMode;
   readonly devTools: BridgeDevToolsApi;
   readonly openCanvasApi: OpenCanvasApi;
   readonly logs: BridgeLogs;
@@ -714,6 +723,7 @@ export interface BridgeRuntime {
   setCapturedPointerHandle(handle: bigint | null): void;
   getPageZoom(): { readonly scale: number; readonly offsetX: number; readonly offsetY: number };
   isPageZoomEnabled(): boolean;
+  setPageZoomEnabled(enabled: boolean): void;
   setPageZoom(scale: number, offsetX: number, offsetY: number): void;
   setPageZoomFromSceneAnchor(
     scale: number,
@@ -729,8 +739,9 @@ export interface BridgeRuntime {
   clearPageZoomPanMomentum(): void;
   resetPageZoom(): void;
   screenToScenePoint(x: number, y: number): { readonly x: number; readonly y: number };
-  setAppFrameHandler(handler: ((timestampMs: number) => void) | null): void;
-  runAppFrameHandler(timestampMs: number): void;
+  setAppFrameController(controller: BridgeAppFrameController | null): void;
+  runAppFrameController(timestampMs: number): void;
+  appNeedsAnimationFrame(): boolean;
   uiHasPendingVisualWork(): boolean;
   uiNeedsAnimationFrame(): boolean;
   getHandleFromPoint(x: number, y: number): bigint;
@@ -761,6 +772,11 @@ export interface BridgeRuntime {
   replayLoadedAssets(): Promise<void>;
   resetLogs(): void;
   resetAppSession(): void;
+}
+
+export interface BridgeAppFrameController {
+  onFrame(timestampMs: number): void;
+  needsAnimationFrame(): boolean;
 }
 
 export interface BridgeDevToolsApi {
@@ -832,6 +848,11 @@ export interface EffinDomCallbacks {
     width: number,
     height: number,
     clickCount: number,
+    isPrimary: boolean,
+    tangentialPressure: number,
+    tiltX: number,
+    tiltY: number,
+    twist: number,
   ) => boolean | undefined;
   onWheelEventWithCoords?: (
     handle: WasmHandleLike,

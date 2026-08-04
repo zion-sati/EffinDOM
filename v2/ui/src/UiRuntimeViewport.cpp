@@ -366,6 +366,7 @@ const std::uint64_t& UiRuntime::root_handle() const {
 bool UiRuntime::HasPendingVisualWork() const {
     if (layout_dirty_ ||
         node_store_.HasPendingLifecycleCommands() ||
+        !pending_prepare_commands_.empty() ||
         pending_caret_visibility_handle_ != UI_INVALID_HANDLE ||
         (*scroll_coordinator_).HasAutoScroll() ||
         !pending_text_scroll_metric_handles_.empty()) {

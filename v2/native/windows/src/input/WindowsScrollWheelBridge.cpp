@@ -16,6 +16,7 @@ namespace effindom::v2::native {
 namespace {
 
 constexpr UINT kScrollEndDelayMs = 140U;
+constexpr UINT kLiveResizeFrameDelayMs = 16U;
 
 std::uint32_t KeyModifiers() {
     std::uint32_t result = 0U;
@@ -31,9 +32,12 @@ std::uint32_t KeyModifiers() {
 } // namespace
 
 struct WindowsScrollWheelBridge::Impl {
-    Impl(SDL_Window* sdl_window, Handler wheel_handler, MouseHandler mouse_handler, ResizeHandler resize_handler)
+    Impl(SDL_Window* sdl_window, Handler wheel_handler, MouseHandler mouse_handler,
+        ResizeHandler resize_handler, PinchHandler pinch_handler,
+        LiveResizeFrameHandler live_resize_frame_handler)
         : window(sdl_window), on_wheel(std::move(wheel_handler)), on_mouse(std::move(mouse_handler)),
-          on_resize(std::move(resize_handler)) {
+          on_resize(std::move(resize_handler)), on_pinch(std::move(pinch_handler)),
+          on_live_resize_frame(std::move(live_resize_frame_handler)) {
         wake_event_type = SDL_RegisterEvents(1);
         if (wake_event_type == 0U) {
             throw std::runtime_error(std::string("SDL_RegisterEvents failed: ") + SDL_GetError());
@@ -46,6 +50,7 @@ struct WindowsScrollWheelBridge::Impl {
             nullptr));
         if (hwnd == nullptr) throw std::runtime_error("SDL did not expose its Win32 HWND");
         subclass_id = reinterpret_cast<UINT_PTR>(this);
+        live_resize_timer_id = subclass_id ^ static_cast<UINT_PTR>(1U);
         if (!SetWindowSubclass(hwnd, &Impl::SubclassProcedure, subclass_id, reinterpret_cast<DWORD_PTR>(this))) {
             throw std::runtime_error("Win32 native input/resize subclass could not be installed");
         }
@@ -54,6 +59,7 @@ struct WindowsScrollWheelBridge::Impl {
     ~Impl() {
         if (hwnd != nullptr) {
             KillTimer(hwnd, subclass_id);
+            KillTimer(hwnd, live_resize_timer_id);
             SetPointerCapture(false);
             RemoveWindowSubclass(hwnd, &Impl::SubclassProcedure, subclass_id);
         }
@@ -87,7 +93,24 @@ struct WindowsScrollWheelBridge::Impl {
         }
     }
 
-    void DispatchWheel(UINT message, WPARAM wparam) {
+    std::pair<float, float> LogicalClientPoint(POINT point) const {
+        RECT client{};
+        int logical_width = 0;
+        int logical_height = 0;
+        GetClientRect(hwnd, &client);
+        SDL_GetWindowSize(window, &logical_width, &logical_height);
+        const LONG pixel_width = std::max(client.right - client.left, 1L);
+        const LONG pixel_height = std::max(client.bottom - client.top, 1L);
+        const float display_scale = std::max(SDL_GetWindowDisplayScale(window), 1.0f);
+        return {
+            static_cast<float>(point.x) * static_cast<float>(logical_width) /
+                static_cast<float>(pixel_width) / display_scale,
+            static_cast<float>(point.y) * static_cast<float>(logical_height) /
+                static_cast<float>(pixel_height) / display_scale,
+        };
+    }
+
+    void DispatchWheel(UINT message, WPARAM wparam, LPARAM lparam) {
         const auto delta = static_cast<std::int16_t>(GET_WHEEL_DELTA_WPARAM(wparam));
         const float logical_delta = message == WM_MOUSEHWHEEL
             ? detail::WindowsHorizontalWheelDeltaToLogicalPixels(delta)
@@ -96,9 +119,18 @@ struct WindowsScrollWheelBridge::Impl {
         if (!precise && precise_scrolling) EndPreciseScrollGesture();
         const bool begins_gesture = precise && !precise_scrolling;
         precise_scrolling = precise_scrolling || precise;
+        POINT point{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)};
+        ScreenToClient(hwnd, &point);
+        const auto [x, y] = LogicalClientPoint(point);
+        last_wheel_x = x;
+        last_wheel_y = y;
+        last_wheel_modifiers = KeyModifiers();
         on_wheel(NativeWheelEvent{
+            x,
+            y,
             message == WM_MOUSEHWHEEL ? logical_delta : 0.0f,
             message == WM_MOUSEWHEEL ? logical_delta : 0.0f,
+            last_wheel_modifiers,
             precise,
             begins_gesture,
             false,
@@ -113,23 +145,15 @@ struct WindowsScrollWheelBridge::Impl {
         KillTimer(hwnd, subclass_id);
         if (!precise_scrolling) return;
         precise_scrolling = false;
-        on_wheel(NativeWheelEvent{0.0f, 0.0f, true, false, true});
+        on_wheel(NativeWheelEvent{
+            last_wheel_x, last_wheel_y, 0.0f, 0.0f, last_wheel_modifiers,
+            true, false, true});
         WakeEventLoop();
     }
 
     void DispatchMouse(NativeMouseEvent::Type type, WPARAM wparam, LPARAM lparam, std::int32_t clicks) {
-        RECT client{};
-        int logical_width = 0;
-        int logical_height = 0;
-        GetClientRect(hwnd, &client);
-        SDL_GetWindowSize(window, &logical_width, &logical_height);
-        const LONG pixel_width = std::max(client.right - client.left, 1L);
-        const LONG pixel_height = std::max(client.bottom - client.top, 1L);
-        const float display_scale = std::max(SDL_GetWindowDisplayScale(window), 1.0f);
-        const float x = static_cast<float>(GET_X_LPARAM(lparam)) *
-            static_cast<float>(logical_width) / static_cast<float>(pixel_width) / display_scale;
-        const float y = static_cast<float>(GET_Y_LPARAM(lparam)) *
-            static_cast<float>(logical_height) / static_cast<float>(pixel_height) / display_scale;
+        const auto [x, y] = LogicalClientPoint(
+            POINT{GET_X_LPARAM(lparam), GET_Y_LPARAM(lparam)});
         std::uint32_t buttons = 0U;
         if ((wparam & MK_LBUTTON) != 0U) buttons |= 1U;
         if ((wparam & MK_RBUTTON) != 0U) buttons |= 2U;
@@ -138,6 +162,26 @@ struct WindowsScrollWheelBridge::Impl {
         if ((wparam & MK_XBUTTON2) != 0U) buttons |= 16U;
         on_mouse(NativeMouseEvent{type, x, y, KeyModifiers(), buttons, clicks});
         WakeEventLoop();
+    }
+
+    bool DispatchGesture(LPARAM lparam) {
+        GESTUREINFO info{};
+        info.cbSize = sizeof(info);
+        if (!GetGestureInfo(reinterpret_cast<HGESTUREINFO>(lparam), &info) ||
+            info.dwID != GID_ZOOM || !on_pinch) return false;
+        POINT point{info.ptsLocation.x, info.ptsLocation.y};
+        ScreenToClient(hwnd, &point);
+        const auto [x, y] = LogicalClientPoint(point);
+        const std::uint64_t distance = static_cast<std::uint64_t>(info.ullArguments);
+        const float multiplier = (info.dwFlags & GF_BEGIN) != 0U
+            ? 1.0f
+            : detail::WindowsZoomDistanceMultiplier(distance, last_zoom_distance);
+        last_zoom_distance = (info.dwFlags & GF_END) != 0U ? 0U : distance;
+        const bool handled = on_pinch(x, y, 1.0f - multiplier, multiplier);
+        if (!handled) return false;
+        CloseGestureInfoHandle(reinterpret_cast<HGESTUREINFO>(lparam));
+        WakeEventLoop();
+        return true;
     }
 
     static LRESULT CALLBACK SubclassProcedure(
@@ -191,14 +235,36 @@ struct WindowsScrollWheelBridge::Impl {
                 break;
             case WM_MOUSEWHEEL:
             case WM_MOUSEHWHEEL:
-                bridge.DispatchWheel(message, wparam);
+                bridge.DispatchWheel(message, wparam, lparam);
                 // Do not let SDL synthesize a second, normalized wheel event.
                 return 0;
+            case WM_GESTURE:
+                if (bridge.DispatchGesture(lparam)) return 0;
+                break;
             case WM_TIMER:
                 if (wparam == bridge.subclass_id) {
                     bridge.EndPreciseScrollGesture();
                     return 0;
                 }
+                if (wparam == bridge.live_resize_timer_id) {
+                    if (bridge.live_resize_active && bridge.on_live_resize_frame) {
+                        bridge.on_live_resize_frame();
+                    }
+                    return 0;
+                }
+                break;
+            case WM_ENTERSIZEMOVE:
+                bridge.live_resize_active = true;
+                SetTimer(
+                    window,
+                    bridge.live_resize_timer_id,
+                    kLiveResizeFrameDelayMs,
+                    nullptr);
+                break;
+            case WM_EXITSIZEMOVE:
+                bridge.live_resize_active = false;
+                KillTimer(window, bridge.live_resize_timer_id);
+                if (bridge.on_live_resize_frame) bridge.on_live_resize_frame();
                 break;
             case WM_SIZE: {
                 // Let SDL update its cached logical/pixel window state, then
@@ -226,6 +292,8 @@ struct WindowsScrollWheelBridge::Impl {
             }
             case WM_NCDESTROY: {
                 bridge.EndPreciseScrollGesture();
+                KillTimer(window, bridge.live_resize_timer_id);
+                bridge.live_resize_active = false;
                 bridge.primary_drag_active = false;
                 RemoveWindowSubclass(window, &Impl::SubclassProcedure, bridge.subclass_id);
                 bridge.hwnd = nullptr;
@@ -241,14 +309,22 @@ struct WindowsScrollWheelBridge::Impl {
     Handler on_wheel;
     MouseHandler on_mouse;
     ResizeHandler on_resize;
+    PinchHandler on_pinch;
+    LiveResizeFrameHandler on_live_resize_frame;
     HWND hwnd = nullptr;
     UINT_PTR subclass_id = 0U;
+    UINT_PTR live_resize_timer_id = 0U;
     std::uint32_t wake_event_type = 0U;
     SDL_WindowID window_id = 0U;
     bool wake_pending = false;
     bool primary_drag_active = false;
     bool owns_pointer_capture = false;
     bool precise_scrolling = false;
+    bool live_resize_active = false;
+    float last_wheel_x = 0.0f;
+    float last_wheel_y = 0.0f;
+    std::uint32_t last_wheel_modifiers = 0U;
+    std::uint64_t last_zoom_distance = 0U;
 };
 
 WindowsScrollWheelBridge::WindowsScrollWheelBridge(
@@ -256,8 +332,31 @@ WindowsScrollWheelBridge::WindowsScrollWheelBridge(
     Handler wheel_handler,
     MouseHandler mouse_handler,
     ResizeHandler resize_handler)
+    : WindowsScrollWheelBridge(window, std::move(wheel_handler),
+          std::move(mouse_handler), std::move(resize_handler), {}, {}) {}
+
+WindowsScrollWheelBridge::WindowsScrollWheelBridge(
+    SDL_Window* window,
+    Handler wheel_handler,
+    MouseHandler mouse_handler,
+    ResizeHandler resize_handler,
+    PinchHandler pinch_handler)
     : impl_(std::make_unique<Impl>(
-          window, std::move(wheel_handler), std::move(mouse_handler), std::move(resize_handler))) {}
+          window, std::move(wheel_handler), std::move(mouse_handler),
+          std::move(resize_handler), std::move(pinch_handler),
+          LiveResizeFrameHandler{})) {}
+
+WindowsScrollWheelBridge::WindowsScrollWheelBridge(
+    SDL_Window* window,
+    Handler wheel_handler,
+    MouseHandler mouse_handler,
+    ResizeHandler resize_handler,
+    PinchHandler pinch_handler,
+    LiveResizeFrameHandler live_resize_frame_handler)
+    : impl_(std::make_unique<Impl>(
+          window, std::move(wheel_handler), std::move(mouse_handler),
+          std::move(resize_handler), std::move(pinch_handler),
+          std::move(live_resize_frame_handler))) {}
 
 WindowsScrollWheelBridge::~WindowsScrollWheelBridge() = default;
 

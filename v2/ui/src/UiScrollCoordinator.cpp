@@ -328,6 +328,10 @@ void ScrollCoordinator::HandleWheel(std::uint64_t start_handle, float delta_x, f
     node->smooth_scroll_active =
         std::abs(node->smooth_scroll_target_x - node->scroll_offset_x) >= 0.001f ||
         std::abs(node->smooth_scroll_target_y - node->scroll_offset_y) >= 0.001f;
+    if (!node->smooth_scroll_just_started && node->smooth_scroll_active &&
+        base_x == node->scroll_offset_x && base_y == node->scroll_offset_y) {
+        node->smooth_scroll_just_started = true;
+    }
 }
 
 void ScrollCoordinator::HandlePreciseWheel(
@@ -344,6 +348,7 @@ void ScrollCoordinator::HandlePreciseWheel(
         node->scroll_velocity_x = 0.0f;
         node->scroll_velocity_y = 0.0f;
         node->smooth_scroll_active = false;
+        node->smooth_scroll_just_started = false;
         node->smooth_scroll_target_x = node->scroll_offset_x;
         node->smooth_scroll_target_y = node->scroll_offset_y;
         if (std::abs(delta_x) >= 0.001f || std::abs(delta_y) >= 0.001f) {
@@ -418,6 +423,7 @@ void ScrollCoordinator::BeginTouch(std::uint64_t handle, double timestamp_ms) {
     last_touch_timestamp_ms_ = has_touch_timestamp_ ? timestamp_ms : 0.0;
     if (UINode* node = writer_.Resolve(handle); node != nullptr) {
         node->smooth_scroll_active = false;
+        node->smooth_scroll_just_started = false;
         node->smooth_scroll_target_x = node->scroll_offset_x;
         node->smooth_scroll_target_y = node->scroll_offset_y;
         active_touch_x_handle_ = CanScrollOnAxis(*node, true)
@@ -507,15 +513,21 @@ void ScrollCoordinator::Advance(double delta_ms) const {
     const float seconds = static_cast<float>(delta_ms / 1000.0);
     traversal_.ForEachActiveScrollView([&](std::uint64_t handle, UINode& node) {
         if (node.smooth_scroll_active) {
-            const float blend = delta_ms <= 0.0 ? 0.0f : 1.0f - std::exp(-static_cast<float>(delta_ms) / kSmoothScrollTimeConstantMs);
+            const double animation_delta_ms = node.smooth_scroll_just_started
+                ? std::min(delta_ms, kNominalFrameMs)
+                : delta_ms;
+            node.smooth_scroll_just_started = false;
+            const float blend = animation_delta_ms <= 0.0 ? 0.0f :
+                1.0f - std::exp(-static_cast<float>(animation_delta_ms) / kSmoothScrollTimeConstantMs);
             const float remaining_x = node.smooth_scroll_target_x - node.scroll_offset_x;
             const float remaining_y = node.smooth_scroll_target_y - node.scroll_offset_y;
             const bool reached = std::abs(remaining_x) <= kSmoothScrollStopDistancePx && std::abs(remaining_y) <= kSmoothScrollStopDistancePx;
             const bool changed = ApplyOffset(handle, node,
                 reached ? node.smooth_scroll_target_x : node.scroll_offset_x + (remaining_x * blend),
                 reached ? node.smooth_scroll_target_y : node.scroll_offset_y + (remaining_y * blend), true);
-            if (reached || !changed) {
+            if (reached || (!changed && animation_delta_ms > 0.0)) {
                 node.smooth_scroll_active = false;
+                node.smooth_scroll_just_started = false;
                 node.smooth_scroll_target_x = node.scroll_offset_x;
                 node.smooth_scroll_target_y = node.scroll_offset_y;
             }

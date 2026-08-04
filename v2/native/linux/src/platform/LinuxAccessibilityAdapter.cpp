@@ -67,7 +67,8 @@ bool IsInvokable(NativeAccessibilityRole role) {
         role == NativeAccessibilityRole::CheckBox ||
         role == NativeAccessibilityRole::Radio ||
         role == NativeAccessibilityRole::Switch ||
-        role == NativeAccessibilityRole::ComboBox;
+        role == NativeAccessibilityRole::ComboBox ||
+        role == NativeAccessibilityRole::Tab;
 }
 
 bool IsFocusable(NativeAccessibilityRole role) {
@@ -1125,6 +1126,9 @@ std::uint32_t LinuxAtSpiRole(NativeAccessibilityRole role) {
         case NativeAccessibilityRole::Switch: return 62U;
         case NativeAccessibilityRole::Slider: return 51U;
         case NativeAccessibilityRole::ComboBox: return 11U;
+        case NativeAccessibilityRole::TabList: return 38U;
+        case NativeAccessibilityRole::Tab: return 37U;
+        case NativeAccessibilityRole::TabPanel: return 39U;
     }
     return kRolePanel;
 }

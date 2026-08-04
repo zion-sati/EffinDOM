@@ -160,6 +160,8 @@ bool LinuxPlatformServices::LoadDefaultFont(std::uint32_t font_id, const char* n
     return assets_.LoadDefaultFont(font_id, name);
 }
 
+bool LinuxPlatformServices::LoadBuiltInFonts() { return assets_.LoadBuiltInFonts(); }
+
 bool LinuxPlatformServices::LoadFont(std::uint32_t font_id, const std::filesystem::path& path) {
     return assets_.LoadFont(font_id, path);
 }

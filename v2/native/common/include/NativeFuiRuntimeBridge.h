@@ -14,6 +14,11 @@ struct NativeFuiDrawingMetrics {
     std::uint64_t bitmap_upload_bytes = 0U;
     std::uint64_t dirty_upload_count = 0U;
     std::uint64_t dirty_upload_bytes = 0U;
+    std::uint64_t font_load_request_count = 0U;
+    std::uint64_t font_load_dispatch_count = 0U;
+    std::uint64_t node_render_request_count = 0U;
+    std::uint64_t node_render_success_count = 0U;
+    std::uint64_t node_render_pending_visual_count = 0U;
 };
 
 // The platform factory binds exactly one live host while the native FUI

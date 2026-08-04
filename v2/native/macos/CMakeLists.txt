@@ -7,19 +7,22 @@ if(EFFINDOM_BUILD_NATIVE_FUI_RS_DEMO AND EXISTS "${EFFINDOM_NATIVE_RUST_MANIFEST
 set(EFFINDOM_NATIVE_FUI_RS_DEMO_AVAILABLE ON)
 file(GLOB_RECURSE EFFINDOM_NATIVE_RUST_SOURCES CONFIGURE_DEPENDS
     "${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}/src/*.rs"
-    "${CMAKE_SOURCE_DIR}/v2/fui-rs/crates/demo-worker/src/*.rs"
+    "${CMAKE_SOURCE_DIR}/v2/fui-rs/crates/*/src/*.rs"
     "${CMAKE_SOURCE_DIR}/v2/fui-rs/src/*.rs"
 )
+file(GLOB_RECURSE EFFINDOM_NATIVE_RUST_MANIFESTS CONFIGURE_DEPENDS
+    "${CMAKE_SOURCE_DIR}/v2/fui-rs/crates/*/Cargo.toml")
 
 add_custom_command(
     OUTPUT "${EFFINDOM_NATIVE_RUST_LIBRARY}"
     COMMAND ${CMAKE_COMMAND} -E env
         CARGO_TARGET_DIR=${EFFINDOM_NATIVE_RUST_TARGET_DIR}
+        MACOSX_DEPLOYMENT_TARGET=${CMAKE_OSX_DEPLOYMENT_TARGET}
         FUI_NATIVE_WORKER_REGISTRY_RS=${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}/src/native_worker_registry.rs
         "RUSTFLAGS=--cfg fui_native_worker_registry --check-cfg=cfg(fui_native_worker_registry)"
         cargo build --release --target ${EFFINDOM_RUST_TARGET} --manifest-path "${EFFINDOM_NATIVE_RUST_MANIFEST}"
-    DEPENDS ${EFFINDOM_NATIVE_RUST_SOURCES} "${EFFINDOM_NATIVE_RUST_MANIFEST}"
-        "${CMAKE_SOURCE_DIR}/v2/fui-rs/crates/demo-worker/Cargo.toml"
+    DEPENDS ${EFFINDOM_NATIVE_RUST_SOURCES} ${EFFINDOM_NATIVE_RUST_MANIFESTS}
+        "${EFFINDOM_NATIVE_RUST_MANIFEST}"
         "${CMAKE_SOURCE_DIR}/v2/fui-rs/Cargo.toml"
     WORKING_DIRECTORY "${EFFINDOM_NATIVE_FUI_RS_DEMO_DIR}"
     COMMENT "[EffinDOM native] Building native FUI-RS application"
@@ -33,6 +36,7 @@ endif()
 
 add_library(effindom_v2_macos_native_host STATIC
     "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/MacosNativePlatform.cpp"
+    "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/MacosDisplayLink.mm"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/platform/MacosAccessibilityAdapter.mm"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/graphics/MacosMetalSurface.mm"
     "${CMAKE_CURRENT_SOURCE_DIR}/src/input/MacosScrollWheelBridge.mm"
@@ -62,12 +66,14 @@ find_library(EFFINDOM_NATIVE_METAL_FRAMEWORK Metal REQUIRED)
 find_library(EFFINDOM_NATIVE_QUARTZCORE_FRAMEWORK QuartzCore REQUIRED)
 find_library(EFFINDOM_NATIVE_APPKIT_FRAMEWORK AppKit REQUIRED)
 find_library(EFFINDOM_NATIVE_CORETEXT_FRAMEWORK CoreText REQUIRED)
+find_library(EFFINDOM_NATIVE_COREVIDEO_FRAMEWORK CoreVideo REQUIRED)
 target_link_libraries(effindom_v2_macos_native_host
     PRIVATE
         "${EFFINDOM_NATIVE_METAL_FRAMEWORK}"
         "${EFFINDOM_NATIVE_QUARTZCORE_FRAMEWORK}"
         "${EFFINDOM_NATIVE_APPKIT_FRAMEWORK}"
         "${EFFINDOM_NATIVE_CORETEXT_FRAMEWORK}"
+        "${EFFINDOM_NATIVE_COREVIDEO_FRAMEWORK}"
 )
 
 set(EFFINDOM_NATIVE_OUTPUT_ROOT "${CMAKE_CURRENT_BINARY_DIR}/output")

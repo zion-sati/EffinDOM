@@ -228,7 +228,7 @@ export function installRenderLoop(
     // Reading module.wasmMemory.buffer always returns the current live buffer.
     core.refreshHeapViews?.();
     runtime.ui.refreshHeapViews?.();
-    runtime.runAppFrameHandler(now);
+    runtime.runAppFrameController(now);
     if (!runtime.hasPendingCommit() && runtime.uiNeedsAnimationFrame() && runtime.uiHasPendingVisualWork()) {
       runtime.commitFrame(now);
     }
@@ -250,7 +250,7 @@ export function installRenderLoop(
     } else if (softwarePresenter !== null) {
       softwarePresenter.canvas.style.display = 'none';
     }
-    if (runtime.hasPendingCommit() || runtime.uiNeedsAnimationFrame()) {
+    if (runtime.hasPendingCommit() || runtime.uiNeedsAnimationFrame() || runtime.appNeedsAnimationFrame()) {
       scheduleFrame();
     }
   };

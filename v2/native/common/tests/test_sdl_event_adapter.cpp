@@ -21,6 +21,22 @@ TEST_CASE("SDL pointer buttons map to EffinDOM values", "[v2][native][input]") {
         SDL_BUTTON_LMASK | SDL_BUTTON_RMASK | SDL_BUTTON_X2MASK) == 19U);
 }
 
+TEST_CASE("SDL pointer button transitions are event-authoritative",
+    "[v2][native][input][drag-drop]") {
+    std::uint32_t buttons = 0U;
+    buttons = SdlEventAdapter::UpdatePointerButtons(buttons, SDL_BUTTON_LEFT, true);
+    CHECK(buttons == 1U);
+    CHECK(SdlEventAdapter::PointerButtons(SDL_BUTTON_LMASK) == buttons);
+    buttons = SdlEventAdapter::UpdatePointerButtons(buttons, SDL_BUTTON_LEFT, false);
+    CHECK(buttons == 0U);
+    CHECK(SdlEventAdapter::PointerButtons(0U) == buttons);
+
+    buttons = SdlEventAdapter::UpdatePointerButtons(buttons, SDL_BUTTON_RIGHT, true);
+    CHECK(buttons == 2U);
+    buttons = SdlEventAdapter::UpdatePointerButtons(buttons, SDL_BUTTON_RIGHT, false);
+    CHECK(buttons == 0U);
+}
+
 TEST_CASE("SDL modifiers map without platform leakage", "[v2][native][input]") {
     CHECK(SdlEventAdapter::Modifiers(
         SDL_KMOD_SHIFT | SDL_KMOD_CTRL | SDL_KMOD_ALT | SDL_KMOD_GUI) ==
@@ -80,13 +96,13 @@ TEST_CASE("SDL wheel policy translates to browser-style content deltas",
     event.wheel.y = -0.625f;
     event.wheel.direction = SDL_MOUSEWHEEL_NORMAL;
     auto [delta_x, delta_y] = SdlEventAdapter::WheelDeltas(event);
-    CHECK(delta_x == Approx(24.0f));
-    CHECK(delta_y == Approx(60.0f));
+    CHECK(delta_x == Approx(4.0f));
+    CHECK(delta_y == Approx(10.0f));
 
     event.wheel.direction = SDL_MOUSEWHEEL_FLIPPED;
     std::tie(delta_x, delta_y) = SdlEventAdapter::WheelDeltas(event);
-    CHECK(delta_x == Approx(24.0f));
-    CHECK(delta_y == Approx(60.0f));
+    CHECK(delta_x == Approx(4.0f));
+    CHECK(delta_y == Approx(10.0f));
 }
 
 TEST_CASE("SDL resize and expose events end input batches", "[v2][native][window]") {

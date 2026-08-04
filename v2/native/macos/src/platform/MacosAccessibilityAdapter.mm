@@ -315,6 +315,9 @@ NSString* RoleName(NativeAccessibilityRole role) {
         case NativeAccessibilityRole::Switch: return NSAccessibilityCheckBoxRole;
         case NativeAccessibilityRole::Slider: return NSAccessibilitySliderRole;
         case NativeAccessibilityRole::ComboBox: return NSAccessibilityComboBoxRole;
+        case NativeAccessibilityRole::TabList: return NSAccessibilityTabGroupRole;
+        case NativeAccessibilityRole::Tab: return NSAccessibilityRadioButtonRole;
+        case NativeAccessibilityRole::TabPanel: return NSAccessibilityGroupRole;
     }
 }
 

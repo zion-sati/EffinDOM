@@ -1,4 +1,5 @@
 #include "NativeHost.h"
+#include "NativeFramePacer.h"
 
 #include <algorithm>
 #include <cstdint>
@@ -26,14 +27,10 @@ bool RunPackageSelfTest(effindom::v2::native::NativeHost& host, std::string& err
     const auto action = std::find_if(
         semantics.nodes.begin(), semantics.nodes.end(), [](const auto& node) {
             return node.role == effindom::v2::native::NativeAccessibilityRole::Button &&
-                node.label == "Increment click count";
+                node.label == "Advanced";
         });
     if (action == semantics.nodes.end()) {
-        error = "packaged native application did not publish its semantic button";
-        return false;
-    }
-    if (!host.SvgSizeForTesting(9001U).has_value() || host.TextureCountForTesting() == 0U) {
-        error = "packaged native application did not load its SVG and image assets";
+        error = "packaged native application did not publish the universal Advanced selector";
         return false;
     }
     const float action_x = action->bounds.x + action->bounds.width * 0.5f;
@@ -91,13 +88,24 @@ int main(int argc, char** argv) {
             }
         }
         if (hidden) return 0;
+        effindom::v2::native::NativeFramePacer frame_pacer(
+            [&host] { host.WaitForAnimationFrame(); },
+            [&host](bool active) { host.SetAnimationFrameActive(active); });
         while (host.IsRunning()) {
-            host.PumpEvent(true);
+            if (!frame_pacer.ShouldBlockForEvent()) {
+                frame_pacer.WaitForFrame();
+                host.PumpEvent(false);
+            } else {
+                host.PumpEvent(true);
+            }
             for (std::uint32_t count = 1U;
                  count < kMaximumEventsPerFrame && host.IsRunning() &&
                      !host.ShouldPresentAfterLastEvent() && host.PumpEvent(false);
                  ++count) {}
             host.RunNextFrame();
+            // A failed GPU frame can schedule recovery without rendering.
+            // Keep pacing while any follow-up frame remains pending.
+            frame_pacer.FrameCompleted(host.State().frame_pending);
         }
         return 0;
     } catch (const std::exception& error) {

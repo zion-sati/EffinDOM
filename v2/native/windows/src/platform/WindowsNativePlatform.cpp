@@ -55,7 +55,10 @@ struct WindowsNativePlatform::Impl {
                   __fui_clear_native_file_dialog_callbacks();
               },
           }),
-          input_adapter(core.InputRouter(), SdlEventAdapterOptions{true, false, false}),
+          input_adapter(core.InputRouter(), SdlEventAdapterOptions{true, false, false},
+              &core.PageZoom(), [this](float x, float y, float delta_y, float scale) {
+                  return core.DispatchTrackpadPinch(x, y, delta_y, scale);
+              }),
           platform_services(core.GetEngine(), [this] { RequestFrame(); },
               [this](std::uint64_t handle) { core.AnnounceSemantic(handle); }, visible) {
         if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_EVENTS)) {
@@ -85,7 +88,7 @@ struct WindowsNativePlatform::Impl {
         timer_coordinator = std::make_unique<NativeTimerCoordinator>([this](NativeTimerCoordinator::UiTask task) {
             return ui_dispatcher->PostTask(std::move(task));
         });
-        drop_target = std::make_unique<SdlDropTarget>(window, core.GetEngine());
+        drop_target = std::make_unique<SdlDropTarget>(window, core.InputRouter());
         file_dialogs = std::make_unique<SdlFileDialogs>(window, visible, [](const NativeFileDialogCompletion& completion) {
             std::string payload;
             if (completion.status == NativeFileDialogStatus::Selected) {
@@ -115,24 +118,11 @@ struct WindowsNativePlatform::Impl {
         }
         core.AttachGraphics(std::move(graphics));
         ui::SetGlobalUiPlatformHost(platform_services);
-        UiHostCallbacks callbacks{};
-        callbacks.on_focus_changed = &as_on_focus_changed;
-        callbacks.on_pointer_event = &as_on_pointer_event;
-        callbacks.on_text_changed = &as_on_text_changed;
-        callbacks.on_text_replaced = &as_on_text_replaced;
-        callbacks.on_scroll = &as_on_scroll;
-        callbacks.on_selection_changed = &as_on_selection_changed;
-        callbacks.on_cross_selection_changed = &as_on_cross_selection_changed;
-        callbacks.on_clipboard_write = &as_on_clipboard_write;
-        callbacks.on_request_clipboard_read = &as_on_request_clipboard_read;
-        callbacks.on_request_font_load = &as_on_request_font_load;
-        callbacks.on_missing_font_coverage = &as_on_missing_font_coverage;
-        callbacks.on_request_semantic_announcement = &as_on_request_semantic_announcement;
-        ui_set_host_callbacks(&callbacks);
+        RegisterNativeFuiHostCallbacks();
         core.InitializeEngine();
-        platform_services.LoadDefaultFont(1U, "NotoSans-Regular.ttf");
-        platform_services.LoadDefaultFont(2U, "NotoSans-Bold.ttf");
-        platform_services.LoadDefaultFont(7U, "NotoSansMono-Regular.ttf");
+        if (!platform_services.LoadBuiltInFonts()) {
+            throw std::runtime_error("native built-in font initialization failed");
+        }
         system_theme_bridge = std::make_unique<WindowsSystemThemeBridge>(
             window,
             [this](std::uint32_t color) {
@@ -143,15 +133,18 @@ struct WindowsNativePlatform::Impl {
             window,
             [this](const NativeWheelEvent& event) {
                 if (event.precise) {
-                    core.InputRouter().DispatchPreciseWheel(
-                        event.delta_x,
-                        event.delta_y,
-                        event.begins_gesture,
-                        event.ends_gesture,
-                        NowMilliseconds());
+                    core.InputRouter().DispatchPreciseWheel(NativeWheelInput{
+                        0U, event.x, event.y, event.delta_x, event.delta_y,
+                        NativeWheelDeltaMode::Pixel, event.modifiers, true,
+                        event.begins_gesture, event.ends_gesture, NowMilliseconds(),
+                    });
                     RequestFrame();
                 } else if (event.delta_x != 0.0f || event.delta_y != 0.0f) {
-                    core.InputRouter().DispatchWheel(event.delta_x, event.delta_y, NowMilliseconds());
+                    core.InputRouter().DispatchWheel(NativeWheelInput{
+                        0U, event.x, event.y, event.delta_x, event.delta_y,
+                        NativeWheelDeltaMode::Pixel, event.modifiers, false,
+                        false, false, NowMilliseconds(),
+                    });
                     RequestFrame();
                 }
             },
@@ -169,7 +162,11 @@ struct WindowsNativePlatform::Impl {
                 }
                 RequestFrame();
             },
-            [this] { RenderNativePaint(); });
+            [this] { RenderNativePaint(); },
+            [this](float x, float y, float delta_y, float scale) {
+                return core.DispatchTrackpadPinch(x, y, delta_y, scale);
+            },
+            [this] { RenderLiveResizeAnimationFrame(); });
     }
 
     ~Impl() {
@@ -190,7 +187,11 @@ struct WindowsNativePlatform::Impl {
     double NowMilliseconds() const { return core.NowMilliseconds(); }
     void RequestFrame() { core.RequestFrame(); }
     void ApplyManagedCommittedCommands() { core.ApplyManagedCommittedCommands(); }
-    bool RunNextFrame() { return core.RunNextFrame(); }
+    bool RunNextFrame() {
+        const bool presented = core.RunNextFrame();
+        input_adapter.SyncTextInput(window);
+        return presented;
+    }
 
     void RenderNativePaint() {
         if (live_resize_rendering || !core.IsMounted()) return;
@@ -209,6 +210,25 @@ struct WindowsNativePlatform::Impl {
             }
         } catch (const std::exception& error) {
             SDL_Log("EffinDOM live resize failed: %s", error.what());
+            core.Stop();
+        }
+        live_resize_rendering = false;
+    }
+
+    void RenderLiveResizeAnimationFrame() {
+        if (live_resize_rendering || !core.IsMounted()) return;
+        live_resize_rendering = true;
+        core.Graphics().SetSuspended(false);
+        try {
+            if (ui_dispatcher->DrainPending()) RequestFrame();
+            if (!core.IsFramePending() && !ui_needs_animation_frame()) {
+                live_resize_rendering = false;
+                return;
+            }
+            RequestFrame();
+            RunNextFrame();
+        } catch (const std::exception& error) {
+            SDL_Log("EffinDOM live resize animation failed: %s", error.what());
             core.Stop();
         }
         live_resize_rendering = false;
@@ -266,7 +286,11 @@ void WindowsNativePlatform::RequestFrame() { impl_->core.RequestFrame(); }
     const bool has_event = wait_when_idle && !impl_->core.IsFramePending()
         ? SDL_WaitEventTimeout(&event, 50)
         : SDL_PollEvent(&event);
-    if (!has_event) return false;
+    if (!has_event) {
+        const bool gesture_changed = impl_->input_adapter.AdvanceGestureClock(impl_->NowMilliseconds());
+        if (gesture_changed) RequestFrame();
+        return gesture_changed;
+    }
     if (impl_->core.Graphics().HandleRecoveryEvent(event)) {
         RequestFrame();
         return true;
@@ -405,7 +429,7 @@ std::uint32_t WindowsNativePlatform::HostCapabilities() const {
            FUI_HOST_CAPABILITY_CLIPBOARD_WRITE |
            FUI_HOST_CAPABILITY_FILE_DIALOGS;
 }
-bool WindowsNativePlatform::IsCoarsePointer() const { return false; }
+bool WindowsNativePlatform::IsCoarsePointer() const { return impl_->input_adapter.IsCoarsePointer(); }
 void WindowsNativePlatform::SetApplicationCaption(const std::string& caption) {
     SDL_SetWindowTitle(impl_->window, caption.c_str());
 }

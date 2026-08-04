@@ -33,7 +33,16 @@ SkColor RgbaToSkColor(std::uint32_t rgba) {
 
 NativeHostCore::NativeHostCore(NativeInputRouterOptions input_options,
     NativeHostCoreCallbacks callbacks)
-    : input_router_(engine_, input_options), accessibility_([this] { RequestFrame(); }),
+    : page_zoom_(engine_, [this] { RequestFrame(); }),
+      input_router_(engine_, input_options, &page_zoom_),
+      accessibility_([this] { RequestFrame(); }, [this](const NativeAccessibilityTextRect& rect) {
+          const NativeSceneRect projected = page_zoom_.SceneToScreen(
+              {rect.x, rect.y, rect.width, rect.height});
+          return NativeAccessibilityTextRect{
+              projected.x, projected.y, projected.width, projected.height};
+      }, [this](const std::string& key, bool down) {
+          input_router_.DispatchKey(key, down, 0U, NowMilliseconds());
+      }),
       callbacks_(std::move(callbacks)),
       start_time_(Clock::now()) {
     engine_.SetCustomDrawCallback([this](std::uint64_t handle, SkCanvas* canvas) {
@@ -98,6 +107,7 @@ void NativeHostCore::UnmountApplication() {
     ++dispose_count_;
     if (callbacks_.clear_application_state) callbacks_.clear_application_state();
     accessibility_.Clear();
+    page_zoom_.SetEnabled(true);
     mounted_ = false;
     frame_pending_ = false;
 }
@@ -110,13 +120,42 @@ void NativeHostCore::SetSystemDarkMode(bool dark_mode) {
     RequestFrame();
 }
 
+void NativeHostCore::SetPageZoomEnabled(bool enabled) {
+    page_zoom_.SetEnabled(enabled);
+}
+
+bool NativeHostCore::IsPageZoomEnabled() const { return page_zoom_.IsEnabled(); }
+NativePageZoomController& NativeHostCore::PageZoom() { return page_zoom_; }
+const NativePageZoomController& NativeHostCore::PageZoom() const { return page_zoom_; }
+
+bool NativeHostCore::DispatchTrackpadPinch(float screen_x, float screen_y,
+    float delta_y, float scale_multiplier) {
+    if (!page_zoom_.IsEnabled()) return false;
+    const NativeScenePoint scene = page_zoom_.ScreenToScene(screen_x, screen_y);
+    const std::uint64_t hit = input_router_.HitTestAt(screen_x, screen_y);
+    const std::uint64_t owner = __fui_resolve_gesture_owner(hit);
+    if (owner != 0U && (__fui_get_gesture_intent(owner) & 2U) != 0U &&
+        __fui_on_gesture_event(owner, 2U, 2U, scene.x, scene.y, 0.0f,
+            delta_y, scale_multiplier, 2)) {
+        __flushRenders();
+        RequestFrame();
+        return true;
+    }
+    (void)page_zoom_.ScaleByFactorFromScreenAnchor(
+        scale_multiplier, screen_x, screen_y);
+    return true;
+}
+
 bool NativeHostCore::RunNextFrame() {
     if (!mounted_ || !frame_pending_) return false;
+    const double frame_timestamp_ms = NowMilliseconds();
     if (graphics_->IsSuspended()) {
         frame_pending_ = false;
         return false;
     }
     frame_pending_ = false;
+    const bool page_zoom_momentum_active = page_zoom_.TickMomentum(frame_timestamp_ms);
+    accessibility_.RefreshProjection();
     const auto frame_started = Clock::now();
     const char* diagnostic = SDL_GetEnvironmentVariable(
         SDL_GetEnvironment(), "EFFINDOM_NATIVE_CHARACTERIZE");
@@ -140,12 +179,19 @@ bool NativeHostCore::RunNextFrame() {
     }
     const auto prepare_finished = Clock::now();
     managed_commit_applied_ = false;
+    __fui_on_frame(frame_timestamp_ms);
     __flushRenders();
     const auto flush_finished = Clock::now();
     const bool input_commit_requested = input_router_.ConsumeCommitRequest();
-    if (!managed_commit_applied_ &&
-        (viewport_changed || input_commit_requested || ui_has_pending_visual_work())) {
-        ui_commit_frame(NowMilliseconds());
+    const bool pending_visual_work = ui_has_pending_visual_work();
+    const bool ui_animation_frame_requested = ui_needs_animation_frame();
+    if (ShouldCommitNativeRuntimeFrame(
+            pending_visual_work,
+            ui_animation_frame_requested,
+            managed_commit_applied_,
+            viewport_changed,
+            input_commit_requested)) {
+        ui_commit_frame(frame_timestamp_ms);
         ApplyCommittedCommands();
     }
     const auto commit_finished = Clock::now();
@@ -156,7 +202,7 @@ bool NativeHostCore::RunNextFrame() {
     }
     const SkColor backdrop = RgbaToSkColor(backdrop_color_);
     canvas->clear(backdrop);
-    engine_.RenderToCanvas(canvas, NowMilliseconds());
+    engine_.RenderToCanvas(canvas, frame_timestamp_ms);
     canvas->drawColor(backdrop, SkBlendMode::kDstOver);
     const auto render_finished = Clock::now();
     if (!graphics_->Present()) {
@@ -182,7 +228,10 @@ bool NativeHostCore::RunNextFrame() {
             elapsed_ms(frame_started, present_finished));
     }
     ++frame_count_;
-    if (ui_needs_animation_frame() || pending_assets) frame_pending_ = true;
+    if (ui_needs_animation_frame() || __fui_needs_animation_frame() || pending_assets ||
+        page_zoom_momentum_active) {
+        frame_pending_ = true;
+    }
     return true;
 }
 
@@ -247,7 +296,7 @@ void NativeHostCore::ApplyCommittedCommands() {
 
 NativeHostState NativeHostCore::State() const {
     return NativeHostState{
-        __fui_native_activation_count(), mount_count_, dispose_count_, frame_count_,
+        mount_count_, dispose_count_, frame_count_,
         logical_width_, logical_height_, pixel_density_, frame_pending_,
         graphics_->IsGpuBacked(), graphics_->Generation(), graphics_->RecoveryCount(),
         graphics_->IsSuspended(),

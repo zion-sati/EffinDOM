@@ -2,7 +2,6 @@ import type {
   BridgeRuntime,
   BuildMode,
   DevToolsDomMirrorMode,
-  PageZoomMode,
   WasmHandleLike,
 } from '@effindomv2/runtime';
 
@@ -48,6 +47,11 @@ export interface HarnessExports {
     width: number,
     height: number,
     clickCount: number,
+    isPrimary: boolean,
+    tangentialPressure: number,
+    tiltX: number,
+    tiltY: number,
+    twist: number,
   ): boolean;
   __fui_on_wheel_event(this: void, 
     handle: bigint,
@@ -184,6 +188,7 @@ export interface HarnessExports {
   __fui_on_texture_loaded(this: void, textureId: number, width: number, height: number): void;
   __fui_on_texture_failed(this: void, textureId: number, errorPtr: number, errorLen: number): void;
   __fui_on_frame(this: void, timestampMs: number): void;
+  __fui_needs_animation_frame(this: void): boolean;
   __fui_on_timer(this: void, timerId: number): void;
   __fui_on_font_loaded(this: void, fontId: number): void;
   __fui_on_worker_progress(this: void, workerId: number, textPtr: number, textLen: number): void;
@@ -215,7 +220,6 @@ export interface HarnessOptions<Exports extends HarnessExports> {
   wasmPath: string;
   buildMode?: BuildMode;
   devToolsDomMirror?: DevToolsDomMirrorMode;
-  pageZoom?: PageZoomMode;
   run?(this: void, exports: Exports): void;
   onStateUpdated?(this: void, state: HarnessState): void;
   onReady?(this: void, context: HarnessContext<Exports>): void | Promise<void>;
@@ -251,7 +255,6 @@ export interface HarnessController {
 export interface ManagedHarnessOptions {
   buildMode?: BuildMode;
   devToolsDomMirror?: DevToolsDomMirrorMode;
-  pageZoom?: PageZoomMode;
   loading?: false | LoadingIndicatorOptions;
   instantiateApp?: WasmAppInstantiator;
   onReady?(this: void, controller: HarnessController): void | Promise<void>;

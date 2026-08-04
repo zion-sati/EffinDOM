@@ -1,6 +1,7 @@
 import type {
   BridgeFontRegistration,
   BridgeFontStackRegistration,
+  BridgeAppFrameController,
   BridgeLoaderInfo,
   BridgeRuntime,
   CoreModule,
@@ -11,7 +12,7 @@ import { resetBridgeLogs } from './utils/assets';
 import { normalizeBackendType, handleToBigInt } from './utils/encoding';
 import { executeCommandBuffer, extractCommandBuffer } from './utils/heap';
 import { setActiveRenderer } from './utils/backends';
-import { PageZoomMode, resolveDevToolsDomMirrorConfig } from '../runtime-config';
+import { resolveDevToolsDomMirrorConfig } from '../runtime-config';
 import { getCanvasSizeSource, readCanvasLogicalSize } from './events';
 import { AssetManager } from './runtime/asset-manager';
 import { IncrementalFontManager } from './runtime/font-manager';
@@ -41,7 +42,7 @@ export function createBridgeRuntime(
   let devicePixelRatio = host.getDevicePixelRatio();
   let pageZoomMomentumFrameScheduled = false;
   let needsCommit = false;
-  let appFrameHandler: ((timestampMs: number) => void) | null = null;
+  let appFrameController: BridgeAppFrameController | null = null;
   let frameRequester: (() => void) | null = null;
   // eslint-disable-next-line prefer-const -- controllers below close over runtime before it is assigned.
   let runtime!: BridgeRuntime;
@@ -68,6 +69,7 @@ export function createBridgeRuntime(
   );
   const debugTreeController = new DebugTreeController(ui);
   const devToolsConfig = resolveDevToolsDomMirrorConfig(window.__effindomRuntime);
+  let pageZoomEnabled = window.__effindomFuiConfig?.application?.pageZoom !== 'disabled';
   const devToolsDomMirror = new DevToolsDomMirror(canvas, devToolsConfig.devToolsDomMirror, {
     hitTest: (x, y) => {
       const position = runtime.screenToScenePoint(x, y);
@@ -157,6 +159,11 @@ export function createBridgeRuntime(
       0,
       0,
       0,
+      true,
+      0,
+      0,
+      0,
+      0,
     );
   };
 
@@ -241,7 +248,6 @@ export function createBridgeRuntime(
     canvas,
     buildMode: devToolsConfig.buildMode,
     devToolsDomMirrorMode: devToolsConfig.devToolsDomMirror,
-    pageZoomMode: devToolsConfig.pageZoom,
     devTools: {
       enableDomMirror: () => {
         devToolsDomMirror.activate();
@@ -341,7 +347,13 @@ export function createBridgeRuntime(
       interactionState.setCapturedPointerHandle(handle);
     },
     getPageZoom: () => readNativePageZoom(),
-    isPageZoomEnabled: () => runtime.pageZoomMode === PageZoomMode.Enabled,
+    isPageZoomEnabled: () => pageZoomEnabled,
+    setPageZoomEnabled: (enabled: boolean) => {
+      pageZoomEnabled = enabled;
+      if (!enabled) {
+        runtime.resetPageZoom();
+      }
+    },
     setPageZoom: (scale: number, offsetX: number, offsetY: number) => {
       const before = readNativePageZoom();
       core._ed_set_viewport_transform(scale, offsetX, offsetY);
@@ -416,13 +428,14 @@ export function createBridgeRuntime(
         y: (y - zoom.offsetY) / zoom.scale,
       };
     },
-    setAppFrameHandler: (handler: ((timestampMs: number) => void) | null) => {
-      appFrameHandler = handler;
+    setAppFrameController: (controller: BridgeAppFrameController | null) => {
+      appFrameController = controller;
       frameRequester?.();
     },
-    runAppFrameHandler: (timestampMs: number) => {
-      appFrameHandler?.(timestampMs);
+    runAppFrameController: (timestampMs: number) => {
+      appFrameController?.onFrame(timestampMs);
     },
+    appNeedsAnimationFrame: () => appFrameController?.needsAnimationFrame() === true,
     uiHasPendingVisualWork: () => ui._ui_has_pending_visual_work() !== 0,
     uiNeedsAnimationFrame: () => ui._ui_needs_animation_frame() !== 0,
     getHandleFromPoint: (x: number, y: number) => {

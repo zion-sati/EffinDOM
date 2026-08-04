@@ -5,6 +5,7 @@
 #include "NativeHostCore.h"
 #include "NativeWindowIcon.h"
 #include "NativeFuiBridge.h"
+#include "NativeFuiConfig.h"
 #include "NativeFuiRsWorkerAdapter.h"
 #include "NativeFuiRuntimeBridge.h"
 #include "NativeWorkerHost.h"
@@ -21,6 +22,7 @@ extern "C" {
 void __fui_on_worker_progress(std::uint32_t, const std::uint8_t*, std::uint32_t);
 void __fui_on_worker_complete(std::uint32_t, const std::uint8_t*, std::uint32_t);
 void __fui_on_worker_error(std::uint32_t, const std::uint8_t*, std::uint32_t);
+void __fui_on_font_loaded(std::uint32_t);
 }
 
 namespace effindom::v2::native {
@@ -32,6 +34,8 @@ NativeHost::NativeHost(bool visible) {
     if (platform_ == nullptr) throw std::runtime_error("native platform host creation failed");
     const std::filesystem::path icon = FindPackagedApplicationIcon();
     if (!icon.empty()) platform_->SetApplicationIcon(icon);
+    const std::filesystem::path config = FindPackagedFuiConfig();
+    if (!config.empty()) packaged_page_zoom_enabled_ = LoadPackagedPageZoomMode(config);
     SetActiveNativePlatformHost(platform_.get());
     std::size_t worker_count = 0U;
     const auto* workers = fui_native_worker_registry(&worker_count);
@@ -74,6 +78,7 @@ NativeHost::~NativeHost() {
 
 void NativeHost::MountApplication() {
     worker_host_->SetSessionGeneration(++worker_session_generation_);
+    platform_->Core().SetPageZoomEnabled(packaged_page_zoom_enabled_.value_or(true));
     platform_->Core().MountApplication();
     ui_set_platform_family(platform_->PlatformFamily());
 }
@@ -87,6 +92,10 @@ void NativeHost::DrainFrames(std::uint32_t maximum_frames) { platform_->Core().D
 bool NativeHost::PumpEvent(bool wait_when_idle) { return platform_->PumpEvent(wait_when_idle); }
 bool NativeHost::ShouldPresentAfterLastEvent() const {
     return platform_->ShouldPresentAfterLastEvent();
+}
+void NativeHost::WaitForAnimationFrame() { platform_->WaitForAnimationFrame(); }
+void NativeHost::SetAnimationFrameActive(bool active) {
+    platform_->SetAnimationFrameActive(active);
 }
 void NativeHost::Resize(std::uint32_t width, std::uint32_t height) { platform_->Resize(width, height); }
 void NativeHost::RecreateGraphicsSurface() { platform_->RecreateGraphicsSurface(); }
@@ -109,18 +118,37 @@ void NativeHost::DispatchPointer(
     });
     RequestFrame();
 }
-void NativeHost::DispatchPointerMove(float x, float y, std::uint32_t modifiers) {
+void NativeHost::DispatchPointerMove(
+    float x,
+    float y,
+    std::uint32_t modifiers,
+    std::uint32_t buttons) {
     platform_->Core().InputRouter().DispatchPointerMove(NativePointerMoveInput{
         x,
         y,
-        platform_->CurrentPointerButtons(),
+        buttons == 0xFFFFFFFFU ? platform_->CurrentPointerButtons() : buttons,
         modifiers,
         platform_->Core().NowMilliseconds(),
     });
     RequestFrame();
 }
+void NativeHost::SetPointerCaptureForTesting(std::uint64_t handle) {
+    if (handle == 0U) {
+        platform_->Core().InputRouter().ReleaseCapture();
+    } else {
+        platform_->Core().InputRouter().Capture(handle);
+    }
+}
+std::uint64_t NativeHost::LastPointerTargetForTesting() const {
+    return platform_->Core().InputRouter().PointerMetadata().handle;
+}
 void NativeHost::DispatchWheel(float delta_x, float delta_y) {
-    platform_->Core().InputRouter().DispatchWheel(delta_x, delta_y, platform_->Core().NowMilliseconds());
+    const NativePointerMetadata& pointer = platform_->Core().InputRouter().PointerMetadata();
+    platform_->Core().InputRouter().DispatchWheel(NativeWheelInput{
+        0U, pointer.x, pointer.y, delta_x, delta_y,
+        NativeWheelDeltaMode::Pixel, pointer.modifiers, false, false, false,
+        platform_->Core().NowMilliseconds(),
+    });
     RequestFrame();
 }
 void NativeHost::DispatchKey(const std::string& key, bool down, std::uint32_t modifiers) {
@@ -154,7 +182,9 @@ void NativeHost::DispatchDropEventForTesting(
     const std::string& data) {
     platform_->DispatchDropEventForTesting(event_type, x, y, data);
 }
-std::uint64_t NativeHost::HitTest(float x, float y) const { return platform_->Core().GetEngine().HitTest(x, y); }
+std::uint64_t NativeHost::HitTest(float x, float y) const {
+    return platform_->Core().InputRouter().HitTestAt(x, y);
+}
 bool NativeHost::HasFontForTesting(std::uint32_t font_id) const {
     return platform_->Core().GetEngine().HasFontForTesting(font_id);
 }
@@ -174,7 +204,10 @@ bool NativeHost::LoadFontForTesting(std::uint32_t font_id, const std::filesystem
     }
     platform_->Core().GetEngine().RegisterFont(
         font_id, bytes.data(), static_cast<std::uint32_t>(bytes.size()));
-    return HasFontForTesting(font_id);
+    if (!HasFontForTesting(font_id)) return false;
+    __fui_on_font_loaded(font_id);
+    platform_->Core().RequestFrame();
+    return true;
 }
 bool NativeHost::FontHasGlyphForTesting(std::uint32_t font_id, std::uint32_t codepoint) const {
     return platform_->Core().GetEngine().FontHasGlyphForTesting(font_id, codepoint);
@@ -218,5 +251,14 @@ bool NativeHost::WriteScreenshot(const std::filesystem::path& path, std::string&
 }
 bool NativeHost::IsIdle() const { return !platform_->Core().IsFramePending(); }
 bool NativeHost::IsRunning() const { return platform_->Core().IsRunning(); }
+bool NativeHost::IsPageZoomEnabledForTesting() const {
+    return platform_->Core().IsPageZoomEnabled();
+}
+bool NativeHost::SetPageZoomForTesting(float scale, float screen_x, float screen_y) {
+    return platform_->Core().PageZoom().SetScaleFromScreenAnchor(scale, screen_x, screen_y);
+}
+NativePageZoomState NativeHost::PageZoomStateForTesting() const {
+    return platform_->Core().PageZoom().State();
+}
 
 } // namespace effindom::v2::native

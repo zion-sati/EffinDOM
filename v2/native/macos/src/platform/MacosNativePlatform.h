@@ -24,6 +24,8 @@ public:
     NativeHostCore& Core() override;
     const NativeHostCore& Core() const override;
     bool PumpEvent(bool wait_when_idle) override;
+    void WaitForAnimationFrame() override;
+    void SetAnimationFrameActive(bool active) override;
     void Resize(std::uint32_t logical_width, std::uint32_t logical_height) override;
     void RecreateGraphicsSurface() override;
     void DispatchWindowFocusLost() override;

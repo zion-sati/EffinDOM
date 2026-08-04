@@ -26,7 +26,6 @@ declare global {
     expectedRuntimeSetHash?: string;
     buildMode?: 'debug' | 'release';
     devToolsDomMirror?: 'disabled' | 'enabled' | 'on-requested';
-    pageZoom?: 'disabled' | 'enabled';
   }
 
   interface Window {

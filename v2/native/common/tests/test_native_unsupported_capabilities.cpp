@@ -108,6 +108,7 @@ TEST_CASE("unsupported native FUI service APIs reject predictably and force-link
 
     float x = 7.0F;
     float y = 8.0F;
+    const std::size_t diagnostics_before_persistence = g_diagnostics.size();
     fui_set_persisted_scroll_offset(0U, 0U, x, y);
     REQUIRE_FALSE(fui_try_get_persisted_scroll_offset(
         0U, 0U, reinterpret_cast<std::uintptr_t>(&x), reinterpret_cast<std::uintptr_t>(&y)));
@@ -115,6 +116,7 @@ TEST_CASE("unsupported native FUI service APIs reject predictably and force-link
     REQUIRE(y == 8.0F);
     fui_set_persisted_state(0U, 0U, 0U, 0U, 0U, 0U, 0U);
     REQUIRE(fui_copy_persisted_state(0U, 0U, 0U, 0U, 0U, 0U, 0U) == -1);
+    REQUIRE(g_diagnostics.size() == diagnostics_before_persistence);
 
     REQUIRE_FALSE(fui_can_navigate_back());
     REQUIRE_FALSE(fui_can_navigate_forward());
@@ -124,6 +126,6 @@ TEST_CASE("unsupported native FUI service APIs reject predictably and force-link
     fui_show_url_preview(0U, 0U);
     fui_hide_url_preview();
 
-    REQUIRE(g_diagnostics.size() == 11U);
+    REQUIRE(g_diagnostics.size() == 7U);
     ResetUnsupportedFuiCapabilitiesForTesting();
 }

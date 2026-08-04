@@ -18,6 +18,9 @@ const ROLE_RADIO_GROUP = 13;
 const ROLE_SWITCH = 14;
 const ROLE_SLIDER = 15;
 const ROLE_COMBOBOX = 16;
+const ROLE_TAB_LIST = 17;
+const ROLE_TAB = 18;
+const ROLE_TAB_PANEL = 19;
 
 const STATE_HAS_SELECTED = 1 << 0;
 const STATE_IS_SELECTED = 1 << 1;
@@ -78,6 +81,9 @@ const SEMANTIC_ROLE_DESCRIPTORS: Record<number, SemanticRoleDescriptor> = {
   [ROLE_SWITCH]: { roleName: 'switch', tagName: 'button', ariaRole: 'switch' },
   [ROLE_SLIDER]: { roleName: 'slider', tagName: 'div', ariaRole: 'slider' },
   [ROLE_COMBOBOX]: { roleName: 'combobox', tagName: 'div', ariaRole: 'combobox' },
+  [ROLE_TAB_LIST]: { roleName: 'tablist', tagName: 'div', ariaRole: 'tablist' },
+  [ROLE_TAB]: { roleName: 'tab', tagName: 'button', ariaRole: 'tab' },
+  [ROLE_TAB_PANEL]: { roleName: 'tabpanel', tagName: 'div', ariaRole: 'tabpanel' },
 };
 
 function decodeCheckedState(checkedState: number): 'false' | 'true' | 'mixed' | undefined {
@@ -491,7 +497,9 @@ function roleNeedsAriaLabel(role: number): boolean {
     role === ROLE_CHECKBOX ||
     role === ROLE_RADIO ||
     role === ROLE_SLIDER ||
-    role === ROLE_COMBOBOX;
+    role === ROLE_COMBOBOX ||
+    role === ROLE_TAB ||
+    role === ROLE_TAB_PANEL;
 }
 
 function roleUsesTextContent(role: number): boolean {
@@ -532,6 +540,12 @@ function describeAnnouncementRole(node: SemanticNode): string {
       return 'slider';
     case ROLE_COMBOBOX:
       return 'combo box';
+    case ROLE_TAB_LIST:
+      return 'tab list';
+    case ROLE_TAB:
+      return 'tab';
+    case ROLE_TAB_PANEL:
+      return 'tab panel';
     default:
       return node.roleName;
   }

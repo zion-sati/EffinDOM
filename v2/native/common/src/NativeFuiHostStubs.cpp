@@ -11,13 +11,6 @@
 // normal FUI completion channel and report one diagnostic per capability.
 extern "C" {
 
-#if defined(_MSC_VER)
-std::uint32_t __effindom_default_fui_native_activation_count() { return 0U; }
-#pragma comment(linker, "/alternatename:__fui_native_activation_count=__effindom_default_fui_native_activation_count")
-#else
-__attribute__((weak)) std::uint32_t __fui_native_activation_count() { return 0U; }
-#endif
-
 void fui_register_text_input_metadata(std::uint64_t, bool, std::uintptr_t, std::uint32_t) {}
 bool fui_has_text_selection_snapshot(std::uint64_t) { return false; }
 void fui_freeze_text_selection_snapshot(std::uint64_t) {}
@@ -45,29 +38,20 @@ void fui_fetch_cancel(std::uint32_t) {
         "fui_fetch_cancel", "FUI Fetch is a browser host capability; no native request was started.");
 }
 
-// Browser history-backed retained-state restoration. A native persistence
-// adapter remains a separate future capability and is not implied here.
-void fui_set_persisted_scroll_offset(std::uintptr_t, std::uint32_t, float, float) {
-    effindom::v2::native::ReportUnsupportedFuiCapability(
-        "fui_set_persisted_scroll_offset", "Browser history persistence is unavailable on native hosts.");
-}
+// Browser history-backed retained-state restoration has no native equivalent.
+// Universal applications call these as part of normal control lifecycle, so
+// native hosts quietly use the documented unavailable defaults.
+void fui_set_persisted_scroll_offset(std::uintptr_t, std::uint32_t, float, float) {}
 bool fui_try_get_persisted_scroll_offset(
     std::uintptr_t, std::uint32_t, std::uintptr_t, std::uintptr_t) {
-    effindom::v2::native::ReportUnsupportedFuiCapability(
-        "fui_try_get_persisted_scroll_offset", "Browser history persistence is unavailable on native hosts.");
     return false;
 }
 void fui_set_persisted_state(
     std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t, std::uint32_t,
-    std::uintptr_t, std::uint32_t) {
-    effindom::v2::native::ReportUnsupportedFuiCapability(
-        "fui_set_persisted_state", "Browser history persistence is unavailable on native hosts.");
-}
+    std::uintptr_t, std::uint32_t) {}
 std::int32_t fui_copy_persisted_state(
     std::uintptr_t, std::uint32_t, std::uintptr_t, std::uint32_t,
     std::uintptr_t, std::uintptr_t, std::uint32_t) {
-    effindom::v2::native::ReportUnsupportedFuiCapability(
-        "fui_copy_persisted_state", "Browser history persistence is unavailable on native hosts.");
     return -1;
 }
 

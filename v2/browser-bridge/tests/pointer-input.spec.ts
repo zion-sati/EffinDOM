@@ -739,8 +739,13 @@ test('pointer callbacks include browser pointer metadata', async ({ page }) => {
       button: 1,
       buttons: 3,
       pressure: 0.625,
+      tangentialPressure: -0.25,
       width: 11,
       height: 13,
+      tiltX: 18,
+      tiltY: -12,
+      twist: 90,
+      isPrimary: false,
       shiftKey: true,
       clientX: rect.left + 40,
       clientY: rect.top + 40,
@@ -817,6 +822,11 @@ test('pointer callbacks include browser pointer metadata', async ({ page }) => {
   expect(down?.width).toBe(11);
   expect(down?.height).toBe(13);
   expect(down?.clickCount).toBe(1);
+  expect(down?.isPrimary).toBe(false);
+  expect(down?.tangentialPressure).toBeCloseTo(-0.25, 3);
+  expect(down?.tiltX).toBe(18);
+  expect(down?.tiltY).toBe(-12);
+  expect(down?.twist).toBe(90);
   const downEvents = result.pointerEvents.filter((entry) => entry.eventType === 1);
   expect(downEvents[1]?.clickCount).toBe(2);
   expect(downEvents[2]?.clickCount).toBe(7);
@@ -1734,8 +1744,8 @@ test('two-finger touch reverses immediately after max zoom saturation', async ({
   expect(result.reversedZoom.scale).toBeGreaterThan(1);
 });
 
-test('runtime config can disable framework-owned page zoom', async ({ page }) => {
-  await gotoBridgePage(page, '', { pageZoom: 'disabled' });
+test('fui config can disable framework-owned page zoom', async ({ page }) => {
+  await gotoBridgePage(page, '', {}, { pageZoom: 'disabled' });
   await buildInteractiveBoxScene(page);
 
   const result = await page.evaluate(() => {
@@ -1768,13 +1778,11 @@ test('runtime config can disable framework-owned page zoom', async ({ page }) =>
     emit('pointerup', 62, 140, 80);
 
     return {
-      pageZoomMode: runtime.pageZoomMode,
       enabled: runtime.isPageZoomEnabled(),
       zoom,
     };
   });
 
-  expect(result.pageZoomMode).toBe('disabled');
   expect(result.enabled).toBe(false);
   expect(result.zoom).toEqual({ scale: 1, offsetX: 0, offsetY: 0 });
 });
@@ -1895,7 +1903,7 @@ test('ctrl wheel trackpad pinch routes to a pinch-intent control gesture owner b
 });
 
 test('ctrl wheel uses normal wheel routing when page zoom is disabled', async ({ page }) => {
-  await gotoBridgePage(page, '', { pageZoom: 'disabled' });
+  await gotoBridgePage(page, '', {}, { pageZoom: 'disabled' });
   const scene = await buildNestedProxyScrollScene(page);
 
   const result = await page.evaluate((handles) => {
@@ -2201,6 +2209,11 @@ test('handled touch pointer move prevents framework touch scrolling', async ({ p
       width,
       height,
       clickCount,
+      isPrimary,
+      tangentialPressure,
+      tiltX,
+      tiltY,
+      twist,
     ): boolean => {
       previousPointer?.(
         eventType,
@@ -2216,6 +2229,11 @@ test('handled touch pointer move prevents framework touch scrolling', async ({ p
         width,
         height,
         clickCount,
+        isPrimary,
+        tangentialPressure,
+        tiltX,
+        tiltY,
+        twist,
       );
       if (eventType === 3) {
         handledMoveCalls += 1;

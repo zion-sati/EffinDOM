@@ -77,7 +77,6 @@ function isHandledResult(value: unknown): boolean {
 function applyHarnessRuntimeOptions(options: {
   readonly buildMode?: string;
   readonly devToolsDomMirror?: string;
-  readonly pageZoom?: string;
 }): void {
   const update: Record<string, string> = {};
   if (options.buildMode !== undefined) {
@@ -86,13 +85,10 @@ function applyHarnessRuntimeOptions(options: {
   if (options.devToolsDomMirror !== undefined) {
     update.devToolsDomMirror = options.devToolsDomMirror;
   }
-  if (options.pageZoom !== undefined) {
-    update.pageZoom = options.pageZoom;
-  }
   if (Object.keys(update).length === 0) {
     return;
   }
-  const runtimeWindow = window as unknown as Window & { __effindomRuntime?: Partial<Record<'buildMode' | 'devToolsDomMirror' | 'pageZoom', string>> };
+  const runtimeWindow = window as unknown as Window & { __effindomRuntime?: Partial<Record<'buildMode' | 'devToolsDomMirror', string>> };
   runtimeWindow.__effindomRuntime = Object.assign({}, runtimeWindow.__effindomRuntime, update);
 }
 
@@ -176,10 +172,21 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
   const configuredBuildMode = options.buildMode ?? runtimeWindow.__effindomRuntime?.buildMode;
   const debugDelayParam = new URLSearchParams(window.location.search).get('effindom-loading-delay');
   const parsedDebugDelay = debugDelayParam === null ? 0 : Number(debugDelayParam);
-  const loadingOptions = options.loading === false ? null : {
-    ...options.loading,
+  const configuredFuiLoading = (window as Window & {
+    __effindomFuiConfig?: {
+      readonly web?: {
+        readonly loading?: {
+          readonly delayMs?: number;
+          readonly minimumVisibleMs?: number;
+        };
+      };
+    };
+  }).__effindomFuiConfig?.web?.loading;
+  const configuredLoading = options.loading ?? configuredFuiLoading;
+  const loadingOptions = configuredLoading === false ? null : {
+    ...configuredLoading,
     debugDelayMs: configuredBuildMode === 'debug' && Number.isFinite(parsedDebugDelay)
-      ? Math.max(options.loading?.debugDelayMs ?? 0, parsedDebugDelay)
+      ? Math.max(options.loading === false ? 0 : options.loading?.debugDelayMs ?? 0, parsedDebugDelay)
       : 0,
   };
   const loadingController = loadingOptions === null ? null : new HarnessLoadingController(
@@ -1019,6 +1026,11 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
           0,
           0,
           0,
+          true,
+          0,
+          0,
+          0,
+          0,
         ));
       }
       return false;
@@ -1038,6 +1050,11 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
       width,
       height,
       clickCount,
+      isPrimary,
+      tangentialPressure,
+      tiltX,
+      tiltY,
+      twist,
     ) => {
       previousPointerMetadataCallback?.(
         type,
@@ -1053,6 +1070,11 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
         width,
         height,
         clickCount,
+        isPrimary,
+        tangentialPressure,
+        tiltX,
+        tiltY,
+        twist,
       );
       previousPointerCallback?.(type, handle, x, y, modifiers);
       const session = currentSession;
@@ -1073,6 +1095,11 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
         width,
         height,
         clickCount,
+        isPrimary,
+        tangentialPressure,
+        tiltX,
+        tiltY,
+        twist,
       ));
     };
     const previousWheelCallback = callbacks.onWheelEventWithCoords;
@@ -1657,7 +1684,7 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
       appFlushRequested = false;
       cancelAllHostTimers();
       bitmapHost.clearTextures(runtime);
-      runtime.setAppFrameHandler(null);
+      runtime.setAppFrameController(null);
       runtime.setCapturedPointerHandle(null);
       runtime.clearPointerHover();
       runtime.canvas.style.cursor = 'default';
@@ -1688,7 +1715,7 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
       appFlushRequested = false;
       cancelAllHostTimers();
       bitmapHost.clearTextures(runtime);
-      runtime.setAppFrameHandler(null);
+      runtime.setAppFrameController(null);
       runtime.setCapturedPointerHandle(null);
       runtime.clearPointerHover();
       harnessUiChrome.setUrlPreviewText('');
@@ -1771,18 +1798,21 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
       };
 
       notifyRouteForCurrentLocation(session);
-      runtime.setAppFrameHandler((timestampMs: number) => {
-        if (currentSession !== session) {
-          return;
-        }
-        exports.__fui_on_frame(timestampMs);
-        appFlushRequested = false;
-        exports.__flushRenders();
+      runtime.setAppFrameController({
+        onFrame: (timestampMs: number) => {
+          if (currentSession !== session) {
+            return;
+          }
+          exports.__fui_on_frame(timestampMs);
+          appFlushRequested = false;
+          exports.__flushRenders();
+        },
+        needsAnimationFrame: () => currentSession === session && exports.__fui_needs_animation_frame(),
       });
       runtime.resetLogs();
       loadOptions.run(exports);
       connectHostEvents(session, exports, loadOptions.hostEvents);
-      runtime.runAppFrameHandler(performance.now());
+      runtime.runAppFrameController(performance.now());
       notifyViewport(session);
       notifySystemTheme(session);
       if (restoredSnapshot !== null) {

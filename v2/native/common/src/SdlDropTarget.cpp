@@ -1,6 +1,6 @@
 #include "SdlDropTarget.h"
 
-#include "Engine.h"
+#include "NativeInputRouter.h"
 #include "effindom_ui.h"
 #include "SDL3/SDL.h"
 
@@ -84,7 +84,8 @@ void AppendString(std::vector<std::uint8_t>& bytes, const std::string& value) {
 
 } // namespace
 
-SdlDropTarget::SdlDropTarget(SDL_Window* window, Engine& engine) : window_(window), engine_(engine) {}
+SdlDropTarget::SdlDropTarget(SDL_Window* window, NativeInputRouter& input_router)
+    : window_(window), input_router_(input_router) {}
 
 bool SdlDropTarget::HandleEvent(const SDL_Event& event) {
     if (event.type >= SDL_EVENT_DROP_FILE && event.type <= SDL_EVENT_DROP_POSITION &&
@@ -178,12 +179,13 @@ void SdlDropTarget::AddText(const char* text_value) {
 
 std::uint32_t SdlDropTarget::Dispatch(std::uint32_t event_type) const {
     const std::vector<std::uint8_t> payload = EncodePayload();
-    const std::uint64_t handle = engine_.HitTest(x_, y_);
+    const NativePointerMoveInput scene = input_router_.ProjectToScene(x_, y_);
+    const std::uint64_t handle = input_router_.HitTestAt(x_, y_);
     return __fui_on_external_drag_event(
         event_type,
         handle,
-        x_,
-        y_,
+        scene.x,
+        scene.y,
         Modifiers(SDL_GetModState()),
         payload.empty() ? nullptr : payload.data(),
         static_cast<std::uint32_t>(payload.size()));

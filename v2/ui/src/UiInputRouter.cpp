@@ -266,13 +266,43 @@ void InputRouter::HandleWheel(float delta_x, float delta_y) {
         delta_y);
 }
 
+void InputRouter::HandleWheelFrom(
+    std::uint64_t start_handle,
+    float logical_x,
+    float logical_y,
+    float delta_x,
+    float delta_y) {
+    state_.last_pointer_logical_x = logical_x;
+    state_.last_pointer_logical_y = logical_y;
+    scrolling_.HandleWheel(
+        ResolveScrollTarget(start_handle, logical_x, logical_y), delta_x, delta_y);
+}
+
 void InputRouter::HandlePreciseWheel(
     float delta_x,
     float delta_y,
     bool begins_gesture,
     bool ends_gesture) {
+    HandlePreciseWheelFrom(
+        UI_INVALID_HANDLE,
+        state_.last_pointer_logical_x,
+        state_.last_pointer_logical_y,
+        delta_x,
+        delta_y,
+        begins_gesture,
+        ends_gesture);
+}
+
+void InputRouter::HandlePreciseWheelFrom(
+    std::uint64_t start_handle,
+    float logical_x,
+    float logical_y,
+    float delta_x,
+    float delta_y,
+    bool begins_gesture,
+    bool ends_gesture) {
     scrolling_.HandlePreciseWheel(
-        ResolveScrollTarget(UI_INVALID_HANDLE, state_.last_pointer_logical_x, state_.last_pointer_logical_y),
+        ResolveScrollTarget(start_handle, logical_x, logical_y),
         delta_x,
         delta_y,
         begins_gesture,

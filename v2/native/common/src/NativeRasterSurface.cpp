@@ -35,7 +35,9 @@ struct NativeRasterSurface::Impl {
                 renderer, 0, 0, SDL_LOGICAL_PRESENTATION_DISABLED)) {
             return false;
         }
-        SDL_SetRenderVSync(renderer, 0);
+        // Raster presentation must participate in the same display-paced
+        // animation contract as the GPU backends when the SDL driver supports it.
+        SDL_SetRenderVSync(renderer, 1);
         generation = 1U;
         return true;
     }

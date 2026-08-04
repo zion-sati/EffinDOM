@@ -36,6 +36,24 @@ namespace {
 
 constexpr std::string_view kSvgDataPrefix = "data:image/svg+xml";
 
+struct BuiltInFont {
+    std::uint32_t id;
+    std::string_view file_name;
+};
+
+constexpr std::array kBuiltInFonts{
+    BuiltInFont{1U, "NotoSans-Regular.ttf"},
+    BuiltInFont{2U, "NotoSans-Bold.ttf"},
+    BuiltInFont{3U, "NotoSansSymbols2-Regular.ttf"},
+    BuiltInFont{4U, "NotoEmoji-Regular.ttf"},
+    BuiltInFont{5U, "NotoSans-Italic.ttf"},
+    BuiltInFont{6U, "NotoSans-BoldItalic.ttf"},
+    BuiltInFont{7U, "NotoSansMono-Regular.ttf"},
+    BuiltInFont{8U, "NotoSansMono-Bold.ttf"},
+};
+
+constexpr std::array kBuiltInFallbackPrimaries{1U, 2U, 5U, 6U, 7U, 8U};
+
 bool IsRemoteSource(std::string_view source) {
     return source.rfind("http://", 0U) == 0U || source.rfind("https://", 0U) == 0U;
 }
@@ -202,11 +220,18 @@ std::filesystem::path ResolveNativeAssetPath(
         const auto decoded = PercentDecode(source.substr(7U));
         decoded_source.assign(decoded.begin(), decoded.end());
     }
-    const std::filesystem::path path = environment.path_from_utf8
+    std::filesystem::path path = environment.path_from_utf8
         ? environment.path_from_utf8(decoded_source)
         : std::filesystem::path(decoded_source);
     std::error_code error;
-    if (path.is_absolute()) return std::filesystem::is_regular_file(path, error) ? path : std::filesystem::path{};
+    const bool browser_root_source = decoded_source.front() == '/' &&
+        decoded_source.rfind("//", 0U) != 0U;
+    if (path.is_absolute()) {
+        if (std::filesystem::is_regular_file(path, error)) return path;
+        error.clear();
+        if (!browser_root_source) return {};
+    }
+    if (browser_root_source) path = path.relative_path();
     for (const auto& component : path) {
         if (component == "..") return {};
     }
@@ -216,12 +241,30 @@ std::filesystem::path ResolveNativeAssetPath(
             error.clear();
             continue;
         }
-        const std::filesystem::path candidate = std::filesystem::weakly_canonical(canonical_root / path, error);
-        const std::filesystem::path relative = candidate.lexically_relative(canonical_root);
-        const bool contained = !relative.empty() && relative != "." &&
-            relative.begin() != relative.end() && *relative.begin() != "..";
-        if (!error && contained && std::filesystem::is_regular_file(candidate, error)) return candidate;
-        error.clear();
+        std::vector<std::filesystem::path> candidates{
+            canonical_root / path,
+            canonical_root / "app" / path,
+            canonical_root / "fonts" / path,
+        };
+        std::filesystem::path packaged_font_path;
+        bool found_font_namespace = false;
+        for (const auto& component : path) {
+            if (found_font_namespace) {
+                packaged_font_path /= component;
+            } else if (component == "fonts") {
+                found_font_namespace = true;
+                packaged_font_path = component;
+            }
+        }
+        if (found_font_namespace) candidates.push_back(canonical_root / packaged_font_path);
+        for (const std::filesystem::path& unresolved : candidates) {
+            const std::filesystem::path candidate = std::filesystem::weakly_canonical(unresolved, error);
+            const std::filesystem::path relative = candidate.lexically_relative(canonical_root);
+            const bool contained = !relative.empty() && relative != "." &&
+                relative.begin() != relative.end() && *relative.begin() != "..";
+            if (!error && contained && std::filesystem::is_regular_file(candidate, error)) return candidate;
+            error.clear();
+        }
     }
     return {};
 }
@@ -242,9 +285,41 @@ bool NativeAssetService::LoadDefaultFont(std::uint32_t font_id, std::string_view
     return !path.empty() && LoadFontPath(font_id, path);
 }
 
+bool NativeAssetService::LoadBuiltInFonts() {
+    for (const BuiltInFont& font : kBuiltInFonts) {
+        if (!LoadDefaultFont(font.id, font.file_name)) {
+            SDL_LogError(
+                SDL_LOG_CATEGORY_APPLICATION,
+                "EffinDOM built-in font %u could not be loaded: %.*s",
+                font.id,
+                static_cast<int>(font.file_name.size()),
+                font.file_name.data());
+            return false;
+        }
+    }
+    for (const std::uint32_t primary : kBuiltInFallbackPrimaries) {
+        ui_register_font_fallback(primary, 4U);
+        ui_register_font_fallback(primary, 3U);
+    }
+    return true;
+}
+
 bool NativeAssetService::LoadFont(std::uint32_t font_id, std::string_view source) {
     const std::filesystem::path path = ResolvePath(source);
-    return !path.empty() && LoadFontPath(font_id, path);
+    if (path.empty()) {
+        SDL_LogError(
+            SDL_LOG_CATEGORY_APPLICATION,
+            "EffinDOM authored font source could not be resolved: %.*s",
+            static_cast<int>(source.size()),
+            source.data());
+        return false;
+    }
+    if (LoadFontPath(font_id, path)) return true;
+    SDL_LogError(
+        SDL_LOG_CATEGORY_APPLICATION,
+        "EffinDOM authored font failed to register: %s",
+        path.u8string().c_str());
+    return false;
 }
 
 bool NativeAssetService::LoadFont(std::uint32_t font_id, const std::filesystem::path& path) {

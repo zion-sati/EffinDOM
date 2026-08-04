@@ -30,6 +30,23 @@ NativePlatformHost* ActiveNativePlatformHost() { return active_host; }
 NativeFuiDrawingMetrics NativeFuiDrawingMetricsForTesting() { return drawing_metrics; }
 void ResetNativeFuiDrawingMetricsForTesting() { drawing_metrics = {}; }
 
+void RegisterNativeFuiHostCallbacks() {
+    UiHostCallbacks callbacks{};
+    callbacks.on_focus_changed = &as_on_focus_changed;
+    callbacks.on_pointer_event = &as_on_pointer_event;
+    callbacks.on_text_changed = &as_on_text_changed;
+    callbacks.on_text_replaced = &as_on_text_replaced;
+    callbacks.on_scroll = &as_on_scroll;
+    callbacks.on_selection_changed = &as_on_selection_changed;
+    callbacks.on_cross_selection_changed = &as_on_cross_selection_changed;
+    callbacks.on_clipboard_write = &as_on_clipboard_write;
+    callbacks.on_request_clipboard_read = &as_on_request_clipboard_read;
+    callbacks.on_request_font_load = &as_on_request_font_load;
+    callbacks.on_missing_font_coverage = &as_on_missing_font_coverage;
+    callbacks.on_request_semantic_announcement = &as_on_request_semantic_announcement;
+    ui_set_host_callbacks(&callbacks);
+}
+
 bool DrawCanvasBatch(
     NativeHostCore& host,
     std::uintptr_t canvas_pointer,
@@ -280,6 +297,9 @@ float get_device_pixel_ratio() { return Host() == nullptr ? 1.0f : Host()->Core(
 void fui_set_application_caption(std::uintptr_t pointer, std::uint32_t length) {
     if (Host() != nullptr) Host()->SetApplicationCaption(effindom::v2::native::Utf8(pointer, length));
 }
+void fui_set_page_zoom_enabled(bool enabled) {
+    if (Host() != nullptr) Host()->Core().SetPageZoomEnabled(enabled);
+}
 double fui_now_ms() { return Host() == nullptr ? 0.0 : Host()->Core().NowMilliseconds(); }
 bool fui_is_dark_mode() { return Host() != nullptr && Host()->IsDarkMode(); }
 std::uint32_t fui_get_accent_color() { return Host() == nullptr ? 0x0A84FFFFU : Host()->AccentColor(); }
@@ -313,7 +333,11 @@ void fui_copy_text(std::uintptr_t pointer, std::uint32_t length) {
 }
 void fui_set_cursor(std::uint32_t style) { if (Host() != nullptr) Host()->SetCursor(style); }
 void fui_load_font(std::uint32_t font_id, std::uintptr_t pointer, std::uint32_t length) {
-    if (Host() != nullptr) Host()->RequestFontLoad(font_id, effindom::v2::native::Utf8(pointer, length));
+    ++effindom::v2::native::drawing_metrics.font_load_request_count;
+    if (Host() != nullptr) {
+        ++effindom::v2::native::drawing_metrics.font_load_dispatch_count;
+        Host()->RequestFontLoad(font_id, effindom::v2::native::Utf8(pointer, length));
+    }
 }
 void fui_load_svg(std::uint32_t svg_id, std::uintptr_t pointer, std::uint32_t length) {
     if (Host() != nullptr) Host()->LoadSvg(svg_id, effindom::v2::native::Utf8(pointer, length));
@@ -362,8 +386,19 @@ std::uint32_t fui_render_node_to_rgba(
     float scale,
     float x,
     float y) {
-    return Host() == nullptr ? 0U : effindom::v2::native::RenderNodeToRgba(
+    ++effindom::v2::native::drawing_metrics.node_render_request_count;
+    if (ui_has_pending_visual_work()) {
+        ++effindom::v2::native::drawing_metrics.node_render_pending_visual_count;
+    }
+    if (Host() == nullptr) return 0U;
+    const std::uint32_t rendered = effindom::v2::native::RenderNodeToRgba(
         Host()->Core(), handle, width, height, output_pointer, output_capacity, scale, x, y);
+    if (rendered != 0U) {
+        ++effindom::v2::native::drawing_metrics.node_render_success_count;
+    } else if (ui_has_pending_visual_work()) {
+        Host()->Core().RequestFrame();
+    }
+    return rendered;
 }
 std::uint32_t fui_path_create() {
     return Host() == nullptr ? 0U : effindom::v2::native::CreatePath(Host()->Core());
@@ -454,7 +489,9 @@ bool as_on_pointer_event(ui_handle_t handle, UiEvent event) {
     return __fui_on_pointer_event_with_metadata(
         metadata.event_type, handle, metadata.x, metadata.y, metadata.modifiers,
         metadata.pointer_id, metadata.pointer_type, metadata.button, metadata.buttons,
-        metadata.pressure, metadata.width, metadata.height, metadata.click_count);
+        metadata.pressure, metadata.width, metadata.height, metadata.click_count,
+        metadata.primary, metadata.tangential_pressure,
+        metadata.tilt_x, metadata.tilt_y, metadata.twist);
 }
 void as_on_text_changed(ui_handle_t handle, const std::uint8_t* text, std::uint32_t len) {
     __fui_on_text_changed(handle, text, len);
@@ -494,7 +531,11 @@ void as_on_request_clipboard_read(ui_handle_t handle) {
     if (Host() != nullptr) Host()->RequestClipboardRead(handle);
 }
 void as_on_request_font_load(std::uint32_t font_id, const std::uint8_t* url, std::uint32_t length) {
-    if (Host() != nullptr) Host()->RequestFontLoad(font_id, effindom::v2::native::Utf8(url, length));
+    ++effindom::v2::native::drawing_metrics.font_load_request_count;
+    if (Host() != nullptr) {
+        ++effindom::v2::native::drawing_metrics.font_load_dispatch_count;
+        Host()->RequestFontLoad(font_id, effindom::v2::native::Utf8(url, length));
+    }
 }
 void as_on_missing_font_coverage(
     std::uint32_t font_id,

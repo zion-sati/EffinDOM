@@ -58,6 +58,11 @@
       "types": "./src/runtime-config.ts",
       "default": "./src/runtime-config.ts"
     },
+    "./fui-config": {
+      "types": "./src/fui-config.ts",
+      "default": "./src/fui-config.ts"
+    },
+    "./fui-config.schema.json": "./src/fui-config.schema.json",
     "./dist/*": "./dist/*"
   },
   "types": "./src/index.ts",

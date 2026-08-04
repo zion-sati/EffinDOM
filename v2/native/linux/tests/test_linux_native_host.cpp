@@ -1,6 +1,5 @@
 #include "NativeHost.h"
 #include "NativeHostCharacterization.h"
-#include "NativeWorkerDemoContract.h"
 #include "LinuxSystemThemeBridge.h"
 #include "LinuxAccessibilityAdapter.h"
 #include "LinuxAccessibilityText.h"
@@ -21,48 +20,14 @@ using effindom::v2::native::NativeHost;
 extern "C" std::uint32_t fui_get_platform_family();
 extern "C" std::uint32_t fui_get_host_capabilities();
 extern "C" std::uint32_t fui_get_accent_color();
-extern "C" std::uint64_t __fui_native_scroll_view_handle();
-extern "C" std::uint64_t __fui_native_drop_zone_handle();
-extern "C" void __fui_native_schedule_ui_dispatch();
-extern "C" void __fui_native_schedule_cancelled_ui_dispatch();
-extern "C" std::uint32_t __fui_native_ui_dispatch_count();
-extern "C" std::uint64_t __fui_native_start_test_file_dialog();
-extern "C" std::uint32_t __fui_native_file_dialog_result_length();
-extern "C" std::uint32_t __fui_native_copy_file_dialog_result(std::uint8_t*, std::uint32_t);
-extern "C" void __fui_native_clear_drop_result();
-extern "C" std::uint32_t __fui_native_drop_result_length();
-extern "C" std::uint32_t __fui_native_copy_drop_result(std::uint8_t*, std::uint32_t);
-extern "C" void __fui_native_set_test_image_source(const std::uint8_t*, std::uint32_t);
-extern "C" std::uint32_t __fui_native_test_image_state();
-extern "C" float __fui_native_test_image_width();
-extern "C" float __fui_native_test_image_height();
-extern "C" void __fui_native_clear_test_image();
 
 namespace {
 
-std::string NativeFileDialogResult() {
-    std::string result(__fui_native_file_dialog_result_length(), '\0');
-    result.resize(__fui_native_copy_file_dialog_result(
-        reinterpret_cast<std::uint8_t*>(result.data()),
-        static_cast<std::uint32_t>(result.size())));
-    return result;
-}
 
-bool PumpUntilFileDialogCompletes(NativeHost& host) {
-    for (std::size_t attempt = 0U; attempt < 32U; ++attempt) {
-        host.PumpEvent(false);
-        if (!NativeFileDialogResult().empty()) return true;
-    }
-    return false;
-}
 
-std::string NativeDropResult() {
-    std::string result(__fui_native_drop_result_length(), '\0');
-    result.resize(__fui_native_copy_drop_result(
-        reinterpret_cast<std::uint8_t*>(result.data()),
-        static_cast<std::uint32_t>(result.size())));
-    return result;
-}
+
+
+
 
 } // namespace
 
@@ -168,6 +133,17 @@ TEST_CASE("Linux AT-SPI projection maps roles stable paths interfaces and action
     CHECK(detail::LinuxAtSpiRole(slider_node.role) == 51U);
     CHECK(detail::LinuxAtSpiActionCount(slider_node) == 2U);
     CHECK(detail::LinuxAtSpiInterfaces(slider_node).back() == "org.a11y.atspi.Value");
+
+    NativeAccessibilityNode tab_list_node;
+    tab_list_node.role = NativeAccessibilityRole::TabList;
+    CHECK(detail::LinuxAtSpiRole(tab_list_node.role) == 38U);
+    NativeAccessibilityNode tab_node;
+    tab_node.role = NativeAccessibilityRole::Tab;
+    CHECK(detail::LinuxAtSpiRole(tab_node.role) == 37U);
+    CHECK(detail::LinuxAtSpiActionCount(tab_node) == 1U);
+    NativeAccessibilityNode tab_panel_node;
+    tab_panel_node.role = NativeAccessibilityRole::TabPanel;
+    CHECK(detail::LinuxAtSpiRole(tab_panel_node.role) == 39U);
 }
 
 TEST_CASE("Linux AT-SPI text interfaces query Unicode lazily and forward operations",
@@ -383,11 +359,6 @@ TEST_CASE("Linux native host reports desktop capabilities", "[v2][native][linux]
     CHECK((fui_get_accent_color() & 0xFFU) == 0xFFU);
 }
 
-TEST_CASE("Linux native demo runs the browser prime Worker contract without a platform branch",
-    "[v2][native][linux][worker][demo]") {
-    effindom::v2::native::tests::CharacterizeNativeWorkerDemo<NativeHost>();
-}
-
 TEST_CASE("Linux raster presentation remains demand driven after logical resize",
     "[v2][native][linux][graphics]") {
     NativeHost host(false);
@@ -521,119 +492,3 @@ TEST_CASE("Linux focus loss cancels pointer interaction without suspending the h
     CHECK(host.IsIdle());
 }
 
-TEST_CASE("Linux UI dispatch wakes and cancellation drains safely",
-    "[v2][native][linux][services]") {
-    NativeHost host(false);
-    host.MountApplication();
-    host.DrainFrames();
-    while (host.PumpEvent(false)) host.DrainFrames();
-    const auto initial_dispatches = __fui_native_ui_dispatch_count();
-
-    __fui_native_schedule_ui_dispatch();
-    REQUIRE(host.PumpEvent(false));
-    host.DrainFrames();
-    CHECK(__fui_native_ui_dispatch_count() == initial_dispatches + 1U);
-
-    __fui_native_schedule_cancelled_ui_dispatch();
-    for (std::uint32_t attempt = 0U; attempt < 8U; ++attempt) host.PumpEvent(false);
-    CHECK(__fui_native_ui_dispatch_count() == initial_dispatches + 1U);
-    CHECK(host.IsIdle());
-}
-
-TEST_CASE("Linux file dialogs preserve selected cancelled and error completions",
-    "[v2][native][linux][services]") {
-    NativeHost host(false);
-    host.MountApplication();
-    host.DrainFrames();
-
-    const auto selected = __fui_native_start_test_file_dialog();
-    host.CompleteFileDialogForTesting(selected, 0U, {"/tmp/first.txt", "/tmp/second.md"}, {}, 0);
-    REQUIRE(PumpUntilFileDialogCompletes(host));
-    host.DrainFrames();
-    CHECK(NativeFileDialogResult() == "selected:2:Some(0)");
-
-    const auto cancelled = __fui_native_start_test_file_dialog();
-    host.CompleteFileDialogForTesting(cancelled, 1U);
-    REQUIRE(PumpUntilFileDialogCompletes(host));
-    host.DrainFrames();
-    CHECK(NativeFileDialogResult() == "cancelled");
-
-    const auto failed = __fui_native_start_test_file_dialog();
-    host.CompleteFileDialogForTesting(failed, 2U, {}, "dialog failed");
-    REQUIRE(PumpUntilFileDialogCompletes(host));
-    host.DrainFrames();
-    CHECK(NativeFileDialogResult() == "error:dialog failed");
-    CHECK(host.IsIdle());
-}
-
-TEST_CASE("Linux SDL drops preserve routing and multi-item payloads",
-    "[v2][native][linux][services]") {
-    NativeHost host(false);
-    host.MountApplication();
-    host.DrainFrames();
-
-    float x = 0.0f;
-    float y = 0.0f;
-    float width = 0.0f;
-    float height = 0.0f;
-    REQUIRE(ui_get_bounds(__fui_native_drop_zone_handle(), &x, &y, &width, &height));
-    ui_set_scroll_offset(__fui_native_scroll_view_handle(), 0.0f, std::max(0.0f, y - 120.0f));
-    host.RequestFrame();
-    host.DrainFrames();
-    REQUIRE(ui_get_visible_bounds(__fui_native_drop_zone_handle(), &x, &y, &width, &height));
-    REQUIRE(width > 0.0f);
-    REQUIRE(height > 0.0f);
-    const float target_x = x + width * 0.5f;
-    const float target_y = y + height * 0.5f;
-
-    const auto file = std::filesystem::temp_directory_path() / "effindom-linux-drop.txt";
-    { std::ofstream output(file); output << "drop"; }
-    const std::string file_utf8 = file.string();
-    __fui_native_clear_drop_result();
-    host.DispatchDropEventForTesting(SDL_EVENT_DROP_BEGIN, target_x, target_y);
-    host.DispatchDropEventForTesting(SDL_EVENT_DROP_POSITION, target_x, target_y);
-    host.DispatchDropEventForTesting(SDL_EVENT_DROP_FILE, target_x, target_y, file_utf8);
-    host.DispatchDropEventForTesting(
-        SDL_EVENT_DROP_TEXT, target_x, target_y, "https://effindom.dev/drop");
-    host.DispatchDropEventForTesting(SDL_EVENT_DROP_COMPLETE, target_x, target_y);
-    host.DrainFrames();
-    CHECK(NativeDropResult() ==
-        "enter,over,over,over,drop:2:file=" + file_utf8 +
-        ":uri=https://effindom.dev/drop,leave");
-    std::filesystem::remove(file);
-    CHECK(host.IsIdle());
-}
-
-TEST_CASE("Linux packaged assets and Fontconfig fallback load through native services",
-    "[v2][native][linux][assets]") {
-    NativeHost host(false);
-    host.MountApplication();
-    host.DrainFrames();
-    CHECK(host.HasFontForTesting(1U));
-
-    const std::string packaged_texture = "app/demo-texture.png";
-    __fui_native_set_test_image_source(
-        reinterpret_cast<const std::uint8_t*>(packaged_texture.data()),
-        static_cast<std::uint32_t>(packaged_texture.size()));
-    host.DrainFrames();
-    CHECK(__fui_native_test_image_state() == 2U);
-    CHECK(__fui_native_test_image_width() > 0.0f);
-    CHECK(__fui_native_test_image_height() > 0.0f);
-    __fui_native_clear_test_image();
-
-    host.RequestMissingFontCoverageForTesting(
-        1U, UI_MISSING_FONT_COVERAGE_CJK, "\xE4\xBD\xA0\xE5\xA5\xBD");
-    bool has_cjk = false;
-    for (std::uint32_t attempt = 0U; attempt < 200U && !has_cjk; ++attempt) {
-        host.RunNextFrame();
-        std::uint32_t count = 0U;
-        const std::uint32_t* fallbacks = ui_get_live_fallback_font_buffer(&count);
-        for (std::uint32_t index = 0U; index < count; ++index) {
-            has_cjk = has_cjk || host.FontHasGlyphForTesting(fallbacks[index], 0x4F60U);
-        }
-        if (!has_cjk) SDL_Delay(5U);
-    }
-    CHECK(has_cjk);
-    CHECK(host.FallbackFontCountForTesting() >= 1U);
-    host.DrainFrames();
-}

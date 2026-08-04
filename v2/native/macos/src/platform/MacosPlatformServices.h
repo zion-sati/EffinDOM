@@ -37,6 +37,7 @@ public:
     void SetCursor(std::uint32_t style);
 
     bool LoadDefaultFont(std::uint32_t font_id, const char* name);
+    bool LoadBuiltInFonts();
     bool LoadFont(std::uint32_t font_id, const std::filesystem::path& path);
     bool LoadSvg(std::uint32_t svg_id, std::string_view source);
     bool LoadTexture(std::uint32_t texture_id, std::string_view source);

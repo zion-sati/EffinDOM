@@ -4,6 +4,7 @@
 #include "NativeInputTypes.h"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 
 namespace effindom::v2 {
@@ -11,6 +12,8 @@ class Engine;
 }
 
 namespace effindom::v2::native {
+
+class NativePageZoomController;
 
 struct NativeInputRouterOptions {
     bool control_click_as_secondary = false;
@@ -20,15 +23,17 @@ struct NativeInputRouterOptions {
 
 class NativeInputRouter final : private NativeContextMenuGateway {
 public:
-    NativeInputRouter(Engine& engine, NativeInputRouterOptions options);
+    NativeInputRouter(Engine& engine, NativeInputRouterOptions options,
+        const NativePageZoomController* page_zoom = nullptr);
 
     bool DispatchPointer(const NativePointerInput& input);
     void DispatchPointerMove(const NativePointerMoveInput& input);
-    void DispatchWheel(float delta_x, float delta_y, double timestamp_ms);
-    void DispatchPreciseWheel(float delta_x, float delta_y, bool begins_gesture,
-        bool ends_gesture, double timestamp_ms);
+    bool DispatchPointerContact(std::uint32_t event_type, const NativePointerContactInput& input);
+    bool DispatchWheel(const NativeWheelInput& input);
+    bool DispatchPreciseWheel(const NativeWheelInput& input);
     void DispatchKey(const std::string& key, bool down, std::uint32_t modifiers,
-        double timestamp_ms);
+        double timestamp_ms, bool text_input_active = false);
+    bool DispatchTextComposition(const NativeTextCompositionInput& input);
     void HandleWindowFocusLost(double timestamp_ms);
 
     void Capture(std::uint64_t handle);
@@ -36,6 +41,10 @@ public:
     void CancelPointer(double timestamp_ms);
     bool ConsumeCommitRequest();
     const NativePointerMetadata& PointerMetadata() const;
+    std::uint64_t HitTestAt(float x, float y) const;
+    NativePointerMoveInput ProjectToScene(float x, float y) const;
+    float ProjectLengthToScene(float length) const;
+    std::optional<NativeTextInputTarget> FocusedTextInputTarget() const;
 
 private:
     bool DispatchRawPointer(const NativePointerInput& input);
@@ -48,13 +57,26 @@ private:
     void RequestFrame() override;
     bool ShowContextMenuForFocusedControl();
     std::uint64_t ResolvePointerTarget(float x, float y) const;
+    bool BeginTextComposition(const NativeTextCompositionInput& input);
+    void ClearTextComposition();
+
+    struct TextCompositionState {
+        bool active = false;
+        std::uint64_t handle = 0U;
+        std::string original_text;
+        std::uint32_t replacement_start = 0U;
+        std::uint32_t replacement_end = 0U;
+    };
 
     Engine& engine_;
+    const NativePageZoomController* page_zoom_;
     NativeInputRouterOptions options_;
     NativeContextMenuCoordinator context_menu_coordinator_;
     NativePointerMetadata pointer_metadata_{};
     std::uint64_t captured_handle_ = 0U;
     bool commit_requested_ = false;
+    bool precise_wheel_runtime_active_ = false;
+    TextCompositionState text_composition_{};
 };
 
 } // namespace effindom::v2::native

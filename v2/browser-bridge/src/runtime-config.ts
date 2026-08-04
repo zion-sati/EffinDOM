@@ -20,19 +20,11 @@ export const DevToolsDomMirrorMode = {
 
 export type DevToolsDomMirrorMode = (typeof DevToolsDomMirrorMode)[keyof typeof DevToolsDomMirrorMode];
 
-export const PageZoomMode = {
-  Disabled: 'disabled',
-  Enabled: 'enabled',
-} as const;
-
-export type PageZoomMode = (typeof PageZoomMode)[keyof typeof PageZoomMode];
-
 export interface EffinDomRuntimeConfig {
   readonly manifestUrls: readonly string[];
   readonly expectedRuntimeSetHash?: string;
   readonly buildMode?: BuildMode;
   readonly devToolsDomMirror?: DevToolsDomMirrorMode;
-  readonly pageZoom?: PageZoomMode;
 }
 
 export interface EffinDomRuntimeAssetUrls {
@@ -52,7 +44,6 @@ interface RuntimeWindowLike {
 export interface ResolvedDevToolsDomMirrorConfig {
   readonly buildMode: BuildMode;
   readonly devToolsDomMirror: DevToolsDomMirrorMode;
-  readonly pageZoom: PageZoomMode;
 }
 
 function ensureTrailingSlash(url: string): string {
@@ -131,16 +122,15 @@ export function applyRuntimeConfig(
   };
   const buildMode = normalizeBuildMode(destination.__effindomRuntime.buildMode);
   const devToolsDomMirror = normalizeDevToolsDomMirrorMode(destination.__effindomRuntime.devToolsDomMirror);
-  const pageZoom = normalizePageZoomMode(destination.__effindomRuntime.pageZoom);
   if (buildMode !== undefined) {
     const withBuildMode = { ...output, buildMode };
     const withDevTools = devToolsDomMirror !== undefined
       ? { ...withBuildMode, devToolsDomMirror }
       : withBuildMode;
-    return pageZoom !== undefined ? { ...withDevTools, pageZoom } : withDevTools;
+    return withDevTools;
   }
   const withDevTools = devToolsDomMirror !== undefined ? { ...output, devToolsDomMirror } : output;
-  return pageZoom !== undefined ? { ...withDevTools, pageZoom } : withDevTools;
+  return withDevTools;
 }
 
 export function createRuntimeConfigScript(
@@ -158,9 +148,6 @@ export function createRuntimeConfigScript(
   }
   if (normalized.devToolsDomMirror !== undefined) {
     entries.push(`  devToolsDomMirror: ${JSON.stringify(normalized.devToolsDomMirror)},`);
-  }
-  if (normalized.pageZoom !== undefined) {
-    entries.push(`  pageZoom: ${JSON.stringify(normalized.pageZoom)},`);
   }
   return `window.__effindomRuntime = Object.assign({}, window.__effindomRuntime, {\n${entries.join('\n')}\n});\n`;
 }
@@ -180,27 +167,15 @@ export function normalizeDevToolsDomMirrorMode(value: unknown): DevToolsDomMirro
   }
 }
 
-export function normalizePageZoomMode(value: unknown): PageZoomMode | undefined {
-  switch (value) {
-    case PageZoomMode.Disabled:
-    case PageZoomMode.Enabled:
-      return value;
-    default:
-      return undefined;
-  }
-}
-
 export function normalizeRuntimeConfig(config: Partial<EffinDomRuntimeConfig>): Partial<EffinDomRuntimeConfig> {
   const output: {
     manifestUrls?: readonly string[];
     expectedRuntimeSetHash?: string;
     buildMode?: BuildMode;
     devToolsDomMirror?: DevToolsDomMirrorMode;
-    pageZoom?: PageZoomMode;
   } = {};
   const buildMode = normalizeBuildMode(config.buildMode);
   const devToolsDomMirror = normalizeDevToolsDomMirrorMode(config.devToolsDomMirror);
-  const pageZoom = normalizePageZoomMode(config.pageZoom);
   if (Array.isArray(config.manifestUrls)) {
     const manifestUrls = config.manifestUrls.filter((value): value is string => typeof value === 'string' && value.length > 0);
     if (manifestUrls.length > 0) {
@@ -216,9 +191,6 @@ export function normalizeRuntimeConfig(config: Partial<EffinDomRuntimeConfig>): 
   if (devToolsDomMirror !== undefined) {
     output.devToolsDomMirror = devToolsDomMirror;
   }
-  if (pageZoom !== undefined) {
-    output.pageZoom = pageZoom;
-  }
   return output;
 }
 
@@ -228,10 +200,8 @@ export function resolveDevToolsDomMirrorConfig(
   const buildMode = normalizeBuildMode(config?.buildMode) ?? BuildMode.Debug;
   const devToolsDomMirror = normalizeDevToolsDomMirrorMode(config?.devToolsDomMirror)
     ?? (buildMode === BuildMode.Release ? DevToolsDomMirrorMode.Disabled : DevToolsDomMirrorMode.OnRequested);
-  const pageZoom = normalizePageZoomMode(config?.pageZoom) ?? PageZoomMode.Enabled;
   return {
     buildMode,
     devToolsDomMirror,
-    pageZoom,
   };
 }
