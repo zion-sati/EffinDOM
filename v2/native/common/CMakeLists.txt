@@ -68,6 +68,13 @@ if(BUILD_TESTING)
             COMMAND ${CMAKE_COMMAND} -E copy_if_different
                 $<TARGET_FILE:SDL3::SDL3>
                 $<TARGET_FILE_DIR:effindom_v2_native_http_contract_tests>)
+    elseif(UNIX AND NOT APPLE)
+        add_custom_command(TARGET effindom_v2_native_http_contract_tests POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+                $<TARGET_FILE:SDL3::SDL3>
+                $<TARGET_FILE_DIR:effindom_v2_native_http_contract_tests>/$<TARGET_SONAME_FILE_NAME:SDL3::SDL3>)
+        set_target_properties(effindom_v2_native_http_contract_tests PROPERTIES
+            BUILD_RPATH "$ORIGIN")
     endif()
     add_test(NAME effindom_v2_native_http_contract COMMAND effindom_v2_native_http_contract_tests)
 endif()
