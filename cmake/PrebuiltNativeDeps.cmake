@@ -22,6 +22,7 @@ function(effindom_use_prebuilt_native_deps)
     endif()
 
     _effindom_prebuilt_require("skia/include/core/SkCanvas.h")
+    _effindom_prebuilt_require("include/cpr/cprver.h")
     if(WIN32)
         set(_effindom_library_prefix "")
         set(_effindom_library_suffix ".lib")
