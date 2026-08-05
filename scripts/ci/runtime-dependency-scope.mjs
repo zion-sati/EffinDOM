@@ -12,6 +12,7 @@ const exactPaths = new Set([
 
 const orchestrationPaths = new Set([
   '.github/workflows/runtime-ci.yml',
+  'scripts/ci/runtime-ci-baseline.mjs',
   'scripts/ci/runtime-dependency-scope.mjs',
 ]);
 

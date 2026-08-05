@@ -55,14 +55,24 @@ jobs:
         with:
           fetch-depth: 0
       - name: Test runtime dependency scope classification
-        run: node --test scripts/ci/runtime-dependency-scope.test.mjs scripts/ci/release-attestation-policy.test.mjs
+        run: node --test scripts/ci/runtime-ci-baseline.test.mjs scripts/ci/runtime-dependency-scope.test.mjs scripts/ci/release-attestation-policy.test.mjs
+      - id: baseline
+        if: github.event_name == 'push'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/ci/runtime-ci-baseline.mjs
       - id: classify
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || steps.baseline.outputs.sha }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
-          node scripts/ci/runtime-dependency-scope.mjs classify --stdin --github-output \
-            < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          if [[ -z "$BASE_SHA" ]]; then
+            node scripts/ci/runtime-dependency-scope.mjs classify \
+              scripts/ci/runtime-ci-baseline.mjs --github-output
+          else
+            node scripts/ci/runtime-dependency-scope.mjs classify --stdin --github-output \
+              < <(git diff --name-only "$BASE_SHA" "$HEAD_SHA")
+          fi
 
   wasm:
     needs: changes

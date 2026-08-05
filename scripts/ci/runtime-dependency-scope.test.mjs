@@ -11,8 +11,13 @@ import {
 } from './runtime-dependency-scope.mjs';
 
 test('the scope classifier itself reruns every runtime CI target', () => {
-  const result = classifyPaths(['scripts/ci/runtime-dependency-scope.mjs']);
-  assert.deepEqual(result, Object.fromEntries(scopeNames.map((scope) => [scope, true])));
+  for (const path of [
+    'scripts/ci/runtime-ci-baseline.mjs',
+    'scripts/ci/runtime-dependency-scope.mjs',
+  ]) {
+    const result = classifyPaths([path]);
+    assert.deepEqual(result, Object.fromEntries(scopeNames.map((scope) => [scope, true])));
+  }
 });
 
 test('release orchestration does not invalidate reusable runtime artifacts', () => {
