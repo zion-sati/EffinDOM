@@ -3,34 +3,34 @@
   "base_url": "https://native-deps.effindom.dev",
   "targets": {
     "macos-arm64": {
-      "recipe_hash": "54455914d9b892a5283304c0a7e4c88f5604e7b5ce797438d7ebbd7ee39d04df",
-      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/macos-arm64/54455914d9b892a5283304c0a7e4c88f5604e7b5ce797438d7ebbd7ee39d04df/manifest.json",
-      "manifest_sha256": "bd715f1d777303dbd93514de8a6a62e93c2909aa0dc4c073b3a98abc733ecfa5"
+      "recipe_hash": "1540cc6f29565a04a76e8367d0fa74c6f13740fc185493995f099e4cdbcbb2a3",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/macos-arm64/1540cc6f29565a04a76e8367d0fa74c6f13740fc185493995f099e4cdbcbb2a3/manifest.json",
+      "manifest_sha256": "2c8a57c48d8e08e0d3261ccfa99799fe8a6c5b4ec59d35be749c967f7d780ce6"
     },
     "macos-x64": {
-      "recipe_hash": "d678c7a42e71cf99cb0debf13cb12a81aa2d323d011c394de41ad7ceb1eba2da",
-      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/macos-x64/d678c7a42e71cf99cb0debf13cb12a81aa2d323d011c394de41ad7ceb1eba2da/manifest.json",
-      "manifest_sha256": "f3db83dba0cabb6e71ec09fbe6408e8abdd6a3ce250c72392b2127950994198b"
+      "recipe_hash": "8efe933d608ebfb70da50a4dfe0525ce765d37b01f91de1a8f7b04ab7f01b3d9",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/macos-x64/8efe933d608ebfb70da50a4dfe0525ce765d37b01f91de1a8f7b04ab7f01b3d9/manifest.json",
+      "manifest_sha256": "af384ca6de929c9f6c3ab0346d7ed0f562625454cc2e73464c5a7c474d29b98a"
     },
     "linux-x64": {
-      "recipe_hash": "944a120eb0e1d99991d2943478ede96b5afa0f8458e71ab708791a5918539da0",
-      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/linux-x64/944a120eb0e1d99991d2943478ede96b5afa0f8458e71ab708791a5918539da0/manifest.json",
-      "manifest_sha256": "27c297bdfbc62ba49c3b6857101841aaad55d448f28683fe16a1c92536abb125"
+      "recipe_hash": "3d8b3de783368692398d805e26ce0e4aabf4c614ceff86a3c5ea69b003d63568",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/linux-x64/3d8b3de783368692398d805e26ce0e4aabf4c614ceff86a3c5ea69b003d63568/manifest.json",
+      "manifest_sha256": "0277da52b617679b9fc778a4386a17f0478b44c4d612f3945a73209ab665e9bb"
     },
     "linux-arm64": {
-      "recipe_hash": "186bf91689e736da77703c9db07d2cb437c2270cab666903955854b0f3ba193f",
-      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/linux-arm64/186bf91689e736da77703c9db07d2cb437c2270cab666903955854b0f3ba193f/manifest.json",
-      "manifest_sha256": "22686585ded6577c1309dcbae49fec43173df8e1e3113dbcc632a3c123da63dd"
+      "recipe_hash": "54df24d052dedb0e3455478fa019c57dbf3b59166af24fe29e1c02c5326ecec5",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/linux-arm64/54df24d052dedb0e3455478fa019c57dbf3b59166af24fe29e1c02c5326ecec5/manifest.json",
+      "manifest_sha256": "46bbf6554864f91865c9f979231dfc06c690575a1fb3e9fcb203fce072404186"
     },
     "windows-x64": {
-      "recipe_hash": "c6bb83ddd69c0939462f3e7b98cfd64c2e9f3764dd8b98ee0c7ad1b303799b06",
-      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/windows-x64/c6bb83ddd69c0939462f3e7b98cfd64c2e9f3764dd8b98ee0c7ad1b303799b06/manifest.json",
-      "manifest_sha256": "b5114a5691f337bac348fa790dc1481f6dd9e7705fbe9cbb3bba923e4c6f362f"
+      "recipe_hash": "008d5bae22c73b0e0e5fb5cbf5e510506d8995e26a72503c55c48f0d2875418d",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/windows-x64/008d5bae22c73b0e0e5fb5cbf5e510506d8995e26a72503c55c48f0d2875418d/manifest.json",
+      "manifest_sha256": "c8df7b2eddcd573aadf7a26552c0ff28078f784d17e609992ff7eac5fbe862ad"
     },
     "windows-arm64": {
-      "recipe_hash": "98f19574cd11fad029fca9463d7fa2da726794aa153cae89e2534965d9372de9",
-      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/windows-arm64/98f19574cd11fad029fca9463d7fa2da726794aa153cae89e2534965d9372de9/manifest.json",
-      "manifest_sha256": "8bd8f4c43b945d1914adc1c11f1b648c77c7c57e95b4cb13c3acb88d427a9641"
+      "recipe_hash": "5c5e02079ed42e502c6a9929ec84af6675a9cea26ed881b0ed376257a1376895",
+      "manifest_url": "https://native-deps.effindom.dev/native-deps/v1/windows-arm64/5c5e02079ed42e502c6a9929ec84af6675a9cea26ed881b0ed376257a1376895/manifest.json",
+      "manifest_sha256": "6530c918e8b7d4104a91dc343acad4ae0e42af3466ee981d05288f287892b39d"
     }
   }
 }

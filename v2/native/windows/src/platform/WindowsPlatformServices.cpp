@@ -233,7 +233,7 @@ bool WindowsPlatformServices::LoadTexture(std::uint32_t texture_id, std::string_
 
 void WindowsPlatformServices::ReleaseSvg(std::uint32_t svg_id) { assets_.ReleaseSvg(svg_id); }
 void WindowsPlatformServices::ReleaseTexture(std::uint32_t texture_id) { assets_.ReleaseTexture(texture_id); }
-bool WindowsPlatformServices::ProcessPendingAssets() { return assets_.ProcessPendingFontCoverage(); }
+bool WindowsPlatformServices::ProcessPendingAssets() { return assets_.ProcessPendingAssets(); }
 std::size_t WindowsPlatformServices::FallbackFontCountForTesting() const {
     return assets_.FallbackFontCountForTesting();
 }

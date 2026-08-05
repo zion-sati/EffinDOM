@@ -112,6 +112,9 @@ else()
 
     include(cmake/SkiaPinnedTextDeps.cmake)
     include(cmake/PinnedWoff2Deps.cmake)
+    if(NOT EMSCRIPTEN)
+        include(cmake/PinnedCprDeps.cmake)
+    endif()
 endif()
 
 add_subdirectory(v2)

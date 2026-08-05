@@ -98,6 +98,8 @@ bool SdlDropTarget::HandleEvent(const SDL_Event& event) {
             float y = 0.0f;
             SDL_GetMouseState(&x, &y);
             Begin(x, y);
+            for (const std::uint32_t event_type : SdlDropBeginEventSequence()) Dispatch(event_type);
+            entered_ = true;
             return true;
         }
         case SDL_EVENT_DROP_POSITION:

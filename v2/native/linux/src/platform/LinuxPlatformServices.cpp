@@ -176,7 +176,7 @@ bool LinuxPlatformServices::LoadTexture(std::uint32_t texture_id, std::string_vi
 
 void LinuxPlatformServices::ReleaseSvg(std::uint32_t svg_id) { assets_.ReleaseSvg(svg_id); }
 void LinuxPlatformServices::ReleaseTexture(std::uint32_t texture_id) { assets_.ReleaseTexture(texture_id); }
-bool LinuxPlatformServices::ProcessPendingAssets() { return assets_.ProcessPendingFontCoverage(); }
+bool LinuxPlatformServices::ProcessPendingAssets() { return assets_.ProcessPendingAssets(); }
 std::size_t LinuxPlatformServices::FallbackFontCountForTesting() const {
     return assets_.FallbackFontCountForTesting();
 }

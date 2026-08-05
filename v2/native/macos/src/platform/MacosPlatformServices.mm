@@ -129,7 +129,7 @@ bool MacosPlatformServices::LoadTexture(std::uint32_t texture_id, std::string_vi
 
 void MacosPlatformServices::ReleaseSvg(std::uint32_t svg_id) { assets_.ReleaseSvg(svg_id); }
 void MacosPlatformServices::ReleaseTexture(std::uint32_t texture_id) { assets_.ReleaseTexture(texture_id); }
-bool MacosPlatformServices::ProcessPendingAssets() { return assets_.ProcessPendingFontCoverage(); }
+bool MacosPlatformServices::ProcessPendingAssets() { return assets_.ProcessPendingAssets(); }
 std::size_t MacosPlatformServices::FallbackFontCountForTesting() const {
     return assets_.FallbackFontCountForTesting();
 }

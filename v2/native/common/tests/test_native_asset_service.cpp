@@ -77,6 +77,19 @@ TEST_CASE("native asset environment delegates system-font discovery", "[v2][nati
     CHECK(resolved.postscript_name == "ExpectedFace");
 }
 
+TEST_CASE("remote native assets accept only compatible response content types", "[v2][native][common][assets]") {
+    CHECK(IsSupportedRemoteAssetContentType("image/png", false));
+    CHECK(IsSupportedRemoteAssetContentType(" IMAGE/JPEG ; charset=binary", false));
+    CHECK(IsSupportedRemoteAssetContentType("application/octet-stream", false));
+    CHECK_FALSE(IsSupportedRemoteAssetContentType("text/html", false));
+    CHECK_FALSE(IsSupportedRemoteAssetContentType("image/svg+xml", false));
+
+    CHECK(IsSupportedRemoteAssetContentType("image/svg+xml; charset=utf-8", true));
+    CHECK(IsSupportedRemoteAssetContentType("application/xml", true));
+    CHECK(IsSupportedRemoteAssetContentType("", true));
+    CHECK_FALSE(IsSupportedRemoteAssetContentType("image/png", true));
+}
+
 TEST_CASE("native packaged asset roots survive relocation without current-directory fallback", "[v2][native][common][assets]") {
     const auto root = std::filesystem::temp_directory_path() / "effindom-native-relocated-assets";
     const auto moved = std::filesystem::temp_directory_path() / "effindom-native-relocated-assets-moved";

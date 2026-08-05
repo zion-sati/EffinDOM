@@ -1,5 +1,6 @@
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -9,6 +10,13 @@ struct SDL_Window;
 
 namespace effindom::v2 {
 namespace native {
+
+inline constexpr std::uint32_t kSdlExternalDragEnterEvent = 1U;
+inline constexpr std::uint32_t kSdlExternalDragOverEvent = 2U;
+
+constexpr std::array<std::uint32_t, 2U> SdlDropBeginEventSequence() {
+    return {kSdlExternalDragEnterEvent, kSdlExternalDragOverEvent};
+}
 
 class NativeInputRouter;
 

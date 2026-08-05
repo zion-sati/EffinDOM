@@ -1,4 +1,5 @@
 #include "NativeAssetService.h"
+#include "NativeHttpClient.h"
 
 #include "Engine.h"
 #include "SvgIntrinsicSize.h"
@@ -18,6 +19,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <fstream>
 #include <limits>
@@ -56,6 +58,22 @@ constexpr std::array kBuiltInFallbackPrimaries{1U, 2U, 5U, 6U, 7U, 8U};
 
 bool IsRemoteSource(std::string_view source) {
     return source.rfind("http://", 0U) == 0U || source.rfind("https://", 0U) == 0U;
+}
+
+std::string NormalizedContentType(std::string_view content_type) {
+    const std::size_t parameters = content_type.find(';');
+    content_type = content_type.substr(0U, parameters);
+    while (!content_type.empty() && std::isspace(static_cast<unsigned char>(content_type.front()))) {
+        content_type.remove_prefix(1U);
+    }
+    while (!content_type.empty() && std::isspace(static_cast<unsigned char>(content_type.back()))) {
+        content_type.remove_suffix(1U);
+    }
+    std::string normalized(content_type);
+    std::transform(normalized.begin(), normalized.end(), normalized.begin(), [](unsigned char character) {
+        return static_cast<char>(std::tolower(character));
+    });
+    return normalized;
 }
 
 std::vector<std::uint8_t> ReadBytes(const std::filesystem::path& path) {
@@ -185,6 +203,18 @@ std::uint32_t ResolveCollectionFaceIndex(
 }
 
 } // namespace
+
+bool IsSupportedRemoteAssetContentType(std::string_view content_type, bool svg) {
+    const std::string normalized = NormalizedContentType(content_type);
+    if (normalized.empty() || normalized == "application/octet-stream") return true;
+    if (svg) {
+        return normalized == "image/svg+xml" ||
+            normalized == "application/svg+xml" ||
+            normalized == "application/xml" ||
+            normalized == "text/xml";
+    }
+    return normalized.rfind("image/", 0U) == 0U && normalized != "image/svg+xml";
+}
 
 std::vector<std::filesystem::path> BuildNativeAssetSearchRoots(
     const std::filesystem::path& executable_directory,
@@ -327,18 +357,31 @@ bool NativeAssetService::LoadFont(std::uint32_t font_id, const std::filesystem::
 }
 
 bool NativeAssetService::LoadSvg(std::uint32_t svg_id, std::string_view source) {
+    const std::uint64_t generation = ++svg_generations_[svg_id];
+    if (IsRemoteSource(source)) {
+        const bool queued = QueueRemote(RemoteAssetKind::Svg, svg_id, source, generation);
+        CancelUnusedTransfers();
+        return queued;
+    }
     const std::vector<std::uint8_t> bytes = ReadSource(source, kSvgDataPrefix);
     if (bytes.empty()) {
         ReportFailure(__fui_on_svg_failed, svg_id, "Local SVG source was not found or is not supported.");
         return false;
     }
+    return RegisterSvgBytes(svg_id, bytes, "Local SVG");
+}
+
+bool NativeAssetService::RegisterSvgBytes(
+    std::uint32_t svg_id,
+    const std::vector<std::uint8_t>& bytes,
+    std::string_view origin) {
     if (bytes.size() > std::numeric_limits<std::uint32_t>::max()) {
-        ReportFailure(__fui_on_svg_failed, svg_id, "Local SVG data is too large.");
+        ReportFailure(__fui_on_svg_failed, svg_id, std::string(origin) + " data is too large.");
         return false;
     }
     SkMemoryStream stream(bytes.data(), bytes.size(), true);
     if (SkSVGDOM::MakeFromStream(stream) == nullptr) {
-        ReportFailure(__fui_on_svg_failed, svg_id, "Local SVG data is malformed.");
+        ReportFailure(__fui_on_svg_failed, svg_id, std::string(origin) + " data is malformed.");
         return false;
     }
     const auto byte_length = static_cast<std::uint32_t>(bytes.size());
@@ -350,27 +393,40 @@ bool NativeAssetService::LoadSvg(std::uint32_t svg_id, std::string_view source) 
 }
 
 bool NativeAssetService::LoadTexture(std::uint32_t texture_id, std::string_view source) {
+    const std::uint64_t generation = ++texture_generations_[texture_id];
+    if (IsRemoteSource(source)) {
+        const bool queued = QueueRemote(RemoteAssetKind::Texture, texture_id, source, generation);
+        CancelUnusedTransfers();
+        return queued;
+    }
     const std::vector<std::uint8_t> bytes = ReadSource(source, "data:image/");
     if (bytes.empty()) {
         ReportFailure(__fui_on_texture_failed, texture_id, "Local image source was not found or is not supported.");
         return false;
     }
+    return RegisterTextureBytes(texture_id, bytes, "Local image");
+}
+
+bool NativeAssetService::RegisterTextureBytes(
+    std::uint32_t texture_id,
+    const std::vector<std::uint8_t>& bytes,
+    std::string_view origin) {
     sk_sp<SkData> data = SkData::MakeWithCopy(bytes.data(), bytes.size());
     std::unique_ptr<SkCodec> codec = SkCodec::MakeFromData(std::move(data));
     if (codec == nullptr) {
-        ReportFailure(__fui_on_texture_failed, texture_id, "Local image data is malformed or unsupported.");
+        ReportFailure(__fui_on_texture_failed, texture_id, std::string(origin) + " data is malformed or unsupported.");
         return false;
     }
     const SkImageInfo source_info = codec->getInfo();
     if (source_info.width() <= 0 || source_info.height() <= 0) {
-        ReportFailure(__fui_on_texture_failed, texture_id, "Local image dimensions are invalid.");
+        ReportFailure(__fui_on_texture_failed, texture_id, std::string(origin) + " dimensions are invalid.");
         return false;
     }
     const SkImageInfo target_info = SkImageInfo::Make(
         source_info.width(), source_info.height(), kRGBA_8888_SkColorType, kPremul_SkAlphaType);
     std::vector<std::uint8_t> pixels(target_info.computeMinByteSize());
     if (codec->getPixels(target_info, pixels.data(), target_info.minRowBytes()) != SkCodec::kSuccess) {
-        ReportFailure(__fui_on_texture_failed, texture_id, "Local image pixels could not be decoded.");
+        ReportFailure(__fui_on_texture_failed, texture_id, std::string(origin) + " pixels could not be decoded.");
         return false;
     }
     engine_.RegisterTextureRgba(
@@ -384,8 +440,117 @@ bool NativeAssetService::LoadTexture(std::uint32_t texture_id, std::string_view 
     return true;
 }
 
-void NativeAssetService::ReleaseSvg(std::uint32_t svg_id) { engine_.UnregisterSvg(svg_id); }
-void NativeAssetService::ReleaseTexture(std::uint32_t texture_id) { engine_.UnregisterTexture(texture_id); }
+void NativeAssetService::ReleaseSvg(std::uint32_t svg_id) {
+    ++svg_generations_[svg_id];
+    engine_.UnregisterSvg(svg_id);
+    CancelUnusedTransfers();
+}
+void NativeAssetService::ReleaseTexture(std::uint32_t texture_id) {
+    ++texture_generations_[texture_id];
+    engine_.UnregisterTexture(texture_id);
+    CancelUnusedTransfers();
+}
+
+bool NativeAssetService::QueueRemote(
+    RemoteAssetKind kind,
+    std::uint32_t id,
+    std::string_view source,
+    std::uint64_t generation) {
+    const std::string key(source);
+    const auto cached = remote_cache_.find(key);
+    if (cached != remote_cache_.end()) {
+        return kind == RemoteAssetKind::Svg
+            ? RegisterSvgBytes(id, cached->second, "Remote SVG")
+            : RegisterTextureBytes(id, cached->second, "Remote image");
+    }
+    std::shared_ptr<RemoteTransfer> transfer;
+    const auto existing = inflight_remote_.find(key);
+    if (existing != inflight_remote_.end()) transfer = existing->second.lock();
+    if (transfer == nullptr) {
+        transfer = std::make_shared<RemoteTransfer>();
+        transfer->source = key;
+        transfer->cancelled = std::make_shared<std::atomic_bool>(false);
+        auto fetch = environment_.fetch_remote_asset;
+        transfer->future = std::async(
+            std::launch::async,
+            [url = key, cancelled = transfer->cancelled, fetch = std::move(fetch)] {
+                return fetch ? fetch(url, cancelled) : NativeHttpClient::Get(url, cancelled);
+            }).share();
+        inflight_remote_[key] = transfer;
+    }
+    pending_remote_.push_back({kind, id, generation, transfer});
+    request_frame_();
+    return true;
+}
+
+bool NativeAssetService::ProcessPendingRemoteAssets() {
+    for (auto request = pending_remote_.begin(); request != pending_remote_.end();) {
+        if (request->transfer->future.wait_for(std::chrono::seconds(0)) != std::future_status::ready) {
+            ++request;
+            continue;
+        }
+        const NativeHttpResponse& response = request->transfer->future.get();
+        const bool current = request->kind == RemoteAssetKind::Svg
+            ? svg_generations_[request->id] == request->generation
+            : texture_generations_[request->id] == request->generation;
+        if (current) {
+            if (response.cancelled) {
+                // A released or replaced request has no observable completion.
+            } else if (response.too_large || response.status < 200 || response.status >= 300 || response.bytes.empty()) {
+                std::string message = response.error.empty()
+                    ? "Remote asset request failed with HTTP status " + std::to_string(response.status) + "."
+                    : response.error;
+                ReportFailure(
+                    request->kind == RemoteAssetKind::Svg ? __fui_on_svg_failed : __fui_on_texture_failed,
+                    request->id,
+                    message);
+            } else if (!IsSupportedRemoteAssetContentType(
+                           response.content_type,
+                           request->kind == RemoteAssetKind::Svg)) {
+                ReportFailure(
+                    request->kind == RemoteAssetKind::Svg ? __fui_on_svg_failed : __fui_on_texture_failed,
+                    request->id,
+                    "Remote asset response has unsupported content type '" + response.content_type + "'.");
+            } else {
+                remote_cache_.try_emplace(request->transfer->source, response.bytes);
+                if (request->kind == RemoteAssetKind::Svg) {
+                    RegisterSvgBytes(request->id, response.bytes, "Remote SVG");
+                } else {
+                    RegisterTextureBytes(request->id, response.bytes, "Remote image");
+                }
+            }
+        }
+        const std::string source = request->transfer->source;
+        request = pending_remote_.erase(request);
+        bool still_pending = false;
+        for (const RemoteRequest& other : pending_remote_) {
+            if (other.transfer->source == source) {
+                still_pending = true;
+                break;
+            }
+        }
+        if (!still_pending) inflight_remote_.erase(source);
+    }
+    return !pending_remote_.empty();
+}
+
+void NativeAssetService::CancelUnusedTransfers() {
+    for (const RemoteRequest& request : pending_remote_) {
+        bool current = request.kind == RemoteAssetKind::Svg
+            ? svg_generations_[request.id] == request.generation
+            : texture_generations_[request.id] == request.generation;
+        if (current) continue;
+        bool has_current_consumer = false;
+        for (const RemoteRequest& other : pending_remote_) {
+            if (other.transfer != request.transfer) continue;
+            has_current_consumer = other.kind == RemoteAssetKind::Svg
+                ? svg_generations_[other.id] == other.generation
+                : texture_generations_[other.id] == other.generation;
+            if (has_current_consumer) break;
+        }
+        if (!has_current_consumer) request.transfer->cancelled->store(true);
+    }
+}
 
 void NativeAssetService::QueueMissingFontCoverage(
     std::uint32_t primary_font_id,
@@ -396,7 +561,8 @@ void NativeAssetService::QueueMissingFontCoverage(
     request_frame_();
 }
 
-bool NativeAssetService::ProcessPendingFontCoverage() {
+bool NativeAssetService::ProcessPendingAssets() {
+    const bool has_remote = ProcessPendingRemoteAssets();
     for (MissingCoverageRequest& request : pending_coverage_) {
         pending_coverage_jobs_.push_back(std::async(
             std::launch::async,
@@ -440,7 +606,7 @@ bool NativeAssetService::ProcessPendingFontCoverage() {
             request_frame_();
         }
     }
-    return !pending_coverage_jobs_.empty() || !pending_coverage_.empty();
+    return has_remote || !pending_coverage_jobs_.empty() || !pending_coverage_.empty();
 }
 
 std::size_t NativeAssetService::FallbackFontCountForTesting() const { return fallback_ids_by_path_.size(); }
