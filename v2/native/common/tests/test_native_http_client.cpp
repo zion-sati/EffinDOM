@@ -77,6 +77,8 @@ public:
         return "http://127.0.0.1:" + std::to_string(port_) + std::string(path);
     }
 
+    bool SawEffinDomUserAgent() const { return saw_effindom_user_agent_.load(); }
+
 private:
     static void Send(Socket client, std::string_view response) {
         std::size_t sent = 0U;
@@ -102,6 +104,9 @@ private:
                 break;
             }
             const std::string_view text(request.data(), length > 0 ? static_cast<std::size_t>(length) : 0U);
+            if (text.find("User-Agent: EffinDOM-NativeAssetLoader/1.0") != std::string_view::npos) {
+                saw_effindom_user_agent_.store(true);
+            }
             if (text.find("GET /redirect ") != std::string_view::npos) {
                 Send(client, "HTTP/1.1 302 Found\r\nLocation: /image\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
             } else if (text.find("GET /large ") != std::string_view::npos) {
@@ -116,6 +121,7 @@ private:
     Socket listener_ = kInvalidSocket;
     std::uint16_t port_ = 0U;
     std::atomic_bool stopping_{false};
+    std::atomic_bool saw_effindom_user_agent_{false};
     std::thread thread_;
 };
 
@@ -128,6 +134,7 @@ TEST_CASE("native HTTP transport follows redirects and returns bounded bytes", "
     CHECK(direct.status == 200);
     CHECK(direct.bytes == std::vector<std::uint8_t>{'P', 'N', 'G'});
     CHECK(direct.content_type.find("image/png") != std::string::npos);
+    CHECK(server.SawEffinDomUserAgent());
 
     const NativeHttpResponse redirected = NativeHttpClient::Get(server.Url("/redirect"), cancelled, 8U);
     CHECK(redirected.status == 200);

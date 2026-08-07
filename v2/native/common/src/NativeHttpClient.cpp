@@ -16,6 +16,10 @@ NativeHttpResponse NativeHttpClient::Get(
     session.SetConnectTimeout(cpr::ConnectTimeout{std::chrono::seconds(5)});
     session.SetTimeout(cpr::Timeout{std::chrono::seconds(20)});
     session.SetRedirect(cpr::Redirect{5L});
+    session.SetHeader(cpr::Header{
+        {"User-Agent", "EffinDOM-NativeAssetLoader/1.0 (+https://effindom.dev/)"},
+        {"Accept", "image/svg+xml,image/*;q=0.9,*/*;q=0.1"},
+    });
     session.SetCancellationParam(cancelled);
 
     bool too_large = false;

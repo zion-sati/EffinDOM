@@ -6,6 +6,7 @@
 #include <condition_variable>
 #include <cstdint>
 #include <deque>
+#include <functional>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -47,6 +48,22 @@ public:
         }
         std::vector<bool> requested_frames;
         for (auto& task : tasks) requested_frames.push_back(task());
+        return requested_frames;
+    }
+
+    std::vector<bool> RunUntil(const std::function<bool()>& done) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+        std::vector<bool> requested_frames;
+        while (!done()) {
+            {
+                std::unique_lock lock(mutex_);
+                if (!changed_.wait_until(lock, deadline, [&] { return !tasks_.empty(); })) {
+                    break;
+                }
+            }
+            auto batch = RunAll();
+            requested_frames.insert(requested_frames.end(), batch.begin(), batch.end());
+        }
         return requested_frames;
     }
 
@@ -123,8 +140,7 @@ TEST_CASE("native Worker imports deliver registry callbacks on the UI thread", "
     host.SetSessionGeneration(1U);
 
     Start(7U, "./workers.wasm", "demo", "hello \xF0\x9F\x8C\x8D");
-    REQUIRE(queue.Wait());
-    const auto requested_frames = queue.RunAll();
+    const auto requested_frames = queue.RunUntil([&] { return log.events.size() == 2U; });
 
     CHECK(received_input == "hello \xF0\x9F\x8C\x8D");
     CHECK(log.events == std::vector<std::string>{
