@@ -23,8 +23,9 @@ const args = process.argv.slice(2);
 const targetIndex = args.indexOf('--target');
 const targetName = targetIndex === -1 ? '' : args[targetIndex + 1];
 const withTests = args.includes('--with-tests');
+const withDemo = args.includes('--with-demo');
 if (!targets[targetName]) {
-  console.error(`Usage: node scripts/build-native-runtime.mjs --target <${Object.keys(targets).join('|')}> [--with-tests]`);
+  console.error(`Usage: node scripts/build-native-runtime.mjs --target <${Object.keys(targets).join('|')}> [--with-tests] [--with-demo]`);
   process.exit(1);
 }
 const target = targets[targetName];
@@ -42,7 +43,7 @@ if (dependencyRoot) {
 const common = [
   '-DEFFINDOM_NATIVE_DEPS_MODE=prebuilt',
   `-DEFFINDOM_NATIVE_DEPS_ROOT=${dependencyRoot}`,
-  '-DEFFINDOM_BUILD_NATIVE_FUI_RS_DEMO=OFF',
+  `-DEFFINDOM_BUILD_NATIVE_FUI_RS_DEMO=${withDemo ? 'ON' : 'OFF'}`,
 ];
 
 if (targetName.startsWith('windows-')) {

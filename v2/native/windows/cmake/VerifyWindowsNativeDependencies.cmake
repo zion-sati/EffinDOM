@@ -13,7 +13,7 @@ endif()
 set(allowed_application_dlls effindom_core.dll effindom_ui.dll sdl3.dll sdl3d.dll)
 set(debug_runtime_regex "^(ucrtbased|vcruntime[0-9_]*d|msvcp[0-9_]*d|concrt[0-9_]*d)\\.dll$")
 set(release_runtime_regex "^(vcruntime|msvcp|concrt)[0-9_]+\\.dll$")
-set(system_dependency_regex "^(api-ms-win-|ext-ms-win-).+\\.dll$|^(advapi32|bcryptprimitives|comctl32|d3d12|d3dcompiler_47|dwmapi|dwrite|dxgi|gdi32|imm32|kernel32|ntdll|ole32|oleaut32|setupapi|shell32|uiautomationcore|user32|userenv|version|winmm|ws2_32)\\.dll$|^(msvcp|vcruntime|concrt)[0-9_]+\\.dll$")
+set(system_dependency_regex "^(api-ms-win-|ext-ms-win-).+\\.dll$|^(advapi32|bcrypt|bcryptprimitives|comctl32|crypt32|d3d12|d3dcompiler_47|dwmapi|dwrite|dxgi|gdi32|imm32|kernel32|ntdll|ole32|oleaut32|secur32|setupapi|shell32|uiautomationcore|user32|userenv|version|winmm|ws2_32)\\.dll$|^(msvcp|vcruntime|concrt)[0-9_]+\\.dll$")
 
 if(EXPECTED_ARCH STREQUAL "x64")
     set(expected_machine "machine \\(x64\\)")

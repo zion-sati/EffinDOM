@@ -14,6 +14,7 @@ import { fileURLToPath } from "node:url";
 import { resolveNativeBuildOutput } from "./native-runtime-package-layout.mjs";
 import { assertNativeRuntimePackagingHost } from "./native-runtime-host-compatibility.mjs";
 import { createNativeRuntimeArtifact } from "./native-runtime-artifact.mjs";
+import { nativeHttpLinkContract } from "./native-runtime-link-contract.mjs";
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const targets = {
@@ -245,6 +246,7 @@ const dependencyRoot = process.env.EFFINDOM_NATIVE_DEPS_ROOT?.trim()
     );
 const targetArchitecture = targetName.endsWith("-arm64") ? "arm64" : "x64";
 assertNativeRuntimePackagingHost(target.platform, targetArchitecture);
+const nativeHttp = nativeHttpLinkContract(target.platform);
 
 const from = (output, name) =>
   resolveNativeBuildOutput(buildRoot, output, name, target.platform);
@@ -350,11 +352,18 @@ const orderedDependencies = [
   "icu-common",
   "yoga",
 ].map(dependencyPath);
+const nativeHttpDependencies = nativeHttp.staticLibraries.map(dependencyPath);
 const runtimeLibrary = (name, importName) =>
   importName ? `sdk/lib/${importName}` : `runtime/lib/${name}`;
+const systemLibraries = [
+  ...target.system,
+  ...nativeHttp.systemLibraries.filter(
+    (library) => !target.system.includes(library),
+  ),
+];
 writeFileSync(
   linkMetadata,
-  `${JSON.stringify({ schemaVersion: 1, target: targetName, cxxStandard: 17, libraries: [`sdk/lib/${target.common}`, `sdk/lib/${target.host}`, "<application-static-library>", runtimeLibrary(target.core, target.coreImport), ...orderedDependencies.slice(0, 3), runtimeLibrary(target.ui, target.uiImport), ...orderedDependencies.slice(3), runtimeLibrary(target.sdl, target.sdlImport)], systemLibraries: target.system, runtimeLibraryDirectory: "runtime/lib", includeDirectory: "sdk/include", launcher: "sdk/launcher/NativeApplicationMain.cpp" }, null, 2)}\n`,
+  `${JSON.stringify({ schemaVersion: 1, target: targetName, cxxStandard: 17, libraries: [`sdk/lib/${target.common}`, `sdk/lib/${target.host}`, "<application-static-library>", runtimeLibrary(target.core, target.coreImport), ...nativeHttpDependencies, ...orderedDependencies.slice(0, 3), runtimeLibrary(target.ui, target.uiImport), ...orderedDependencies.slice(3), runtimeLibrary(target.sdl, target.sdlImport)], systemLibraries, runtimeLibraryDirectory: "runtime/lib", includeDirectory: "sdk/include", launcher: "sdk/launcher/NativeApplicationMain.cpp" }, null, 2)}\n`,
 );
 files.push(input(linkMetadata, "sdk/link.json", "link-metadata"));
 mkdirSync(dirname(destination), { recursive: true });
