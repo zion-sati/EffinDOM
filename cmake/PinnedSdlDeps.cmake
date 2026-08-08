@@ -6,6 +6,10 @@ if(NOT TARGET SDL3::SDL3)
     set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
     set(SDL_TESTS OFF CACHE BOOL "" FORCE)
     set(SDL_EXAMPLES OFF CACHE BOOL "" FORCE)
+    effindom_cache_git_source(
+        SDL3
+        https://github.com/libsdl-org/SDL.git
+        release-3.4.12)
     FetchContent_Declare(
         SDL3
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git

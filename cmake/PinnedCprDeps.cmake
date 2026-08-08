@@ -32,6 +32,10 @@ else()
     set(_EFFINDOM_BUILD_SHARED_LIBS_WAS_DEFINED OFF)
 endif()
 set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+effindom_cache_git_source(
+    effindom_pinned_cpr
+    https://github.com/libcpr/cpr.git
+    1.14.2)
 FetchContent_Declare(
     effindom_pinned_cpr
     GIT_REPOSITORY https://github.com/libcpr/cpr.git

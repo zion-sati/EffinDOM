@@ -29,8 +29,10 @@ ensure_cmake_build_dir() {
 
   cached_dir="$(sed -n 's#^CMAKE_CACHEFILE_DIR:INTERNAL=##p' "${cache_file}" | head -n 1)"
   if [ -n "${cached_dir}" ] && [ "${cached_dir}" != "${build_dir}" ]; then
-    rm -rf "${build_dir}"
-    return
+    if [ ! -e "${cached_dir}" ] || [ ! "${cached_dir}" -ef "${build_dir}" ]; then
+      rm -rf "${build_dir}"
+      return
+    fi
   fi
 
   if grep -R -m 1 -F "${legacy_dir}" "${build_dir}" >/dev/null 2>&1; then

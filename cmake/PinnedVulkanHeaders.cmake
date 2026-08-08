@@ -8,6 +8,10 @@ if(NOT TARGET effindom_pinned_vulkan_headers)
     set(EFFINDOM_VULKAN_HEADERS_REV
         "354fab82dbd91d2526a41ee4dbfff1012a623798"
         CACHE STRING "Pinned Khronos Vulkan-Headers revision")
+    effindom_cache_git_source(
+        effindom_pinned_vulkan_headers_source
+        https://github.com/KhronosGroup/Vulkan-Headers.git
+        ${EFFINDOM_VULKAN_HEADERS_REV})
     FetchContent_Declare(
         effindom_pinned_vulkan_headers_source
         GIT_REPOSITORY https://github.com/KhronosGroup/Vulkan-Headers.git

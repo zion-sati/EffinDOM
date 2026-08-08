@@ -21,6 +21,10 @@ endfunction()
 set(EFFINDOM_SKIA_PINNED_HARFBUZZ_REV "ca3cd48fa3e06fa81d7c8a3f716cca44ed2de26a")
 set(EFFINDOM_SKIA_PINNED_ICU_REV "364118a1d9da24bb5b770ac3d762ac144d6da5a4")
 
+effindom_cache_git_source(
+    effindom_skia_pinned_harfbuzz
+    https://chromium.googlesource.com/external/github.com/harfbuzz/harfbuzz.git
+    ${EFFINDOM_SKIA_PINNED_HARFBUZZ_REV})
 FetchContent_Declare(
     effindom_skia_pinned_harfbuzz
     GIT_REPOSITORY https://chromium.googlesource.com/external/github.com/harfbuzz/harfbuzz.git
@@ -226,6 +230,10 @@ if(_EFFINDOM_HARFBUZZ_LIBM)
     target_link_libraries(harfbuzz INTERFACE "${_EFFINDOM_HARFBUZZ_LIBM}")
 endif()
 
+effindom_cache_git_source(
+    effindom_skia_pinned_icu
+    https://chromium.googlesource.com/chromium/deps/icu.git
+    ${EFFINDOM_SKIA_PINNED_ICU_REV})
 FetchContent_Declare(
     effindom_skia_pinned_icu
     GIT_REPOSITORY https://chromium.googlesource.com/chromium/deps/icu.git

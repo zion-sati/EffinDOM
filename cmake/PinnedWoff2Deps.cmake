@@ -3,6 +3,10 @@ include(FetchContent)
 set(EFFINDOM_PINNED_BROTLI_REV "v1.1.0")
 set(EFFINDOM_PINNED_WOFF2_REV "v1.0.2")
 
+effindom_cache_git_source(
+    effindom_pinned_brotli
+    https://github.com/google/brotli.git
+    ${EFFINDOM_PINNED_BROTLI_REV})
 FetchContent_Declare(
     effindom_pinned_brotli
     GIT_REPOSITORY https://github.com/google/brotli.git
@@ -44,6 +48,10 @@ if(NOT effindom_pinned_brotli_POPULATED)
     endif()
 endif()
 
+effindom_cache_git_source(
+    effindom_pinned_woff2
+    https://github.com/google/woff2.git
+    ${EFFINDOM_PINNED_WOFF2_REV})
 FetchContent_Declare(
     effindom_pinned_woff2
     GIT_REPOSITORY https://github.com/google/woff2.git

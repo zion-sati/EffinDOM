@@ -24,6 +24,7 @@ const targetIndex = args.indexOf('--target');
 const targetName = targetIndex === -1 ? '' : args[targetIndex + 1];
 const withTests = args.includes('--with-tests');
 const withDemo = args.includes('--with-demo');
+const stressWorkerTests = process.env.EFFINDOM_NATIVE_WORKER_STRESS === '1';
 if (!targets[targetName]) {
   console.error(`Usage: node scripts/build-native-runtime.mjs --target <${Object.keys(targets).join('|')}> [--with-tests] [--with-demo]`);
   process.exit(1);
@@ -49,7 +50,10 @@ const common = [
 if (targetName.startsWith('windows-')) {
   run('cmake', ['--preset', target.preset, ...common]);
   run('cmake', ['--build', '--preset', target.preset]);
-  if (withTests) run('ctest', ['--preset', target.preset]);
+  if (withTests && stressWorkerTests) {
+    run('ctest', ['--preset', target.preset, '--output-on-failure', '-R', 'native worker', '--repeat', 'until-fail:20']);
+  }
+  if (withTests) run('ctest', ['--preset', target.preset, '--output-on-failure']);
 } else {
   if (targetName.startsWith('macos-')) {
     run('cmake', ['--preset', target.preset, ...common]);
@@ -57,5 +61,8 @@ if (targetName.startsWith('windows-')) {
     run('cmake', ['-S', root, '-B', join(root, target.buildDir), '-G', 'Ninja', '-DCMAKE_BUILD_TYPE=Release', `-DEFFINDOM_TARGET_ARCH=${target.architecture}`, '-DEFFINDOM_BUILD_NATIVE_LINUX=ON', '-DEFFINDOM_NATIVE_GRAPHICS_BACKEND=vulkan', ...common]);
   }
   run('cmake', ['--build', join(root, target.buildDir)]);
+  if (withTests && stressWorkerTests) {
+    run('ctest', ['--test-dir', join(root, target.buildDir), '--output-on-failure', '-R', 'native worker', '--repeat', 'until-fail:20']);
+  }
   if (withTests) run('ctest', ['--test-dir', join(root, target.buildDir), '--output-on-failure']);
 }

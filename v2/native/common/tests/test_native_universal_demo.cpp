@@ -56,23 +56,22 @@ const NativeAccessibilityNode* FindNthLabelPrefix(
 bool ScrollUntilLabelPrefix(
     NativeHost& host,
     std::string_view prefix) {
-    for (float x = 1570.0F; x <= 1598.0F; x += 2.0F) {
-        host.DispatchPointer(x, 58.0F, true, 0, 1U, 1);
-        for (float y = 100.0F; y <= 940.0F; y += 40.0F) {
-            host.DispatchPointerMove(x, y, 0U, 1U);
-            host.DrainFrames();
-            if (FindLabelPrefix(host.AccessibilitySnapshotForTesting(), prefix) != nullptr) {
-                const float settled_y = std::min(940.0F, y + 160.0F);
-                host.DispatchPointerMove(x, settled_y, 0U, 1U);
-                host.DrainFrames();
-                host.DispatchPointer(x, settled_y, false, 0, 0U, 1);
-                host.DrainFrames();
-                return true;
-            }
-        }
-        host.DispatchPointer(x, 940.0F, false, 0, 0U, 1);
+    constexpr float scrollbar_x = 1590.0F;
+    host.DispatchPointer(scrollbar_x, 58.0F, true, 0, 1U, 1);
+    for (float y = 100.0F; y <= 940.0F; y += 40.0F) {
+        host.DispatchPointerMove(scrollbar_x, y, 0U, 1U);
         host.DrainFrames();
+        if (FindLabelPrefix(host.AccessibilitySnapshotForTesting(), prefix) != nullptr) {
+            const float settled_y = std::min(940.0F, y + 160.0F);
+            host.DispatchPointerMove(scrollbar_x, settled_y, 0U, 1U);
+            host.DrainFrames();
+            host.DispatchPointer(scrollbar_x, settled_y, false, 0, 0U, 1);
+            host.DrainFrames();
+            return true;
+        }
     }
+    host.DispatchPointer(scrollbar_x, 940.0F, false, 0, 0U, 1);
+    host.DrainFrames();
     return false;
 }
 

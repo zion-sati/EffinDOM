@@ -10,6 +10,7 @@ MANIFEST_FILE="${OUT_DIR}/effindom.v2.manifest.json"
 
 ICU_ROOT=""
 ICU_ROOT_CANDIDATES=(
+  "${REPO_ROOT}/build/fetchcontent-sources"/effindom_skia_pinned_icu-*
   "${REPO_ROOT}/build/build-v2-ui/_deps/effindom_skia_pinned_icu-src"
   "${REPO_ROOT}/build/build-v2-ui-wasm32/_deps/effindom_skia_pinned_icu-src"
   "${REPO_ROOT}/build/build-v2-core/_deps/effindom_skia_pinned_icu-src"

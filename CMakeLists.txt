@@ -12,6 +12,7 @@ endif()
 project(EffinDom LANGUAGES CXX)
 
 include(cmake/EffinDomTargetArchitecture.cmake)
+include(cmake/EffinDomFetchContentSources.cmake)
 include(CTest)
 
 set(CMAKE_CXX_STANDARD 17)
@@ -75,6 +76,10 @@ endif()
 if(NOT (EMSCRIPTEN AND EFFINDOM_WASM_DEPS_ROOT))
     include(FetchContent)
 
+    effindom_cache_git_source(
+        Catch2
+        https://github.com/catchorg/Catch2.git
+        v3.5.4)
     FetchContent_Declare(
         Catch2
         GIT_REPOSITORY https://github.com/catchorg/Catch2.git
@@ -96,6 +101,10 @@ elseif(NOT EMSCRIPTEN AND EFFINDOM_NATIVE_DEPS_MODE STREQUAL "prebuilt")
     effindom_use_prebuilt_native_deps()
 else()
     set(_EFFINDOM_PRE_YOGA_CXX_STANDARD ${CMAKE_CXX_STANDARD})
+    effindom_cache_git_source(
+        Yoga
+        https://github.com/facebook/yoga.git
+        v3.2.1)
     FetchContent_Declare(
         Yoga
         GIT_REPOSITORY https://github.com/facebook/yoga.git
