@@ -101,13 +101,20 @@ WASM_DEPS_CMAKE_ARGS=()
 if [ -n "${EFFINDOM_WASM_DEPS_ROOT:-}" ]; then
   WASM_DEPS_CMAKE_ARGS+=("-DEFFINDOM_WASM_DEPS_ROOT=${EFFINDOM_WASM_DEPS_ROOT}")
 fi
-SKIA_CMAKE_ARGS=()
-if [ -n "${SKIA_GRAPHITE_WASM_DIR:-}" ]; then
-  SKIA_CMAKE_ARGS+=("-DSKIA_GRAPHITE_WASM_DIR=${SKIA_GRAPHITE_WASM_DIR}")
+# The lane's own Skia, as v2/core/scripts/build_wasm_arch.sh resolves it; CMake's default (skia/wasm) is the wasm32
+# lane's, which a build of one lane does not have.
+SKIA_LANE_DIR="${REPO_ROOT}/skia/wasm"
+if [ "${WASM_ARCH}" = "wasm64" ]; then
+  SKIA_LANE_DIR="${REPO_ROOT}/skia/wasm64"
 fi
-if [ -n "${SKIA_GANESH_WASM_DIR:-}" ]; then
-  SKIA_CMAKE_ARGS+=("-DSKIA_GANESH_WASM_DIR=${SKIA_GANESH_WASM_DIR}")
+if [ "${SIMD_ENABLED}" = "ON" ]; then
+  SKIA_LANE_DIR="${SKIA_LANE_DIR}-simd"
 fi
+SKIA_GRAPHITE_DIR="${SKIA_GRAPHITE_WASM_DIR:-${SKIA_LANE_DIR}}"
+SKIA_CMAKE_ARGS=(
+  "-DSKIA_GRAPHITE_WASM_DIR=${SKIA_GRAPHITE_DIR}"
+  "-DSKIA_GANESH_WASM_DIR=${SKIA_GANESH_WASM_DIR:-${SKIA_GRAPHITE_DIR}}"
+)
 
 CACHE_LAUNCHER_CMAKE_ARGS=()
 if [ "${EFFINDOM_USE_CCACHE:-0}" = "1" ]; then
