@@ -1,25 +1,24 @@
 #pragma once
 
+#include "UiPagedSlots.h"
 #include "UiTypes.h"
 
-#include <array>
 #include <cstdint>
 #include <utility>
 
 namespace effindom::v2::ui {
 
+using NodeSlots = PagedSlots<UINode, kMaxNodes>;
+
 class NodeReader {
 public:
-    NodeReader(const std::array<UINode, kMaxNodes>& nodes, const std::uint64_t& root_handle)
+    NodeReader(const NodeSlots& nodes, const std::uint64_t& root_handle)
         : nodes_(nodes), root_handle_(root_handle) {}
 
     const UINode* Resolve(std::uint64_t handle) const {
         const HandleParts parts = DecodeHandle(handle);
-        if (parts.index == 0U || parts.index >= nodes_.size()) {
-            return nullptr;
-        }
-        const UINode& node = nodes_[parts.index];
-        return node.is_active && node.generation == parts.generation ? &node : nullptr;
+        const UINode* node = parts.index == 0U ? nullptr : nodes_.Find(parts.index);
+        return node != nullptr && node->is_active && node->generation == parts.generation ? node : nullptr;
     }
 
     std::uint64_t RootHandle() const {
@@ -46,22 +45,19 @@ public:
     }
 
 private:
-    const std::array<UINode, kMaxNodes>& nodes_;
+    const NodeSlots& nodes_;
     const std::uint64_t& root_handle_;
 };
 
 class NodeWriter {
 public:
-    NodeWriter(std::array<UINode, kMaxNodes>& nodes, std::uint64_t& root_handle)
+    NodeWriter(NodeSlots& nodes, std::uint64_t& root_handle)
         : nodes_(nodes), root_handle_(root_handle) {}
 
     UINode* Resolve(std::uint64_t handle) const {
         const HandleParts parts = DecodeHandle(handle);
-        if (parts.index == 0U || parts.index >= nodes_.size()) {
-            return nullptr;
-        }
-        UINode& node = nodes_[parts.index];
-        return node.is_active && node.generation == parts.generation ? &node : nullptr;
+        UINode* node = parts.index == 0U ? nullptr : nodes_.Find(parts.index);
+        return node != nullptr && node->is_active && node->generation == parts.generation ? node : nullptr;
     }
 
     std::uint64_t RootHandle() const {
@@ -73,21 +69,21 @@ public:
     }
 
 private:
-    std::array<UINode, kMaxNodes>& nodes_;
+    NodeSlots& nodes_;
     std::uint64_t& root_handle_;
 };
 
 class NodeTraversalAccess {
 public:
-    explicit NodeTraversalAccess(std::array<UINode, kMaxNodes>& nodes)
+    explicit NodeTraversalAccess(NodeSlots& nodes)
         : nodes_(nodes) {}
 
     template <typename Callback>
     void ForEachActive(Callback&& callback) const {
-        for (std::uint32_t index = 1U; index < nodes_.size(); index += 1U) {
-            UINode& node = nodes_[index];
-            if (node.is_active) {
-                callback(PackHandle(index, node.generation), node);
+        for (std::uint32_t index = 1U; index < nodes_.Extent(); index += 1U) {
+            UINode* node = nodes_.Find(index);
+            if (node != nullptr && node->is_active) {
+                callback(PackHandle(index, node->generation), *node);
             }
         }
     }
@@ -103,9 +99,9 @@ public:
 
     template <typename Predicate>
     bool AnyActive(Predicate&& predicate) const {
-        for (std::uint32_t index = 1U; index < nodes_.size(); index += 1U) {
-            UINode& node = nodes_[index];
-            if (node.is_active && predicate(PackHandle(index, node.generation), node)) {
+        for (std::uint32_t index = 1U; index < nodes_.Extent(); index += 1U) {
+            UINode* node = nodes_.Find(index);
+            if (node != nullptr && node->is_active && predicate(PackHandle(index, node->generation), *node)) {
                 return true;
             }
         }
@@ -120,20 +116,20 @@ public:
     }
 
 private:
-    std::array<UINode, kMaxNodes>& nodes_;
+    NodeSlots& nodes_;
 };
 
 class ConstNodeTraversalAccess {
 public:
-    explicit ConstNodeTraversalAccess(const std::array<UINode, kMaxNodes>& nodes)
+    explicit ConstNodeTraversalAccess(const NodeSlots& nodes)
         : nodes_(nodes) {}
 
     template <typename Callback>
     void ForEachActive(Callback&& callback) const {
-        for (std::uint32_t index = 1U; index < nodes_.size(); index += 1U) {
-            const UINode& node = nodes_[index];
-            if (node.is_active) {
-                callback(PackHandle(index, node.generation), node);
+        for (std::uint32_t index = 1U; index < nodes_.Extent(); index += 1U) {
+            const UINode* node = nodes_.Find(index);
+            if (node != nullptr && node->is_active) {
+                callback(PackHandle(index, node->generation), *node);
             }
         }
     }
@@ -149,9 +145,9 @@ public:
 
     template <typename Predicate>
     bool AnyActive(Predicate&& predicate) const {
-        for (std::uint32_t index = 1U; index < nodes_.size(); index += 1U) {
-            const UINode& node = nodes_[index];
-            if (node.is_active && predicate(PackHandle(index, node.generation), node)) {
+        for (std::uint32_t index = 1U; index < nodes_.Extent(); index += 1U) {
+            const UINode* node = nodes_.Find(index);
+            if (node != nullptr && node->is_active && predicate(PackHandle(index, node->generation), *node)) {
                 return true;
             }
         }
@@ -166,7 +162,7 @@ public:
     }
 
 private:
-    const std::array<UINode, kMaxNodes>& nodes_;
+    const NodeSlots& nodes_;
 };
 
 } // namespace effindom::v2::ui

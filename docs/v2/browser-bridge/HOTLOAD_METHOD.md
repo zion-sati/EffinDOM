@@ -95,7 +95,11 @@ The current route-swap path is:
      fresh runtime.
 3. `v2/browser-bridge/src/bridge.ts`
    - `recreateRuntime()` queues a new bridge runtime boot while reusing the
-     prepared asset/module promises.
+     prepared asset/module promises. The page keeps the compiled Core and UI
+     modules, not their bytes; the first session takes the prefetched ICU
+     bytes and later sessions fetch them again from the HTTP cache, so no
+     copy of data a module already holds stays in JavaScript. The managed
+     harness likewise caches compiled application modules only.
 4. `v2/browser-bridge/src/bridge/init.ts`
    - `createBridgeSession(...)` builds one fresh bridge session: renderer,
      event handlers, render loop, semantic projector, and default fonts.

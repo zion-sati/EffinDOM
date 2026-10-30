@@ -114,7 +114,8 @@ void ui_set_position(ui_handle_t handle, float left, float top, float right, flo
 
 // --- 5. Layout (WPF Grid) ---
 // `UI_NODE_GRID` runs a retained three-pass layout in Tier 2: unconstrained child
-// measurement, track sizing for Pixel/Auto/Star rows and columns, then final child
+// measurement (a child's own fixed pixel width or height is its measured size on that
+// axis, as in WPF; auto and percent sizes measure the content), track sizing for Pixel/Auto/Star rows and columns, then final child
 // arrangement into cell-constrained Yoga layouts. Column and row spanning are applied
 // during track sizing and arrangement; wrapped text is remeasured against the final
 // column width before auto row heights are resolved. WPF-style shared sizing is also
@@ -148,10 +149,11 @@ void ui_set_box_style(
     float border_dash_off);
 // Tier 2 emits retained `OP_PUSH_CLIP` / `OP_POP` scene ops for this flag. `UI_NODE_SCROLLVIEW`
 // also clips its descendants by default so viewport scrolling does not leak content outside bounds.
-// In v2 FUI-AS, FlexBox-derived containers now default to clipping too; callers opt back out with
-// `clipToBounds(false)` when overflow-visible behavior is intentional. `Portal`
-// remains the built-in overflow-visible escape hatch and opts out of clipping by
-// default so dropdown/dialog/context-menu overlays can escape their anchor bounds.
+// The SDKs' FlexBox-derived containers do not clip by default, as CSS's `overflow: visible` and WPF's
+// `ClipToBounds = false` do not: content and drop shadows may extend past a box, and callers opt in with
+// `clipToBounds(true)` where overflow must be hidden. `Portal` also never clips, so dropdown, dialog and
+// context-menu overlays escape their anchor bounds. A grid sizes itself from its tracks (fit-content), so its
+// cells lie within its bounds.
 void ui_set_clip_to_bounds(ui_handle_t handle, bool clip);
 void ui_set_linear_gradient(ui_handle_t handle, float sx, float sy, float ex, float ey, uint32_t stop_count, const float* offsets, const ui_color_t* colors);
 void ui_set_drop_shadow(ui_handle_t handle, ui_color_t color, float offset_x, float offset_y, float blur_sigma, float spread);

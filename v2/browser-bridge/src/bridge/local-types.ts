@@ -43,17 +43,22 @@ export interface ArchitectureSelection {
   };
 }
 
+/** A runtime wasm asset, kept compiled; its bytes are dropped once compiled. */
 export interface PreparedWasmAsset {
   readonly url: string;
   readonly integrity: string | null;
-  readonly bytesPromise: Promise<ArrayBuffer>;
   readonly modulePromise: Promise<WebAssembly.Module>;
 }
 
+/**
+ * A binary asset a runtime session copies into wasm memory. The first session takes the prefetched bytes, and a later
+ * one (a route swap recreates the runtime) fetches them again, from the HTTP cache, so the page keeps no copy of data
+ * the module already holds.
+ */
 export interface PreparedBinaryAsset {
   readonly url: string;
   readonly integrity: string | null;
-  readonly bytesPromise: Promise<Uint8Array>;
+  prefetchedBytes: Promise<Uint8Array> | null;
 }
 
 export interface PreparedRuntimeAssets {

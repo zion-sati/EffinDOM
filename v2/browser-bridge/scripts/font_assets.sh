@@ -29,6 +29,11 @@ RUNTIME_PACKAGE_FONT_ASSETS=(
   "NotoColorEmoji.ttf"
 )
 
+# The license notices the fonts' licenses require beside every copy, written from the copied fonts' own metadata.
+write_font_notices() {
+  python3 "${REPO_ROOT}/v2/browser-bridge/scripts/write_font_notices.py" "$1" "${BRIDGE_FONT_SOURCE_DIR}/OFL-1.1.txt"
+}
+
 copy_bridge_font_assets() {
   local out_dir="$1"
   local font_asset=""
@@ -38,6 +43,7 @@ copy_bridge_font_assets() {
       cp "${BRIDGE_FONT_SOURCE_DIR}/${font_asset}" "${out_dir}/${font_asset}"
     fi
   done
+  write_font_notices "${out_dir}"
 }
 
 copy_runtime_package_font_assets() {
@@ -49,4 +55,5 @@ copy_runtime_package_font_assets() {
       cp "${BRIDGE_FONT_SOURCE_DIR}/${font_asset}" "${out_dir}/${font_asset}"
     fi
   done
+  write_font_notices "${out_dir}"
 }

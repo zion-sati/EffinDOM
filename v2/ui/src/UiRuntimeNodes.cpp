@@ -86,7 +86,7 @@ void UiRuntime::RestorePendingFocusIfPossible() {
 }
 
 std::uint64_t UiRuntime::CreateNode(std::uint32_t type) {
-    const std::uint64_t handle = node_store_.Create(type, &UiRuntime::MeasureTextCallback);
+    const std::uint64_t handle = node_store_.Create(type, &UiRuntime::MeasureTextCallback, &UiRuntime::MeasureGridCallback);
     if (handle != UI_INVALID_HANDLE) {
         layout_dirty_ = true;
     }

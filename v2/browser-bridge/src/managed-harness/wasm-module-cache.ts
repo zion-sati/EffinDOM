@@ -1,30 +1,20 @@
 import { getHostServiceImportNames, type HostServicesDefinition } from './host-services';
 
+/** Application modules by path, compiled once per page. Only the compiled module is kept, not its bytes. */
 export class WasmModuleCache {
-  private readonly wasmByteCache = new Map<string, Promise<ArrayBuffer>>();
   private readonly wasmModuleCache = new Map<string, Promise<WebAssembly.Module>>();
-
-  async fetchWasmBytes(wasmPath: string): Promise<ArrayBuffer> {
-    const cached = this.wasmByteCache.get(wasmPath);
-    if (cached !== undefined) {
-      return cached;
-    }
-    const fetchPromise = fetch(wasmPath, { cache: 'no-store' }).then(async (response) => {
-      if (!response.ok) {
-        throw new Error(`Failed to load wasm app: ${wasmPath}`);
-      }
-      return response.arrayBuffer();
-    });
-    this.wasmByteCache.set(wasmPath, fetchPromise);
-    return fetchPromise;
-  }
 
   async loadWasmModule(wasmPath: string): Promise<WebAssembly.Module> {
     const cached = this.wasmModuleCache.get(wasmPath);
     if (cached !== undefined) {
       return cached;
     }
-    const compilePromise = this.fetchWasmBytes(wasmPath).then((bytes) => WebAssembly.compile(bytes));
+    const compilePromise = fetch(wasmPath, { cache: 'no-store' }).then(async (response) => {
+      if (!response.ok) {
+        throw new Error(`Failed to load wasm app: ${wasmPath}`);
+      }
+      return await WebAssembly.compile(await response.arrayBuffer());
+    });
     this.wasmModuleCache.set(wasmPath, compilePromise);
     return compilePromise;
   }

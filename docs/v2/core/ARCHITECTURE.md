@@ -48,6 +48,8 @@ enum EdCommand {
 
     // --- VISUALS ---
     // [CMD_SET_BOX_STYLE, HandleL, HandleU, BgColor, RadTL, RadTR, RadBR, RadBL, BorderW, BorderColor, BorderStyle, DashOn, DashOff]
+    // Under an opaque solid border the fill stops halfway into the border (background bleed avoidance, as browsers
+    // do), so the fill's anti-aliased edge does not tint the border's on rounded corners.
     CMD_SET_BOX_STYLE = 20,
 
     // [CMD_SET_LAYER_EFFECT, HandleL, HandleU, Opacity, BlurSigma, BlendModeEnum]
@@ -60,6 +62,8 @@ enum EdCommand {
     CMD_SET_DROP_SHADOW = 24,
 
     // [CMD_SET_LINEAR_GRADIENT, HandleL, HandleU, SX, SY, EX, EY, StopCount, (Offset, Color)...]
+    // The points are relative to the node's top-left corner. The gradient fills the node's rounded rect at full
+    // strength whatever the background color's alpha; the stops carry their own alpha.
     CMD_SET_LINEAR_GRADIENT = 22,
 
     // --- MEDIA & PATHS ---
@@ -103,17 +107,24 @@ enum EdCommand {
     // Used exclusively for hit-testing. A flat array of interactive handles in Z-order.
     CMD_COMMIT_PAINT_ORDER = 98,
 
-    // [CMD_COMMIT_SCENE, InstructionCount, (Opcode, HandleL, HandleU)...]
+    // [CMD_COMMIT_SCENE, InstructionCount, (Opcode, HandleL, HandleU, Arg0, Arg1)...]
     // Used exclusively for rendering. Drives the Skia state machine.
     CMD_COMMIT_SCENE = 99
 };
 
-// Used exclusively inside CMD_COMMIT_SCENE payload. Strict 3-word stride.
+// Used exclusively inside CMD_COMMIT_SCENE payload. Strict 5-word stride; Arg0 and Arg1 are floats that only
+// OP_PUSH_TRANSLATE reads.
 enum SceneOpcode {
     OP_DRAW_NODE = 1,
-    OP_PUSH_CLIP = 2,  // canvas->save(); canvas->clipRRect(node.vis_rrect, true);
-    OP_PUSH_LAYER = 3, // canvas->saveLayer(node.bounds, &paint_with_opacity_and_blendmode);
-    OP_POP = 4         // canvas->restore(); handle words are 0 and ignored
+    OP_PUSH_CLIP = 2,        // canvas->save(); canvas->clipRRect(node.vis_rrect, true);
+    OP_PUSH_LAYER = 3,       // canvas->saveLayer(node.bounds, &paint_with_opacity_blur_blendmode_and_backdrop);
+                             // a custom drawable's layer, bounded by the node
+    OP_POP = 4,              // canvas->restore(); handle words are 0 and ignored
+    OP_PUSH_TRANSLATE = 5,   // canvas->save(); canvas->translate(Arg0, Arg1);
+    OP_DRAW_CUSTOM = 6,      // the host draws the custom drawable
+    OP_PUSH_GROUP_LAYER = 7  // canvas->saveLayer(nullptr, &paint_with_opacity_blur_and_blendmode): the node's
+                             // layer effect applied once to the node and everything drawn until the matching
+                             // OP_POP (its subtree); OP_DRAW_NODE for that node inside skips its own layer paint
 };
 ```
 
@@ -267,6 +278,10 @@ browser-facing MIME policy stays in the bridge.
 Tier 2 still stores one logical `font_id` per text node, but fallback faces can now be chained onto that primary ID with `ui_register_font_fallback(...)`. During shaping, Tier 2 resolves the effective face per glyph and emits that resolved face in each `CMD_SET_GLYPH_RUN` tuple as `GlyphFontID`. Tier 1 keeps the run-level `FontID` as the node's primary face, then uses the per-glyph override when a retained glyph run mixes multiple fonts.
 
 When the current chain still cannot cover a visible segment, Ui now reports both the coarse coverage bucket and the missing UTF-8 sample text back to the host. The shipped browser bridge uses that sample text to fetch Google-hosted subset shards on demand, Ui expands those WOFF2 bytes back to SFNT through a pinned Google `woff2` decoder before HarfBuzz registration, and the bridge then registers each shard under a fresh fallback font ID and calls `ui_font_loaded(primaryFontId)` so the retained text node reshapes against the expanded chain. Phase 4 also adds the inverse ABI needed for bounded shard caches: the host can now detach old fallback links through `ui_unregister_font_fallback(...)`, drop unused shard registrations with `ui_unregister_font(...)` / `ed_unregister_font(...)`, and then re-trigger shaping with `ui_font_loaded(...)` when eviction trims the runtime font set.
+
+### Node storage
+
+A handle is a slot index in its low 32 bits and that slot's generation in its high 32 bits. Tier 2 hands out slot indices, reusing the lowest free one, and Tier 1 stores each node at the same index. Both tiers hold their nodes in pages of 256 slots that are allocated the first time an index in the page is used, so memory follows the highest index in use rather than the limit, and a node's address never changes (Yoga keeps Tier 2 node pointers as measure contexts). Both tiers allow 65,536 slots; Tier 1 rejects `CMD_CREATE_NODE` for an index past that, and Tier 2 never hands one out.
 
 ### Media registration in the shipped browser path
 

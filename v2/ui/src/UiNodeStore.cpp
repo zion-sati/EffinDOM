@@ -25,9 +25,10 @@ NodeStore::~NodeStore() {
     Reset();
 }
 
-std::uint64_t NodeStore::Create(std::uint32_t type, YGMeasureFunc text_measure_func) {
-    for (std::uint32_t index = 1U; index < static_cast<std::uint32_t>(nodes_.size()); index += 1U) {
-        UINode& node = nodes_[index];
+std::uint64_t NodeStore::Create(std::uint32_t type, YGMeasureFunc text_measure_func, YGMeasureFunc grid_measure_func) {
+    for (std::uint32_t index = first_free_hint_; index < static_cast<std::uint32_t>(kMaxNodes); index += 1U) {
+        // The next page is allocated only once every index before it is in use.
+        UINode& node = *nodes_.Ensure(index);
         if (node.is_active) {
             continue;
         }
@@ -52,9 +53,14 @@ std::uint64_t NodeStore::Create(std::uint32_t type, YGMeasureFunc text_measure_f
         if (node.is_text_node) {
             YGNodeSetContext(node.yg_node, &node);
             YGNodeSetMeasureFunc(node.yg_node, text_measure_func);
+        } else if (node.is_grid) {
+            YGNodeSetContext(node.yg_node, &node);
+            YGNodeSetMeasureFunc(node.yg_node, grid_measure_func);
         }
         const std::uint64_t handle = PackHandle(index, next_generation);
+        node.self_handle = handle;
         pending_creations_.push_back(handle);
+        first_free_hint_ = index + 1U;
         return handle;
     }
     return UI_INVALID_HANDLE;
@@ -69,7 +75,7 @@ bool NodeStore::Destroy(std::uint64_t handle) {
     for (const std::uint64_t child_handle : node->children) {
         if (UINode* child = ResolveMutable(child_handle); child != nullptr) {
             child->parent_handle = UI_INVALID_HANDLE;
-            if (node->yg_node != nullptr && child->yg_node != nullptr) {
+            if (!node->is_grid && node->yg_node != nullptr && child->yg_node != nullptr) {
                 YGNodeRemoveChild(node->yg_node, child->yg_node);
             }
         }
@@ -95,6 +101,7 @@ bool NodeStore::Destroy(std::uint64_t handle) {
     node->needs_creation = false;
     node->is_dirty = false;
     node->parent_handle = UI_INVALID_HANDLE;
+    first_free_hint_ = std::min(first_free_hint_, DecodeHandle(handle).index);
     return true;
 }
 
@@ -112,7 +119,9 @@ bool NodeStore::AddChild(std::uint64_t parent_handle, std::uint64_t child_handle
         !RemoveChild(child->parent_handle, child_handle)) {
         return false;
     }
-    YGNodeInsertChild(parent->yg_node, child->yg_node, static_cast<std::uint32_t>(parent->children.size()));
+    if (!parent->is_grid) {
+        YGNodeInsertChild(parent->yg_node, child->yg_node, static_cast<std::uint32_t>(parent->children.size()));
+    }
     child->parent_handle = parent_handle;
     parent->children.push_back(child_handle);
     return true;
@@ -128,7 +137,9 @@ bool NodeStore::RemoveChild(std::uint64_t parent_handle, std::uint64_t child_han
     if (child_entry == parent->children.end()) {
         return false;
     }
-    YGNodeRemoveChild(parent->yg_node, child->yg_node);
+    if (!parent->is_grid) {
+        YGNodeRemoveChild(parent->yg_node, child->yg_node);
+    }
     parent->children.erase(child_entry);
     child->parent_handle = UI_INVALID_HANDLE;
     return true;
@@ -157,15 +168,14 @@ void NodeStore::EmitLifecycleCommands(CommandBuilder& builder) {
 }
 
 void NodeStore::Reset() {
-    for (UINode& node : nodes_) {
+    nodes_.ForEachAllocated([](std::uint32_t, UINode& node) {
         if (node.yg_node != nullptr) {
             YGNodeFree(node.yg_node);
             node.yg_node = nullptr;
         }
-        node.children.clear();
-        node.children.shrink_to_fit();
-        node = UINode{};
-    }
+    });
+    nodes_.Clear();
+    first_free_hint_ = 1U;
     root_handle_ = UI_INVALID_HANDLE;
     pending_creations_.clear();
     pending_deletions_.clear();

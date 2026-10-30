@@ -1318,7 +1318,13 @@ export function installPointerHandlers(
       !touchTapDiscarded &&
       touchTapCandidateHandle !== null &&
       handle === touchTapCandidateHandle;
-    if (type === UI_EVENT_POINTER_UP || type === UI_EVENT_POINTER_LEAVE || type === UI_EVENT_POINTER_CANCEL) {
+    // A move waiting for the next frame happened before this event, so its hover changes go first.
+    if (
+      type === UI_EVENT_POINTER_DOWN ||
+      type === UI_EVENT_POINTER_UP ||
+      type === UI_EVENT_POINTER_LEAVE ||
+      type === UI_EVENT_POINTER_CANCEL
+    ) {
       const pending = pointerMoveCoalescer.takePending();
       if (pending !== null) {
         processPointerMove(pending);

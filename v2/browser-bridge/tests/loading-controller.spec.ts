@@ -136,6 +136,76 @@ test('slow loading reveals the overlay and honors its minimum visible duration',
   expect(presenter.hiddenCount).toBe(1);
 });
 
+test('an app that draws before the delay elapses never reveals the overlay', async () => {
+  const clock = new ManualClock();
+  const presenter = new RecordingPresenter();
+  const controller = new HarnessLoadingController(presenter, clock, 'Loading', 'Starting', {
+    delayMs: 300,
+    minimumVisibleMs: 300,
+  });
+  const operation = controller.begin('Loading application', 0);
+
+  clock.advance(299);
+  controller.contentReady(operation);
+  clock.advance(500);
+  expect(presenter.shown).toEqual([]);
+  controller.update(operation, 'Fonts 1 / 2');
+  await controller.complete(operation);
+  expect(presenter.shown).toEqual([]);
+  expect(presenter.hiddenCount).toBe(1);
+});
+
+test('an overlay already showing when the app draws stays until the load completes', async () => {
+  const clock = new ManualClock();
+  const presenter = new RecordingPresenter();
+  const controller = new HarnessLoadingController(presenter, clock, 'Loading', 'Starting', {
+    delayMs: 300,
+    minimumVisibleMs: 300,
+  });
+  const operation = controller.begin('Loading application');
+
+  clock.advance(300);
+  controller.contentReady(operation);
+  expect(presenter.shown).toHaveLength(1);
+  const completion = controller.complete(operation);
+  clock.advance(299);
+  expect(presenter.hiddenCount).toBe(0);
+  clock.advance(1);
+  await completion;
+  expect(presenter.hiddenCount).toBe(1);
+});
+
+test('drawing from an obsolete load cannot cancel a newer load\'s overlay', () => {
+  const clock = new ManualClock();
+  const presenter = new RecordingPresenter();
+  const controller = new HarnessLoadingController(presenter, clock, 'Loading', 'Starting', {
+    delayMs: 300,
+    minimumVisibleMs: 300,
+  });
+  const first = controller.begin('First route');
+  controller.begin('Second route');
+
+  controller.contentReady(first);
+  clock.advance(300);
+  expect(presenter.shown).toEqual([{ state: 'loading', title: 'Loading', detail: 'Second route' }]);
+});
+
+test('debug delay still reveals the loader when the app draws early', () => {
+  const clock = new ManualClock();
+  const presenter = new RecordingPresenter();
+  const controller = new HarnessLoadingController(presenter, clock, 'Loading', 'Starting', {
+    delayMs: 10,
+    minimumVisibleMs: 0,
+    debugDelayMs: 100,
+  });
+  const operation = controller.begin('Debug loading');
+
+  clock.advance(5);
+  controller.contentReady(operation);
+  clock.advance(5);
+  expect(presenter.shown).toHaveLength(1);
+});
+
 test('debug delay deterministically exposes the loader on fast local builds', async () => {
   const clock = new ManualClock();
   const presenter = new RecordingPresenter();

@@ -76,6 +76,22 @@ TEST_CASE("v2 ui runtime emits retained box style layer effect and gradient comm
     CHECK(words[gradient_index + 7U] == 2U);
     CHECK(words[gradient_index + 9U] == 0xff0000ffU);
     CHECK(words[gradient_index + 11U] == 0x00ff00ffU);
+
+    // The layer effect applies to the node and its subtree as one group: [opcode, handle low, handle high, arg0, arg1].
+    const auto scene_it = std::find(words.begin(), words.end(), CMD_COMMIT_SCENE);
+    REQUIRE(scene_it != words.end());
+    const std::size_t scene_index = static_cast<std::size_t>(std::distance(words.begin(), scene_it));
+    const std::uint32_t instruction_count = words[scene_index + 1U];
+    REQUIRE(instruction_count >= 3U);
+    const auto opcode_at = [&](std::uint32_t instruction) { return words[scene_index + 2U + (instruction * 5U)]; };
+    const auto handle_at = [&](std::uint32_t instruction) {
+        const std::size_t base = scene_index + 2U + (instruction * 5U);
+        return static_cast<std::uint64_t>(words[base + 1U]) | (static_cast<std::uint64_t>(words[base + 2U]) << 32U);
+    };
+    CHECK(opcode_at(0U) == OP_PUSH_GROUP_LAYER);
+    CHECK(handle_at(0U) == root);
+    CHECK(opcode_at(1U) == OP_DRAW_NODE);
+    CHECK(opcode_at(instruction_count - 1U) == OP_POP);
 }
 
 

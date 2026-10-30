@@ -9,20 +9,30 @@ MANIFEST_SCRIPT="${REPO_ROOT}/v2/browser-bridge/scripts/generate_manifest.py"
 MANIFEST_FILE="${OUT_DIR}/effindom.v2.manifest.json"
 
 ICU_ROOT=""
-ICU_ROOT_CANDIDATES=(
-  "${REPO_ROOT}/build/fetchcontent-sources"/effindom_skia_pinned_icu-*
-  "${REPO_ROOT}/build/build-v2-ui/_deps/effindom_skia_pinned_icu-src"
-  "${REPO_ROOT}/build/build-v2-ui-wasm32/_deps/effindom_skia_pinned_icu-src"
-  "${REPO_ROOT}/build/build-v2-core/_deps/effindom_skia_pinned_icu-src"
-  "${REPO_ROOT}/build/build-v2-core-wasm32/_deps/effindom_skia_pinned_icu-src"
-)
 ICU_BUILD_DIR="${REPO_ROOT}/build/build-v2-browser-bridge-icu"
 ICU_FILTER="${REPO_ROOT}/v2/browser-bridge/icu-filter.json"
 ICU_CONFIG_STAMP="${ICU_BUILD_DIR}/.effindom-icu-config"
 ICU_CONFIG_STATUS="${ICU_BUILD_DIR}/config.status"
 ICU_JOBS="${ICU_JOBS:-4}"
 
-rm -rf "${OUT_DIR}"
+# EFFINDOM_WASM_LANES builds some of the lanes (all four by default); with EFFINDOM_WASM_LANES_ONLY=1 the build stops
+# once they are built, with the filtered ICU data when wasm32 is among them: what a dependency SDK CI job per lane
+# needs (scripts/wasm-deps/package.mjs --lane). The runtime's own build needs every lane.
+WASM_LANES="${EFFINDOM_WASM_LANES:-wasm32 wasm32-simd wasm64 wasm64-simd}"
+for lane in ${WASM_LANES}; do
+  case "${lane}" in
+    wasm32|wasm32-simd|wasm64|wasm64-simd) ;;
+    *) echo "Unknown WASM lane in EFFINDOM_WASM_LANES: ${lane}" >&2; exit 2 ;;
+  esac
+done
+if [ "${EFFINDOM_WASM_LANES_ONLY:-0}" != "1" ] && [ "${WASM_LANES}" != "wasm32 wasm32-simd wasm64 wasm64-simd" ]; then
+  echo "EFFINDOM_WASM_LANES selects lanes only with EFFINDOM_WASM_LANES_ONLY=1: the runtime needs all four." >&2
+  exit 2
+fi
+
+if [ "${EFFINDOM_WASM_LANES_ONLY:-0}" != "1" ]; then
+  rm -rf "${OUT_DIR}"
+fi
 mkdir -p "${REPO_ROOT}/build"
 STAGE_DIR="$(mktemp -d "${REPO_ROOT}/build/build-v2-browser-bridge-stage-XXXXXX")"
 
@@ -46,7 +56,9 @@ if [ -n "${WASM_DEPS_ROOT}" ]; then
   done
 fi
 
-mkdir -p "${OUT_DIR}"
+if [ "${EFFINDOM_WASM_LANES_ONLY:-0}" != "1" ]; then
+  mkdir -p "${OUT_DIR}"
+fi
 
 SKIA_WORKDIR_BASE="${SKIA_BUILD_WORKDIR:-${HOME}/.cache/effindom-skia-build}"
 parallel_variant_pids=()
@@ -247,7 +259,15 @@ prepare_icu_data() {
     return
   fi
 
-  for candidate in "${ICU_ROOT_CANDIDATES[@]}"; do
+  # Expand the fetched-source glob only now: on a fresh checkout the lanes above fetch ICU.
+  local -a icu_root_candidates=(
+    "${REPO_ROOT}/build/fetchcontent-sources"/effindom_skia_pinned_icu-*
+    "${REPO_ROOT}/build/build-v2-ui/_deps/effindom_skia_pinned_icu-src"
+    "${REPO_ROOT}/build/build-v2-ui-wasm32/_deps/effindom_skia_pinned_icu-src"
+    "${REPO_ROOT}/build/build-v2-core/_deps/effindom_skia_pinned_icu-src"
+    "${REPO_ROOT}/build/build-v2-core-wasm32/_deps/effindom_skia_pinned_icu-src"
+  )
+  for candidate in "${icu_root_candidates[@]}"; do
     if [ -d "${candidate}" ]; then
       ICU_ROOT="${candidate}"
       break
@@ -344,12 +364,8 @@ if [ -n "${WASM_DEPS_ROOT}" ]; then
 else
   prepare_skia_seed
 
-  for variant_workdir in \
-    "${SKIA_WORKDIR_BASE}/wasm32" \
-    "${SKIA_WORKDIR_BASE}/wasm32-simd" \
-    "${SKIA_WORKDIR_BASE}/wasm64" \
-    "${SKIA_WORKDIR_BASE}/wasm64-simd"; do
-    copy_skia_seed_to_workdir "${variant_workdir}"
+  for lane in ${WASM_LANES}; do
+    copy_skia_seed_to_workdir "${SKIA_WORKDIR_BASE}/${lane}"
   done
 fi
 
@@ -359,11 +375,22 @@ for variant_args in \
   "wasm64 wasm64 off" \
   "wasm64-simd wasm64 on"; do
   # shellcheck disable=SC2086
-  launch_variant_build ${variant_args}
+  set -- ${variant_args}
+  case " ${WASM_LANES} " in
+    *" $1 "*) launch_variant_build "$@" ;;
+  esac
 done
 
 if ! wait_for_variant_builds; then
   exit 1
+fi
+
+if [ "${EFFINDOM_WASM_LANES_ONLY:-0}" = "1" ]; then
+  case " ${WASM_LANES} " in
+    *" wasm32 "*) prepare_icu_data ;;
+  esac
+  green "=== Built the ${WASM_LANES} lanes ==="
+  exit 0
 fi
 
 prepare_icu_data
@@ -421,3 +448,6 @@ npx esbuild "${REPO_ROOT}/v2/ui/browser/bridge-harness.ts" \
   --minify \
   --outfile="${REPO_ROOT}/public/v2/ui/bridge-harness.js" \
   --sourcemap
+
+# The built runtime carries no machine paths; a leak fails the build before anything packs or publishes it.
+node "${REPO_ROOT}/scripts/check-artifact-paths.mjs" "${OUT_DIR}" "${REPO_ROOT}/public/v2/core" "${REPO_ROOT}/public/v2/ui"

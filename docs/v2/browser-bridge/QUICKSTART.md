@@ -158,6 +158,20 @@ The browser bridge owns the actual `navigator.clipboard.write(...)` call. If
 the browser rejects rich clipboard writes, it falls back to
 `navigator.clipboard.writeText(plainText)` so plain copy still succeeds.
 
+## Loading overlay
+
+The managed harness covers a loading application with an overlay only when the
+load is slow: it appears once `delayMs` (300 ms by default) has passed since the
+page started loading, and once shown it stays for at least `minimumVisibleMs`
+(300 ms). Set both under `web.loading` in `fui-config.json`, or pass `loading`
+to the harness (`false` disables the overlay).
+
+An application whose first frame is ready before the overlay appears never
+shows it: the overlay is cancelled when the first frame is committed, so it
+cannot appear over a drawn application. An overlay already showing stays until
+the load completes. In a debug build, `?effindom-loading-delay=<ms>` (or the
+harness's `loading.debugDelayMs`) still shows the overlay for that long.
+
 ## Debugging retained UI
 
 Use the [DevTools DOM Mirror](./DEVTOOLS_DOM_MIRROR.md) when you need to inspect

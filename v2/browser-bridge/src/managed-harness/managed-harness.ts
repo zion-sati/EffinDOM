@@ -48,6 +48,7 @@ HarnessState,
 import { HarnessUiChrome,waitForFrame } from './ui-chrome';
 import { createBrowserLoadingClock,HarnessLoadingController,type LoadingOperation } from './loading-controller';
 import { createUiImportModule } from './ui-imports';
+import { WasmModuleCache } from './wasm-module-cache';
 import { browserManagedPlatformHost } from './platform-host';
 
 type AutoHarnessExports = HarnessExports & {
@@ -276,8 +277,7 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
     let lastHandledUrlHref = window.location.href;
     let latestCommandWords: number[] = [];
     let latestRootHandle: string | null = null;
-    const wasmByteCache = new Map<string, Promise<ArrayBuffer>>();
-    const wasmModuleCache = new Map<string, Promise<WebAssembly.Module>>();
+    const wasmModules = new WasmModuleCache();
     let lastSystemAccentColor = -1;
     harnessUiChrome.setUrlPreviewText('');
 
@@ -1624,31 +1624,6 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
     };
     window.__fui_debug = debugApi;
 
-    async function fetchWasmBytes(wasmPath: string): Promise<ArrayBuffer> {
-      const cached = wasmByteCache.get(wasmPath);
-      if (cached !== undefined) {
-        return cached;
-      }
-      const fetchPromise = fetch(wasmPath, { cache: 'no-store' }).then(async (response) => {
-        if (!response.ok) {
-          throw new Error(`Failed to load wasm app: ${wasmPath}`);
-        }
-        return response.arrayBuffer();
-      });
-      wasmByteCache.set(wasmPath, fetchPromise);
-      return fetchPromise;
-    }
-
-    async function loadWasmModule(wasmPath: string): Promise<WebAssembly.Module> {
-      const cached = wasmModuleCache.get(wasmPath);
-      if (cached !== undefined) {
-        return cached;
-      }
-      const compilePromise = fetchWasmBytes(wasmPath).then((bytes) => WebAssembly.compile(bytes));
-      wasmModuleCache.set(wasmPath, compilePromise);
-      return compilePromise;
-    }
-
     function validateAppImports(wasmModule: WebAssembly.Module, hostServices: HostServicesDefinition | undefined): void {
       const allowedHostServiceImports = getHostServiceImportNames(hostServices);
       for (const imported of WebAssembly.Module.imports(wasmModule)) {
@@ -1751,7 +1726,7 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
         }
       });
       hydrateCurrentPersistedEntries(restoredSnapshot);
-      const wasmModule = await loadWasmModule(loadOptions.wasmPath);
+      const wasmModule = await wasmModules.loadWasmModule(loadOptions.wasmPath);
       validateAppImports(wasmModule, loadOptions.hostServices);
       const instance = await (loadOptions.instantiateApp ?? instantiateApp)(
         wasmModule,
@@ -1817,6 +1792,13 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
       notifySystemTheme(session);
       if (restoredSnapshot !== null) {
         restoreCurrentPersistedUiState(`loading ${loadOptions.wasmPath}`);
+      }
+      // The first frame, with any restored state, is committed and draws on the next animation frame; a loading overlay
+      // revealed after this point would cover a drawn app.
+      if (loadingOperation !== null) {
+        loadingController?.contentReady(loadingOperation);
+      }
+      if (restoredSnapshot !== null) {
         await settleCurrentSessionAfterRestore(`loading ${loadOptions.wasmPath}`);
       }
       const context: HarnessContext<Exports> = {

@@ -9,7 +9,10 @@ import type {
 } from '../core-types';
 import { createEditorSession, type EditorSession } from './interaction/editor-session';
 import { createBridgeLogs } from './interaction/logs';
-import { handleToString } from './utils/encoding';
+import { handleToBigInt, handleToString } from './utils/encoding';
+
+const UI_EVENT_POINTER_ENTER = 4;
+const UI_EVENT_POINTER_LEAVE = 5;
 
 function isHandledResult(value: unknown): boolean {
   return value === true || value === 1;
@@ -21,6 +24,13 @@ export function installCallbacks(runtimeRef: { current: BridgeRuntime | null }):
 
   const callbacks: EffinDomCallbacks = {
     onPointerEvent: (handle, eventType) => {
+      // The UI router reports the hover changes of pointer moves. Record them, so the hover sync that runs after each
+      // commit only reports changes the router did not, instead of replaying a stale leave and enter.
+      if (eventType === UI_EVENT_POINTER_ENTER) {
+        editorSession.setLastInteractivePointerHandle(handleToBigInt(handle));
+      } else if (eventType === UI_EVENT_POINTER_LEAVE && editorSession.getLastInteractivePointerHandle() === handleToBigInt(handle)) {
+        editorSession.setLastInteractivePointerHandle(null);
+      }
       const { x, y } = editorSession.getLastPointerPosition();
       const modifiers = editorSession.getLastPointerModifiers();
       const pending = window.__effindomPendingPointerMetadata;

@@ -590,6 +590,109 @@ TEST_CASE("v2 render applies viewport transform after DPR scaling", "[v2][unit]"
     CHECK(untransformed_band[3] < 32U);
 }
 
+TEST_CASE("v2 linear gradient points are relative to the node and ignore the background alpha", "[v2][unit]") {
+    Engine engine;
+    engine.Init(200, 20, 1.0f);
+
+    const std::uint64_t node = Handle(3120);
+
+    CommandBuilder builder;
+    builder.CreateNode(node);
+    builder.SetBounds(node, 100.0f, 0.0f, 100.0f, 20.0f, false);
+    // A transparent background: the gradient still paints at full strength.
+    builder.SetBoxStyle(node, 0x00000000U, 0.0f, 0.0f, 0.0f, 0.0f);
+    builder.SetLinearGradient(node, 0.0f, 0.0f, 100.0f, 0.0f, {
+        GradientStop{0.0f, 0xff0000ffU},
+        GradientStop{1.0f, 0x0000ffffU},
+    });
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_DRAW_NODE, node},
+    });
+    engine.ExecuteCommandBuffer(builder.words().data(), static_cast<std::uint32_t>(builder.words().size()));
+
+    const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(200, 20));
+    REQUIRE(surface);
+    engine.RenderToCanvas(surface->getCanvas());
+
+    const auto pixels = SnapshotRgba(surface, 200, 20);
+    const auto start = PixelAt(pixels, 200, 102, 10);
+    const auto end = PixelAt(pixels, 200, 197, 10);
+    CHECK(start[3] > 240U);
+    CHECK(start[0] > 230U);
+    CHECK(start[2] < 25U);
+    CHECK(end[3] > 240U);
+    CHECK(end[2] > 230U);
+    CHECK(end[0] < 25U);
+}
+
+TEST_CASE("v2 group layer fades a node together with its children", "[v2][unit]") {
+    Engine engine;
+    engine.Init(40, 20, 1.0f);
+
+    const std::uint64_t parent = Handle(3121);
+    const std::uint64_t child = Handle(3122);
+
+    CommandBuilder builder;
+    builder.CreateNode(parent);
+    builder.CreateNode(child);
+    builder.SetBounds(parent, 0.0f, 0.0f, 20.0f, 20.0f, false);
+    // The child sits outside its parent's bounds: the group must not cut it off.
+    builder.SetBounds(child, 20.0f, 0.0f, 20.0f, 20.0f, false);
+    builder.SetBoxStyle(parent, 0xff0000ffU, 0.0f, 0.0f, 0.0f, 0.0f);
+    builder.SetBoxStyle(child, 0x0000ffffU, 0.0f, 0.0f, 0.0f, 0.0f);
+    builder.SetLayerEffect(parent, 0.5f, 0.0f, ED_BLEND_SRC_OVER);
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_PUSH_GROUP_LAYER, parent},
+        SceneInstructionDebugView{OP_DRAW_NODE, parent},
+        SceneInstructionDebugView{OP_DRAW_NODE, child},
+        SceneInstructionDebugView{OP_POP, ED_INVALID_HANDLE},
+    });
+    engine.ExecuteCommandBuffer(builder.words().data(), static_cast<std::uint32_t>(builder.words().size()));
+
+    const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(40, 20));
+    REQUIRE(surface);
+    engine.RenderToCanvas(surface->getCanvas());
+
+    const auto pixels = SnapshotRgba(surface, 40, 20);
+    const auto parent_pixel = PixelAt(pixels, 40, 10, 10);
+    const auto child_pixel = PixelAt(pixels, 40, 30, 10);
+    // Half opacity once, not twice: the node's own drawing does not apply its opacity again inside the group.
+    CHECK(parent_pixel[3] > 118U);
+    CHECK(parent_pixel[3] < 138U);
+    CHECK(child_pixel[3] > 118U);
+    CHECK(child_pixel[3] < 138U);
+}
+
+TEST_CASE("v2 a fill does not tint an opaque rounded border's anti-aliased edge", "[v2][unit]") {
+    Engine engine;
+    engine.Init(60, 40, 1.0f);
+
+    const std::uint64_t node = Handle(3123);
+
+    CommandBuilder builder;
+    builder.CreateNode(node);
+    builder.SetBounds(node, 10.0f, 8.0f, 40.0f, 24.0f, false);
+    builder.SetBoxStyle(node, 0x2563ebffU, 6.0f, 6.0f, 6.0f, 6.0f, 1.0f, 0xc2cad4ffU, ED_BORDER_SOLID);
+    builder.CommitScene({
+        SceneInstructionDebugView{OP_DRAW_NODE, node},
+    });
+    engine.ExecuteCommandBuffer(builder.words().data(), static_cast<std::uint32_t>(builder.words().size()));
+
+    const auto surface = SkSurfaces::Raster(SkImageInfo::MakeN32Premul(60, 40));
+    REQUIRE(surface);
+    surface->getCanvas()->clear(SK_ColorWHITE);
+    engine.RenderToCanvas(surface->getCanvas());
+
+    const auto pixels = SnapshotRgba(surface, 60, 40);
+    // The corner's outermost partly covered pixel is the grey border over the page, not a blue blend; the straight
+    // edge stays the border's solid grey.
+    const auto corner = PixelAt(pixels, 60, 11, 9);
+    const auto edge = PixelAt(pixels, 60, 10, 20);
+    CHECK(static_cast<int>(corner[2]) - static_cast<int>(corner[0]) <= 10);
+    CHECK(edge[0] == 0xc2U);
+    CHECK(edge[2] == 0xd4U);
+}
+
 TEST_CASE("v2 viewport transform clamps scale and offsets", "[v2][unit]") {
     Engine engine;
     engine.Init(100, 80, 1.0f);
@@ -1611,6 +1714,27 @@ TEST_CASE("v2 hit testing walks top-most paint order backwards", "[v2][unit]") {
     CHECK(engine.HitTest(45.0f, 45.0f) == front);
     CHECK(engine.HitTest(5.0f, 5.0f) == back);
     CHECK(engine.HitTest(250.0f, 250.0f) == ED_INVALID_HANDLE);
+}
+
+TEST_CASE("v2 display nodes far apart in the handle space are created and resolved on demand", "[v2][unit]") {
+    Engine engine;
+    const std::uint64_t low = Handle(3);
+    const std::uint64_t high = Handle(detail::kMaxNodes - 1U);
+
+    CommandBuilder builder;
+    builder.CreateNode(low);
+    builder.CreateNode(high);
+    builder.PushRaw(CMD_CREATE_NODE);
+    builder.PushRaw(detail::kMaxNodes);
+    builder.PushRaw(1U);
+    builder.SetBounds(low, 0.0f, 0.0f, 50.0f, 50.0f, true);
+    builder.SetBounds(high, 60.0f, 0.0f, 50.0f, 50.0f, true);
+    builder.CommitPaintOrder({low, high});
+
+    engine.ExecuteCommandBuffer(builder.words().data(), static_cast<std::uint32_t>(builder.words().size()));
+    CHECK(engine.HitTest(10.0f, 10.0f) == low);
+    CHECK(engine.HitTest(70.0f, 10.0f) == high);
+    CHECK(engine.HitTest(200.0f, 10.0f) == ED_INVALID_HANDLE);
 }
 
 TEST_CASE("v2 render paths cover object fit fades blends and scene stack edge cases", "[v2][unit]") {

@@ -101,7 +101,7 @@ void RenderStyledScene(const std::filesystem::path& output_path) {
     builder.CreateNode(text);
     builder.SetBounds(box, 24.0f, 24.0f, 272.0f, 172.0f, false);
     builder.SetBoxStyle(box, 0x203040ffU, 18.0f, 18.0f, 18.0f, 18.0f, 4.0f, 0xf0c040ffU, ED_BORDER_DASHED, 10.0f, 5.0f);
-    builder.SetLinearGradient(box, 24.0f, 24.0f, 296.0f, 196.0f, {
+    builder.SetLinearGradient(box, 0.0f, 0.0f, 272.0f, 172.0f, {
         GradientStop{0.0f, 0x5eead4ffU},
         GradientStop{1.0f, 0x2563ebffU},
     });

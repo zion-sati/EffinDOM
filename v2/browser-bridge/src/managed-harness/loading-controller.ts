@@ -104,6 +104,18 @@ export class HarnessLoadingController {
     }
   }
 
+  /**
+   * The app has committed its first frame, which the next animation frame draws. An overlay still waiting out its
+   * delay would only cover that frame, so it is not revealed; one already showing stays until complete(), and a debug
+   * delay still reveals it.
+   */
+  contentReady(operation: LoadingOperation): void {
+    if (!this.isCurrent(operation) || this.visibleAtMs !== null || this.debugDelayMs > 0) {
+      return;
+    }
+    this.cancelRevealTimer();
+  }
+
   async complete(operation: LoadingOperation): Promise<void> {
     if (!this.isCurrent(operation)) {
       return;

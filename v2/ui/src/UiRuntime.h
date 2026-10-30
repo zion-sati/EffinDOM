@@ -992,6 +992,14 @@ EFFINDOM_V2_UI_PRIVATE:
         float height,
         YGMeasureMode height_mode);
 
+    // Sizes a grid from its tracks: fit-content, its natural size within the space available.
+    static YGSize MeasureGridCallback(
+        YGNodeConstRef yg_node,
+        float width,
+        YGMeasureMode width_mode,
+        float height,
+        YGMeasureMode height_mode);
+
     void ResetCommitFrameArena() override;
     void BeginCommitProfile() override;
     void FinishCommitProfile(double total_commit_ms) override;

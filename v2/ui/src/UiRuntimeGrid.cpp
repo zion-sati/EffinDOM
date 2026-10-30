@@ -222,14 +222,16 @@ GridStyleSnapshot ApplyGridMeasurementStyle(
     std::optional<float> width,
     std::optional<float> height) {
     GridStyleSnapshot snapshot = CaptureGridStyle(child.yg_node);
+    // A child's own fixed width or height is its desired size on that axis, as in WPF, so an Auto track holds it.
+    // Content-sized and percentage dimensions are measured from the content.
     if (width.has_value()) {
         YGNodeStyleSetWidth(child.yg_node, *width);
-    } else {
+    } else if (snapshot.width.unit != YGUnitPoint) {
         YGNodeStyleSetWidthAuto(child.yg_node);
     }
     if (height.has_value()) {
         YGNodeStyleSetHeight(child.yg_node, *height);
-    } else {
+    } else if (snapshot.height.unit != YGUnitPoint) {
         YGNodeStyleSetHeightAuto(child.yg_node);
     }
     MarkGridChildDirty(child);
@@ -352,7 +354,8 @@ std::vector<float> ResolveSharedColumnWidths(
     std::uint64_t handle,
     UINode& grid,
     float available_width,
-    const SharedSizeScopeRef& scope_ref);
+    const SharedSizeScopeRef& scope_ref,
+    bool size_to_content = false);
 
 void CollectSharedTrackSizes(
     const SharedSizeScopeRef& scope_ref,
@@ -409,11 +412,22 @@ void CollectSharedTrackSizes(
     });
 }
 
+// Star tracks hold their content, as Auto tracks do, when the grid sizes to its content: there is no fixed space to
+// share among them (WPF measures stars as Auto under an infinite constraint).
+void StarsHoldContent(std::vector<std::uint8_t>& track_types) {
+    for (std::uint8_t& type : track_types) {
+        if (type == UI_GRID_UNIT_STAR) {
+            type = UI_GRID_UNIT_AUTO;
+        }
+    }
+}
+
 std::vector<float> ResolveSharedColumnWidths(
     std::uint64_t handle,
     UINode& grid,
     float available_width,
-    const SharedSizeScopeRef& scope_ref) {
+    const SharedSizeScopeRef& scope_ref,
+    bool size_to_content) {
     EnsureGridNaturalMeasures(grid);
     const std::size_t column_count = ResolveGridTrackCount(grid, true);
     std::vector<float> column_values{};
@@ -421,7 +435,10 @@ std::vector<float> ResolveSharedColumnWidths(
     std::vector<std::string> shared_groups{};
     BuildTrackDefinitions(grid.column_values, grid.column_types, column_count, column_values, column_types);
     BuildSharedSizeGroupDefinitions(GetRuntime().GridColumnSharedSizeGroups(handle), column_count, shared_groups);
-    const std::vector<std::uint8_t> effective_types = ResolveEffectiveTrackTypes(column_types, shared_groups);
+    std::vector<std::uint8_t> effective_types = ResolveEffectiveTrackTypes(column_types, shared_groups);
+    if (size_to_content) {
+        StarsHoldContent(effective_types);
+    }
 
     std::vector<float> column_widths{};
     SetTrackBaseSizes(column_widths, effective_types, column_values);
@@ -448,45 +465,29 @@ std::vector<float> ResolveSharedColumnWidths(
     return column_widths;
 }
 
-} // namespace
-
-
-void SceneTraversal::LayoutGrid(
+// Row heights for the given column widths: star rows share the available height, or hold their content when the
+// grid sizes to its content (no available height).
+std::vector<float> ResolveRowHeights(
     std::uint64_t handle,
-    UINode& node,
-    float abs_x,
-    float abs_y,
-    float scene_x,
-    float scene_y,
-    bool inherited_scroll_dirty,
-    CommandBuilder& builder,
-    std::vector<std::uint64_t>& paint_order,
-    std::vector<SceneInstruction>& scene,
-    std::vector<std::uint64_t>& deferred_portal_roots) {
-    const std::size_t column_count = ResolveGridTrackCount(node, true);
-    const std::size_t row_count = ResolveGridTrackCount(node, false);
-    const Rect content_abs_bounds = grid_layout_.ComputeContentBounds(node, abs_x, abs_y);
-    const Rect content_scene_bounds = grid_layout_.ComputeContentBounds(node, scene_x, scene_y);
-    const float content_width = content_abs_bounds.width;
-    const float content_height = content_abs_bounds.height;
-
-    std::vector<float> column_values{};
-    std::vector<std::uint8_t> column_types{};
+    UINode& grid,
+    const std::vector<float>& column_widths,
+    std::optional<float> available_height,
+    const SharedSizeScopeRef& scope_ref) {
+    const std::size_t row_count = ResolveGridTrackCount(grid, false);
     std::vector<float> row_values{};
     std::vector<std::uint8_t> row_types{};
-    BuildTrackDefinitions(node.column_values, node.column_types, column_count, column_values, column_types);
-    BuildTrackDefinitions(node.row_values, node.row_types, row_count, row_values, row_types);
-    const SharedSizeScopeRef scope_ref = ResolveSharedSizeScope(node, handle);
+    BuildTrackDefinitions(grid.row_values, grid.row_types, row_count, row_values, row_types);
     std::vector<std::string> row_shared_groups{};
-    BuildSharedSizeGroupDefinitions(grid_layout_.GridRowSharedSizeGroups(handle), row_count, row_shared_groups);
-    const std::vector<std::uint8_t> effective_row_types = ResolveEffectiveTrackTypes(row_types, row_shared_groups);
-
-    std::vector<float> column_widths = ResolveSharedColumnWidths(handle, node, content_width, scope_ref);
-    EnsureGridMeasuredSizesForColumns(node, column_widths);
+    BuildSharedSizeGroupDefinitions(GetRuntime().GridRowSharedSizeGroups(handle), row_count, row_shared_groups);
+    std::vector<std::uint8_t> effective_row_types = ResolveEffectiveTrackTypes(row_types, row_shared_groups);
+    if (!available_height.has_value()) {
+        StarsHoldContent(effective_row_types);
+    }
+    EnsureGridMeasuredSizesForColumns(grid, column_widths);
 
     std::vector<float> row_heights{};
     SetTrackBaseSizes(row_heights, effective_row_types, row_values);
-    MarkAutoTracksFromMeasures(row_heights, effective_row_types, node, false, true);
+    MarkAutoTracksFromMeasures(row_heights, effective_row_types, grid, false, true);
     if (scope_ref.node != nullptr && HasSharedSizeGroups(row_shared_groups)) {
         std::unordered_map<std::string, float> shared_sizes{};
         CollectSharedTrackSizes(scope_ref, false, shared_sizes);
@@ -501,11 +502,84 @@ void SceneTraversal::LayoutGrid(
             }
         }
     }
-    DistributeStarTracks(
-        row_heights,
-        effective_row_types,
-        row_values,
-        std::max(0.0f, content_height - SumTracks(row_heights, 0U, row_heights.size())));
+    if (available_height.has_value()) {
+        DistributeStarTracks(
+            row_heights,
+            effective_row_types,
+            row_values,
+            std::max(0.0f, *available_height - SumTracks(row_heights, 0U, row_heights.size())));
+    }
+    return row_heights;
+}
+
+// One axis of a grid's measured size: what Yoga asked for exactly, otherwise its natural size within the space
+// available but never below its pixel and auto tracks (fit-content).
+float ResolveMeasuredExtent(float available, YGMeasureMode mode, float fixed_extent, float natural_extent) {
+    if (mode == YGMeasureModeExactly) {
+        return available;
+    }
+    if (mode == YGMeasureModeAtMost) {
+        return std::max(fixed_extent, std::min(natural_extent, available));
+    }
+    return natural_extent;
+}
+
+} // namespace
+
+YGSize UiRuntime::MeasureGridCallback(
+    YGNodeConstRef yg_node,
+    float width,
+    YGMeasureMode width_mode,
+    float height,
+    YGMeasureMode height_mode) {
+    auto* grid = static_cast<UINode*>(YGNodeGetContext(yg_node));
+    if (grid == nullptr || !grid->is_grid) {
+        return YGSize{0.0f, 0.0f};
+    }
+    const std::uint64_t handle = grid->self_handle;
+    const SharedSizeScopeRef scope_ref = ResolveSharedSizeScope(*grid, handle);
+
+    const std::vector<float> natural_columns = ResolveSharedColumnWidths(handle, *grid, 0.0f, scope_ref, true);
+    const float natural_width = SumTracks(natural_columns, 0U, natural_columns.size());
+    const std::vector<float> fixed_columns = ResolveSharedColumnWidths(handle, *grid, 0.0f, scope_ref);
+    const float measured_width = ResolveMeasuredExtent(
+        width, width_mode, SumTracks(fixed_columns, 0U, fixed_columns.size()), natural_width);
+    // The rows depend on the columns the grid will lay out at that width: wrapping text grows with narrower columns.
+    const std::vector<float> column_widths = width_mode != YGMeasureModeExactly && measured_width >= natural_width
+        ? natural_columns
+        : ResolveSharedColumnWidths(handle, *grid, measured_width, scope_ref);
+
+    const std::vector<float> natural_rows = ResolveRowHeights(handle, *grid, column_widths, std::nullopt, scope_ref);
+    const std::vector<float> fixed_rows = ResolveRowHeights(handle, *grid, column_widths, 0.0f, scope_ref);
+    const float measured_height = ResolveMeasuredExtent(
+        height,
+        height_mode,
+        SumTracks(fixed_rows, 0U, fixed_rows.size()),
+        SumTracks(natural_rows, 0U, natural_rows.size()));
+    return YGSize{measured_width, measured_height};
+}
+
+
+void SceneTraversal::LayoutGrid(
+    std::uint64_t handle,
+    UINode& node,
+    float abs_x,
+    float abs_y,
+    float scene_x,
+    float scene_y,
+    bool inherited_scroll_dirty,
+    CommandBuilder& builder,
+    std::vector<std::uint64_t>& paint_order,
+    std::vector<SceneInstruction>& scene,
+    std::vector<std::uint64_t>& deferred_portal_roots) {
+    const Rect content_abs_bounds = grid_layout_.ComputeContentBounds(node, abs_x, abs_y);
+    const Rect content_scene_bounds = grid_layout_.ComputeContentBounds(node, scene_x, scene_y);
+    const float content_width = content_abs_bounds.width;
+    const float content_height = content_abs_bounds.height;
+
+    const SharedSizeScopeRef scope_ref = ResolveSharedSizeScope(node, handle);
+    const std::vector<float> column_widths = ResolveSharedColumnWidths(handle, node, content_width, scope_ref);
+    const std::vector<float> row_heights = ResolveRowHeights(handle, node, column_widths, content_height, scope_ref);
 
     for (std::size_t child_index = 0; child_index < node.children.size(); child_index += 1U) {
         const std::uint64_t child_handle = node.children[child_index];
@@ -557,49 +631,14 @@ void SceneGeometryResolver::ResolveGrid(
     float abs_y,
     float scene_x,
     float scene_y) {
-    const std::size_t column_count = ResolveGridTrackCount(node, true);
-    const std::size_t row_count = ResolveGridTrackCount(node, false);
     const Rect content_abs_bounds = grid_layout_.ComputeContentBounds(node, abs_x, abs_y);
     const Rect content_scene_bounds = grid_layout_.ComputeContentBounds(node, scene_x, scene_y);
     const float content_width = content_abs_bounds.width;
     const float content_height = content_abs_bounds.height;
 
-    std::vector<float> column_values{};
-    std::vector<std::uint8_t> column_types{};
-    std::vector<float> row_values{};
-    std::vector<std::uint8_t> row_types{};
-    BuildTrackDefinitions(node.column_values, node.column_types, column_count, column_values, column_types);
-    BuildTrackDefinitions(node.row_values, node.row_types, row_count, row_values, row_types);
     const SharedSizeScopeRef scope_ref = ResolveSharedSizeScope(node, handle);
-    std::vector<std::string> row_shared_groups{};
-    BuildSharedSizeGroupDefinitions(grid_layout_.GridRowSharedSizeGroups(handle), row_count, row_shared_groups);
-    const std::vector<std::uint8_t> effective_row_types = ResolveEffectiveTrackTypes(row_types, row_shared_groups);
-
-    std::vector<float> column_widths = ResolveSharedColumnWidths(handle, node, content_width, scope_ref);
-    EnsureGridMeasuredSizesForColumns(node, column_widths);
-
-    std::vector<float> row_heights{};
-    SetTrackBaseSizes(row_heights, effective_row_types, row_values);
-    MarkAutoTracksFromMeasures(row_heights, effective_row_types, node, false, true);
-    if (scope_ref.node != nullptr && HasSharedSizeGroups(row_shared_groups)) {
-        std::unordered_map<std::string, float> shared_sizes{};
-        CollectSharedTrackSizes(scope_ref, false, shared_sizes);
-        for (std::size_t index = 0; index < row_heights.size() && index < row_shared_groups.size(); index += 1U) {
-            const std::string& group = row_shared_groups[index];
-            if (group.empty()) {
-                continue;
-            }
-            const auto it = shared_sizes.find(group);
-            if (it != shared_sizes.end()) {
-                row_heights[index] = std::max(row_heights[index], it->second);
-            }
-        }
-    }
-    DistributeStarTracks(
-        row_heights,
-        effective_row_types,
-        row_values,
-        std::max(0.0f, content_height - SumTracks(row_heights, 0U, row_heights.size())));
+    const std::vector<float> column_widths = ResolveSharedColumnWidths(handle, node, content_width, scope_ref);
+    const std::vector<float> row_heights = ResolveRowHeights(handle, node, column_widths, content_height, scope_ref);
 
     for (std::size_t child_index = 0; child_index < node.children.size(); child_index += 1U) {
         const std::uint64_t child_handle = node.children[child_index];

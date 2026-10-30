@@ -13,7 +13,8 @@
 
 namespace effindom::v2::ui {
 
-constexpr std::size_t kMaxNodes = 10'000;
+// The core's display node limit, so the UI never hands out a handle index the core cannot store.
+constexpr std::size_t kMaxNodes = 65'536;
 constexpr std::size_t kFrameArenaCapacity = 64U * 1024U;
 
 struct GradientStop {
@@ -161,7 +162,9 @@ struct UINode {
     bool is_text_editor = false;
     bool is_portal = false;
     bool is_scroll_view = false;
+    // A grid's cells are not Yoga children: the grid measures its tracks itself and places each cell.
     bool is_grid = false;
+    std::uint64_t self_handle = 0;
     bool is_selection_area = false;
     bool is_selection_area_barrier = false;
     bool preserves_selection_on_pointer_down = false;
