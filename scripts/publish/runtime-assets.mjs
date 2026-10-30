@@ -194,8 +194,12 @@ function stageRuntimeManifest(packageRoot, destination, packageVersion, counters
     fail('ICU integrity does not match the runtime manifest.');
   }
 
+  // The manifest lists the runtime's fonts. Anything else in the folder, such as the fonts' license notices, is
+  // published beside them but is not part of the runtime set.
+  const listedFonts = sourceManifest.assets.fonts;
   const fonts = {};
   const canonicalFonts = {};
+  const notices = {};
   if (existsSync(fontDirectory)) {
     for (const fileName of readdirSync(fontDirectory).sort()) {
       const source = join(fontDirectory, fileName);
@@ -204,8 +208,20 @@ function stageRuntimeManifest(packageRoot, destination, packageVersion, counters
       }
       const data = readFileSync(source);
       const staged = stageAsset(source, assetDirectory, contentAddressedName(fileName, data), counters);
+      if (listedFonts !== undefined && !Object.hasOwn(listedFonts, fileName)) {
+        notices[fileName] = staged;
+        continue;
+      }
+      if (listedFonts !== undefined && staged.integrity !== listedFonts[fileName].integrity) {
+        fail(`Font integrity does not match the runtime manifest: ${fileName}.`);
+      }
       fonts[fileName] = staged;
       canonicalFonts[fileName] = staged.integrity;
+    }
+  }
+  for (const fileName of Object.keys(listedFonts ?? {})) {
+    if (!Object.hasOwn(fonts, fileName)) {
+      fail(`Runtime manifest references a missing font: ${fileName}.`);
     }
   }
 
@@ -228,6 +244,7 @@ function stageRuntimeManifest(packageRoot, destination, packageVersion, counters
     assets: {
       icu,
       fonts,
+      ...(Object.keys(notices).length > 0 ? { notices } : {}),
     },
   };
   const manifestRelativePath = `v2/manifests/${runtimeSetHash}.json`;

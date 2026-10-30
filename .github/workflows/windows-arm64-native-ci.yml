@@ -16,9 +16,9 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      # MSVC 14.51 (the image's Visual Studio 2026 default) miscompiles ARM64 Release code: the UI tests' command
-      # buffer readers skip commands that 14.44 reads correctly from identical words. Build with 14.44 until a
-      # fixed toolset ships, as x64 still does on windows-2022.
+      # MSVC 14.51 (the image's Visual Studio 2026 default) miscompiles ARM64 /O2 code: it spills a live 64-bit
+      # value as 32 bits across a loop, which fails two UI tests' hash-map lookups. Build with 14.44 until a fixed
+      # toolset ships: https://developercommunity.visualstudio.com/t/ARM64-O2:-a-live-64-bit-value-is-spille/11176432
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64

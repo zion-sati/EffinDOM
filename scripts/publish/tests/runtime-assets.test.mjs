@@ -6,6 +6,8 @@ import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
 
+import { computeRuntimeSetHash } from '../../../v2/browser-bridge/scripts/runtime-set.mjs';
+
 const testDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(testDir, '..', '..', '..');
 const publisher = join(repoRoot, 'scripts', 'publish', 'runtime-assets.mjs');
@@ -38,12 +40,15 @@ try {
   writeFileSync(join(runtimeDir, 'core.hash.js'), js);
   writeFileSync(join(runtimeDir, 'core.hash.wasm'), wasm);
   writeFileSync(join(runtimeDir, 'icu.hash.dat'), icu);
-  writeFileSync(join(fontsDir, 'Example.ttf'), Buffer.from('font'));
+  const font = Buffer.from('font');
+  writeFileSync(join(fontsDir, 'Example.ttf'), font);
+  // The fonts' license notice ships beside them, but the manifest lists only the fonts.
+  writeFileSync(join(fontsDir, 'OFL.txt'), Buffer.from('SIL Open Font License\n'));
   writeFileSync(join(packageRoot, 'package.json'), JSON.stringify({
     name: '@effindomv2/runtime',
     version: packageVersion,
   }));
-  writeFileSync(join(packageRoot, 'dist', 'effindom.v2.manifest.json'), JSON.stringify({
+  const sourceManifest = {
     version: '1.0',
     manifest_hash: 'fixture',
     architectures: {
@@ -58,8 +63,11 @@ try {
     },
     assets: {
       icu: { url: './runtime/icu.hash.dat', integrity: integrity(icu) },
+      fonts: { 'Example.ttf': { url: './fonts/Example.ttf', integrity: integrity(font) } },
     },
-  }));
+  };
+  sourceManifest.runtime_set_hash = computeRuntimeSetHash(sourceManifest, { 'Example.ttf': integrity(font) });
+  writeFileSync(join(packageRoot, 'dist', 'effindom.v2.manifest.json'), JSON.stringify(sourceManifest));
   const tarball = join(root, 'runtime.tgz');
   run('tar', ['-czf', tarball, '-C', root, 'package']);
 
@@ -69,13 +77,16 @@ try {
   const args = [publisher, '--destination', destination, '--tarball', tarball];
   const first = run(process.execPath, args);
   const second = run(process.execPath, args);
-  assert.match(first, /Added: 5/);
+  assert.match(first, /Added: 6/);
   assert.match(second, /Added: 0/);
   const releases = JSON.parse(readFileSync(join(destination, 'v2', 'releases.json'), 'utf8'));
   const runtimeSetHash = releases.packages['@effindomv2/runtime'][packageVersion];
   const manifest = JSON.parse(readFileSync(join(destination, 'v2', 'manifests', `${runtimeSetHash}.json`), 'utf8'));
   assert.equal(manifest.runtime_set_hash, runtimeSetHash);
+  assert.equal(runtimeSetHash, sourceManifest.runtime_set_hash);
+  assert.deepEqual(Object.keys(manifest.assets.fonts), ['Example.ttf']);
   assert.match(manifest.assets.fonts['Example.ttf'].url, /^\.\.\/assets\/Example\..+\.ttf$/);
+  assert.match(manifest.assets.notices['OFL.txt'].url, /^\.\.\/assets\/OFL\..+\.txt$/);
   assert.equal(readFileSync(join(destination, 'CNAME'), 'utf8'), 'runtimes.effindom.dev\n');
   assert.equal(existsSync(join(destination, '.nojekyll')), false);
   console.log('runtime-assets publisher tests passed');
