@@ -16,15 +16,22 @@ jobs:
         with:
           node-version: 24
           cache: npm
+      # MSVC 14.51 (the image's Visual Studio 2026 default) miscompiles ARM64 Release code: the UI tests' command
+      # buffer readers skip commands that 14.44 reads correctly from identical words. Build with 14.44 until a
+      # fixed toolset ships, as x64 still does on windows-2022.
       - uses: ilammy/msvc-dev-cmd@v1
         with:
           arch: arm64
+          toolset: '14.44'
       - name: Verify MSVC toolchain
         shell: pwsh
         run: |
           $compiler = (Get-Command cl -ErrorAction Stop).Source
           if ($compiler -notlike '*Microsoft Visual Studio*') {
             throw "Expected the MSVC cl.exe, got $compiler"
+          }
+          if ($compiler -notlike '*\MSVC\14.44.*') {
+            throw "Expected the MSVC 14.44 toolset, got $compiler"
           }
           Write-Host "Using MSVC compiler: $compiler"
       - name: Verify ARM64 runner
