@@ -80,6 +80,9 @@ void SceneTraversal::EmitSceneAndChildren(
     std::vector<SceneInstruction>& scene,
     std::vector<std::uint64_t>& deferred_portal_roots) {
     paint_order.push_back(handle);
+    // A node's opacity, layer blur and blend mode apply to its whole subtree, as WPF's Opacity and CSS's opacity do:
+    // one group layer holds the node and its children. A portal's children draw later, outside the group.
+    const bool group_layer = !node.is_custom_drawable && node.has_layer_effect;
     if (node.is_custom_drawable) {
         if (node.has_layer_effect) {
             scene.push_back(SceneInstruction{OP_PUSH_LAYER, handle});
@@ -91,11 +94,17 @@ void SceneTraversal::EmitSceneAndChildren(
             scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
         }
     } else {
+        if (group_layer) {
+            scene.push_back(SceneInstruction{OP_PUSH_GROUP_LAYER, handle});
+        }
         scene.push_back(SceneInstruction{OP_DRAW_NODE, handle});
     }
     const bool clip_children = node.clip_to_bounds || node.is_scroll_view;
     if (node.is_portal) {
         deferred_portal_roots.push_back(handle);
+        if (group_layer) {
+            scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
+        }
         return;
     }
     if (node.is_grid) {
@@ -106,6 +115,9 @@ void SceneTraversal::EmitSceneAndChildren(
             handle, node, abs_x, abs_y, scene_x, scene_y, scroll_dirty,
             builder, paint_order, scene, deferred_portal_roots);
         if (clip_children) {
+            scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
+        }
+        if (group_layer) {
             scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
         }
         node.scroll_offset_dirty = false;
@@ -131,6 +143,9 @@ void SceneTraversal::EmitSceneAndChildren(
         scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
     }
     if (clip_children) {
+        scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
+    }
+    if (group_layer) {
         scene.push_back(SceneInstruction{OP_POP, UI_INVALID_HANDLE});
     }
     node.scroll_offset_dirty = false;

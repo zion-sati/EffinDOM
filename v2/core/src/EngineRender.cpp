@@ -246,9 +246,13 @@ sk_sp<SkShader> BuildGradientShader(const detail::DisplayNode& node) {
         positions[index] = std::clamp(node.gradient_stops[index].offset, 0.0f, 1.0f);
     }
 
+    // Points are relative to the node's top-left corner, as CSS gradients and WPF's default
+    // bounding-box mapping are, so the gradient moves with the node.
+    const float origin_x = node.visual_bounds.x;
+    const float origin_y = node.visual_bounds.y;
     const SkPoint points[2] = {
-        SkPoint::Make(node.gradient_start_x, node.gradient_start_y),
-        SkPoint::Make(node.gradient_end_x, node.gradient_end_y),
+        SkPoint::Make(origin_x + node.gradient_start_x, origin_y + node.gradient_start_y),
+        SkPoint::Make(origin_x + node.gradient_end_x, origin_y + node.gradient_end_y),
     };
     return SkGradientShader::MakeLinear(
         points,
@@ -295,8 +299,12 @@ bool NeedsLayerPaint(const detail::DisplayNode& node) {
         (node.opacity < 0.999f || node.blur_sigma > 0.0f || node.blend_mode != ED_BLEND_SRC_OVER);
 }
 
-bool SaveNodeLayer(SkCanvas* canvas, const detail::DisplayNode& node, const SkRect* bounds_override = nullptr) {
-    const bool needs_layer_paint = NeedsLayerPaint(node);
+bool SaveNodeLayer(
+    SkCanvas* canvas,
+    const detail::DisplayNode& node,
+    const SkRect* bounds_override = nullptr,
+    bool include_layer_paint = true) {
+    const bool needs_layer_paint = include_layer_paint && NeedsLayerPaint(node);
 #ifndef EFFINDOM_V2_CORE_WASM_LIMITED_EFFECTS
     const bool needs_backdrop = node.background_blur_sigma > 0.0f;
 #else
@@ -774,7 +782,7 @@ void Engine::Impl::DrawTextContent(
     }
 }
 
-void Engine::Impl::DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, double current_time_ms) {
+void Engine::Impl::DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, double current_time_ms, bool in_group_layer) {
     DrawDropShadow(canvas, node);
     bool saved_background_blur_clip = false;
 #ifndef EFFINDOM_V2_CORE_WASM_LIMITED_EFFECTS
@@ -789,7 +797,7 @@ void Engine::Impl::DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, d
         saved_background_blur_clip = true;
     }
 #endif
-    const bool saved_layer = SaveNodeLayer(canvas, node);
+    const bool saved_layer = SaveNodeLayer(canvas, node, nullptr, !in_group_layer);
 
     if (node.has_box_style || node.has_gradient) {
         SkPaint fill_paint;
@@ -798,8 +806,17 @@ void Engine::Impl::DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, d
         fill_paint.setAntiAlias(true);
         if (const sk_sp<SkShader> shader = BuildGradientShader(node)) {
             fill_paint.setShader(shader);
+            // The stops carry their own alpha; the background color's would otherwise scale the gradient.
+            fill_paint.setAlphaf(1.0f);
         }
-        canvas->drawRRect(BuildRoundedRect(node), fill_paint);
+        // Background bleed avoidance, as browsers do: under an opaque solid border the fill stops halfway into the
+        // border, so its anti-aliased edge does not tint the border's own. Otherwise a rounded corner's partly covered
+        // pixels mix in the fill and the curve looks heavier than the straight edges.
+        const bool border_hides_fill_edge = node.has_border && node.border_style == ED_BORDER_SOLID &&
+            node.border_width > 0.0f && (node.border_color & 0xffU) == 0xffU;
+        canvas->drawRRect(
+            border_hides_fill_edge ? BuildInsetRoundedRect(node, node.border_width * 0.5f) : BuildRoundedRect(node),
+            fill_paint);
     }
 
     if (node.has_image) {
@@ -922,11 +939,17 @@ void Engine::RenderToCanvas(SkCanvas* canvas, double current_time_ms) const {
     impl_->render_generation += 1U;
 
     int save_depth = 1;
+    // The node each open save belongs to when it is a group layer, else no_group_layer; parallel to save_depth.
+    constexpr std::uint64_t no_group_layer = ED_INVALID_HANDLE;
+    std::vector<std::uint64_t> group_layer_owners;
+    const auto is_in_own_group_layer = [&group_layer_owners](std::uint64_t handle) {
+        return std::find(group_layer_owners.begin(), group_layer_owners.end(), handle) != group_layer_owners.end();
+    };
     for (const detail::SceneInstruction& instruction : impl_->scene_instructions) {
         switch (instruction.opcode) {
         case OP_DRAW_NODE:
             if (const detail::DisplayNode* draw_node = impl_->Resolve(instruction.handle); draw_node != nullptr) {
-                impl_->DrawNode(canvas, *draw_node, current_time_ms);
+                impl_->DrawNode(canvas, *draw_node, current_time_ms, is_in_own_group_layer(instruction.handle));
             }
             break;
         case OP_PUSH_CLIP: {
@@ -935,6 +958,7 @@ void Engine::RenderToCanvas(SkCanvas* canvas, double current_time_ms) const {
                 break;
             }
             canvas->save();
+            group_layer_owners.push_back(no_group_layer);
             const SkRRect clip = BuildClipRoundedRect(*node);
             if (clip.isRect()) {
                 canvas->clipRect(clip.getBounds(), SkClipOp::kIntersect, false);
@@ -953,12 +977,29 @@ void Engine::RenderToCanvas(SkCanvas* canvas, double current_time_ms) const {
             } else {
                 canvas->saveLayer(nullptr, nullptr);
             }
+            group_layer_owners.push_back(no_group_layer);
+            save_depth += 1;
+            break;
+        }
+        case OP_PUSH_GROUP_LAYER: {
+            // The node's opacity, layer blur and blend mode apply to it and everything drawn until the matching
+            // OP_POP, as one group; unbounded, so children and shadows outside the node are not cut off.
+            const detail::DisplayNode* node = impl_->Resolve(instruction.handle);
+            if (node != nullptr && NeedsLayerPaint(*node)) {
+                SkPaint layer_paint;
+                ConfigureLayerPaint(*node, layer_paint);
+                canvas->saveLayer(nullptr, &layer_paint);
+            } else {
+                canvas->save();
+            }
+            group_layer_owners.push_back(node != nullptr ? instruction.handle : no_group_layer);
             save_depth += 1;
             break;
         }
         case OP_PUSH_TRANSLATE:
             canvas->save();
             canvas->translate(instruction.arg0, instruction.arg1);
+            group_layer_owners.push_back(no_group_layer);
             save_depth += 1;
             break;
         case OP_DRAW_CUSTOM:
@@ -976,6 +1017,7 @@ void Engine::RenderToCanvas(SkCanvas* canvas, double current_time_ms) const {
         case OP_POP:
             if (save_depth > 1) {
                 canvas->restore();
+                group_layer_owners.pop_back();
                 save_depth -= 1;
             }
             break;

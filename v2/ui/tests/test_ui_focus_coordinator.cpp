@@ -3,7 +3,6 @@
 
 #include <catch2/catch_test_macros.hpp>
 
-#include <array>
 #include <memory>
 #include <string>
 #include <unordered_map>
@@ -15,17 +14,15 @@ using effindom::v2::ui::NodeReader;
 using effindom::v2::ui::PackHandle;
 using effindom::v2::ui::UINode;
 using effindom::v2::ui::UiEventSink;
-using effindom::v2::ui::kMaxNodes;
 
 struct FocusFixture {
-    std::unique_ptr<std::array<UINode, kMaxNodes>> nodes =
-        std::make_unique<std::array<UINode, kMaxNodes>>();
+    std::unique_ptr<effindom::v2::ui::NodeSlots> nodes = std::make_unique<effindom::v2::ui::NodeSlots>();
     std::uint64_t root_handle = UI_INVALID_HANDLE;
     UiEventSink events{};
     FocusCoordinator focus{NodeReader(*nodes, root_handle), events};
 
     std::uint64_t Activate(std::uint32_t index) {
-        UINode& node = (*nodes)[index];
+        UINode& node = *nodes->Ensure(index);
         node = UINode{};
         node.generation = 1U;
         node.is_active = true;
@@ -34,7 +31,7 @@ struct FocusFixture {
     }
 
     UINode& Node(std::uint64_t handle) {
-        return (*nodes)[effindom::v2::ui::DecodeHandle(handle).index];
+        return *nodes->Find(effindom::v2::ui::DecodeHandle(handle).index);
     }
 
     void AddChild(std::uint64_t parent, std::uint64_t child) {

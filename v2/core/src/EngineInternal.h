@@ -1,6 +1,7 @@
 #pragma once
 
 #include "Engine.h"
+#include "PagedSlots.h"
 
 #include <array>
 #include <cstdint>
@@ -78,6 +79,8 @@ struct TextureRecord {
 struct EFFINDOM_V2_CORE_INTERNAL_API DisplayNode {
     bool alive = false;
     std::uint32_t generation = 0;
+    // The node's handle index, which links it into the glyph blob cache's LRU list.
+    std::uint32_t slot_index = 0;
     Rect visual_bounds{};
     Rect hit_bounds{};
     Rect clip_bounds{};
@@ -200,7 +203,7 @@ struct Engine::Impl {
     bool viewport_pan_momentum_active = false;
     double last_viewport_pan_timestamp_ms = 0.0;
     bool has_last_viewport_pan_timestamp = false;
-    std::vector<detail::DisplayNode> nodes = std::vector<detail::DisplayNode>(detail::kMaxNodes);
+    detail::PagedSlots<detail::DisplayNode, detail::kMaxNodes> nodes{};
     std::vector<detail::SceneInstruction> scene_instructions{};
     std::vector<std::uint64_t> paint_order{};
     std::uint64_t render_generation = 0;
@@ -238,7 +241,9 @@ struct Engine::Impl {
         float origin_y,
         bool use_glyph_blob_cache,
         bool apply_fade);
-    void DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, double current_time_ms);
+    // in_group_layer: the node's opacity, layer blur and blend mode already apply through an enclosing
+    // OP_PUSH_GROUP_LAYER for it, so its own drawing skips them.
+    void DrawNode(SkCanvas* canvas, const detail::DisplayNode& node, double current_time_ms, bool in_group_layer = false);
 };
 
 } // namespace effindom::v2

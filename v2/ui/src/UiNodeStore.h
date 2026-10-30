@@ -2,7 +2,6 @@
 
 #include "UiNodeStoreAccess.h"
 
-#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -18,7 +17,7 @@ public:
     NodeStore(const NodeStore&) = delete;
     NodeStore& operator=(const NodeStore&) = delete;
 
-    std::uint64_t Create(std::uint32_t type, YGMeasureFunc text_measure_func);
+    std::uint64_t Create(std::uint32_t type, YGMeasureFunc text_measure_func, YGMeasureFunc grid_measure_func);
     bool Destroy(std::uint64_t handle);
     bool AddChild(std::uint64_t parent_handle, std::uint64_t child_handle);
     bool RemoveChild(std::uint64_t parent_handle, std::uint64_t child_handle);
@@ -40,7 +39,9 @@ public:
     ConstNodeTraversalAccess Traversal() const { return ConstNodeTraversalAccess(nodes_); }
 
 private:
-    std::array<UINode, kMaxNodes> nodes_{};
+    NodeSlots nodes_{};
+    // No index below this one is free, so Create reuses the lowest free index without scanning the live ones.
+    std::uint32_t first_free_hint_ = 1U;
     std::uint64_t root_handle_ = UI_INVALID_HANDLE;
     std::vector<std::uint64_t> pending_creations_{};
     std::vector<std::uint64_t> pending_deletions_{};

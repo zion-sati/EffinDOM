@@ -230,6 +230,7 @@ GN_ARGS="
   skia_enable_pdf=false
   skia_emsdk_dir=\"${EMCC_EMSDK_DIR}\"
 ${GN_EXTRA_LDFLAGS}  extra_cflags=[
+    \"-ffile-prefix-map=${SKIA_DIR}/=./skia/\",
     \"-fno-rtti\",
     \"-fno-exceptions\",
     \"-I${SKIA_DIR}/third_party/externals/libpng\",

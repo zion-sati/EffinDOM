@@ -166,6 +166,7 @@ skia_use_system_freetype2=false
 skia_use_system_libjpeg_turbo=false
 skia_use_system_libpng=false
 skia_use_system_zlib=false
+extra_cflags=[\"-ffile-prefix-map=${SKIA_DIR}/=./skia/\"]
 "
 
 bold "-- Building libskia.a and libsvg.a..."

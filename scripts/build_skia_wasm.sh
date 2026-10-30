@@ -102,6 +102,8 @@ case "${SIMD_MODE}" in
     ;;
 esac
 FORCE=false
+# Bump when the Skia compile flags change, so a staged build made with the old flags is rebuilt rather than reused.
+SKIA_FLAGS_STAMP="file-prefix-map-1"
 
 GN_EXTRA_CFLAGS_LIST=()
 GN_EXTRA_LDFLAGS_LIST=()
@@ -179,7 +181,7 @@ if [ -n "${EFFINDOM_WASM_DEPS_ROOT:-}" ]; then
 fi
 
 # ── Skip if the staged archive is already present ─────────────────────────────
-if [ "${SKIA_PREP_ONLY:-0}" != "1" ] && [ "$FORCE" = false ] && [ -f "$STAGING/libskia.a" ] && [ -f "$STAGING/libsvg.a" ] && [ -f "$STAGING/libskshaper.a" ] && [ -f "$STAGING/modules/svg/include/SkSVGDOM.h" ] && [ -f "$STAGING/modules/skresources/include/SkResources.h" ] && [ -f "$STAGING/modules/skshaper/include/SkShaper_factory.h" ] && [ -f "$STAGING/src/core/SkTHash.h" ] && [ -f "$STAGING/src/base/SkMathPriv.h" ] && [ -f "$STAGING/third_party/externals/expat/expat/lib/expat.h" ] && [ -f "$STAGING/third_party/expat/include/expat_config/expat_config.h" ]; then
+if [ "${SKIA_PREP_ONLY:-0}" != "1" ] && [ "$FORCE" = false ] && [ "$(cat "$STAGING/.effindom-skia-flags" 2>/dev/null)" = "$SKIA_FLAGS_STAMP" ] && [ -f "$STAGING/libskia.a" ] && [ -f "$STAGING/libsvg.a" ] && [ -f "$STAGING/libskshaper.a" ] && [ -f "$STAGING/modules/svg/include/SkSVGDOM.h" ] && [ -f "$STAGING/modules/skresources/include/SkResources.h" ] && [ -f "$STAGING/modules/skshaper/include/SkShaper_factory.h" ] && [ -f "$STAGING/src/core/SkTHash.h" ] && [ -f "$STAGING/src/base/SkMathPriv.h" ] && [ -f "$STAGING/third_party/externals/expat/expat/lib/expat.h" ] && [ -f "$STAGING/third_party/expat/include/expat_config/expat_config.h" ]; then
   green "=== Skia already built at $STAGING (libskia.a) — skipping (use --force to rebuild) ==="
   exit 0
 fi
@@ -535,6 +537,7 @@ GN_ARGS="
   skia_emsdk_dir=\"${EMCC_EMSDK_DIR}\"
 ${GN_EXTRA_LDFLAGS}  extra_cflags=[
 ${GN_EXTRA_CFLAGS}
+    \"-ffile-prefix-map=${SKIA_DIR}/=./skia/\",
     \"-DSK_DAWN\",
     \"-DSK_GRAPHITE\",
     \"-DWGPU_BREAKING_CHANGE_STRING_VIEW_OUTPUT_STRUCTS\",
@@ -597,6 +600,7 @@ mkdir -p "$STAGING/third_party/expat/include"
 cp -r third_party/expat/include/expat_config "$STAGING/third_party/expat/include/"
 
 rm -f "${STAGING}"/effindom-core-*.wasm "${STAGING}"/effindom-core64-*.wasm "${STAGING}/skia.version"
+printf '%s\n' "$SKIA_FLAGS_STAMP" > "$STAGING/.effindom-skia-flags"
 
 green ""
 green "=== Skia build complete ==="

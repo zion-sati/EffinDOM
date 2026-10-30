@@ -11,6 +11,16 @@ endif()
 
 project(EffinDom LANGUAGES CXX)
 
+# Published binaries embed no machine paths. __FILE__ in assert messages, debug info and macro expansions name the
+# source tree as ./ and the build tree as ./build/, for this project and every dependency compiled after this point
+# (FetchContent sources live under the source tree). scripts/check-artifact-paths.mjs rejects artifacts that still
+# name an absolute home directory. MSVC builds have no equivalent here yet; the artifact check covers them.
+if(NOT MSVC)
+    add_compile_options(
+        "-ffile-prefix-map=${CMAKE_SOURCE_DIR}/=./"
+        "-ffile-prefix-map=${CMAKE_BINARY_DIR}/=./build/")
+endif()
+
 include(cmake/EffinDomTargetArchitecture.cmake)
 include(cmake/EffinDomFetchContentSources.cmake)
 include(CTest)
@@ -94,9 +104,14 @@ if(NOT (EMSCRIPTEN AND EFFINDOM_WASM_DEPS_ROOT))
 endif()
 
 if(EMSCRIPTEN AND EFFINDOM_WASM_DEPS_ROOT)
+    # The prebuilt SDK's headers compile into this project too; name their root as ./deps/.
+    add_compile_options("-ffile-prefix-map=${EFFINDOM_WASM_DEPS_ROOT}/=./deps/")
     include(cmake/PrebuiltWasmDeps.cmake)
     effindom_use_prebuilt_wasm_deps()
 elseif(NOT EMSCRIPTEN AND EFFINDOM_NATIVE_DEPS_MODE STREQUAL "prebuilt")
+    if(NOT MSVC)
+        add_compile_options("-ffile-prefix-map=${EFFINDOM_NATIVE_DEPS_ROOT}/=./deps/")
+    endif()
     include(cmake/PrebuiltNativeDeps.cmake)
     effindom_use_prebuilt_native_deps()
 else()

@@ -75,28 +75,6 @@ EM_JS(int, effindom_v2_should_use_explicit_swap_control, (), {
     return 0;
 });
 
-EM_JS(void, effindom_v2_install_webgl_context_lost_handler, (), {
-    if (typeof Module === 'undefined' || !Module) {
-        return;
-    }
-    if (Module.__effindomV2WebGlContextLostInstalled === true) {
-        return;
-    }
-    const canvas = Module.canvas instanceof HTMLCanvasElement
-        ? Module.canvas
-        : document.querySelector('#fui-canvas');
-    if (!(canvas instanceof HTMLCanvasElement)) {
-        return;
-    }
-    canvas.addEventListener('webglcontextlost', (event) => {
-        event.preventDefault();
-        if (typeof Module._ed_notify_webgl_context_lost === 'function') {
-            Module._ed_notify_webgl_context_lost();
-        }
-    }, false);
-    Module.__effindomV2WebGlContextLostInstalled = true;
-});
-
 void NotifyBackendChanged() {
     effindom_v2_backend_changed(static_cast<int>(g_state.active_backend));
 }
@@ -223,7 +201,9 @@ void StartWebGlInit() {
         return;
     }
 
-    effindom_v2_install_webgl_context_lost_handler();
+    // Context loss reaches the core through the browser bridge's own 'webglcontextlost' listener, which calls
+    // ed_notify_webgl_context_lost and is removed with its runtime. A listener added here would stay on the shared
+    // canvas after the runtime is replaced and keep that runtime's module and memory alive.
     emscripten_webgl_enable_extension(g_state.gl_ctx, "EXT_texture_filter_anisotropic");
     emscripten_webgl_enable_extension(g_state.gl_ctx, "WEBGL_debug_renderer_info");
 

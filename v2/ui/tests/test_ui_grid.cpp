@@ -156,6 +156,92 @@ TEST_CASE("v2 ui grid lays out fixed pixel tracks", "[v2][ui][grid]") {
     CHECK(bounds.at(b).height == Approx(40.0f));
 }
 
+TEST_CASE("v2 ui grid sizes itself to all its tracks in a shrink-to-fit parent", "[v2][ui][grid]") {
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t grid = ui_create_node(UI_NODE_GRID);
+    const std::uint64_t label = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t value = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t note = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t tall = ui_create_node(UI_NODE_FLEX_BOX);
+
+    // An auto column, a 100 px column and a star column; a 28 px row and an auto row.
+    const float columns[] = {0.0f, 100.0f, 1.0f};
+    const std::uint8_t column_types[] = {UI_GRID_UNIT_AUTO, UI_GRID_UNIT_PIXEL, UI_GRID_UNIT_STAR};
+    const float rows[] = {28.0f, 0.0f};
+    const std::uint8_t row_types[] = {UI_GRID_UNIT_PIXEL, UI_GRID_UNIT_AUTO};
+
+    ui_set_root(root);
+    ui_set_width(root, 600.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 300.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_align_items(root, UI_ALIGN_ITEMS_START);
+    ui_grid_set_columns(grid, 3U, columns, column_types);
+    ui_grid_set_rows(grid, 2U, rows, row_types);
+    ui_set_width(label, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(label, 20.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(note, 50.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(tall, 30.0f, UI_SIZE_UNIT_PIXEL);
+    ui_node_add_child(root, grid);
+    ui_node_add_child(grid, label);
+    ui_node_add_child(grid, value);
+    ui_node_add_child(grid, note);
+    ui_node_add_child(grid, tall);
+    ui_node_set_grid_placement(label, 0U, 0U, 1U, 1U);
+    ui_node_set_grid_placement(value, 0U, 1U, 1U, 1U);
+    ui_node_set_grid_placement(note, 0U, 2U, 1U, 1U);
+    ui_node_set_grid_placement(tall, 1U, 0U, 1U, 1U);
+
+    ui_commit_frame();
+    const auto bounds = ReadBounds(ReadCommandBuffer());
+    REQUIRE(bounds.find(grid) != bounds.end());
+    REQUIRE(bounds.find(value) != bounds.end());
+    REQUIRE(bounds.find(note) != bounds.end());
+
+    // The star column holds its content, as an auto column does, when the grid sizes to its content.
+    CHECK(bounds.at(grid).width == Approx(80.0f + 100.0f + 50.0f));
+    CHECK(bounds.at(grid).height == Approx(28.0f + 30.0f));
+    CHECK(bounds.at(value).x == Approx(80.0f));
+    CHECK(bounds.at(value).width == Approx(100.0f));
+    CHECK(bounds.at(note).x == Approx(180.0f));
+    CHECK(bounds.at(note).width == Approx(50.0f));
+}
+
+TEST_CASE("v2 ui grid shrinks only its star tracks when there is less room than its content", "[v2][ui][grid]") {
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t grid = ui_create_node(UI_NODE_GRID);
+    const std::uint64_t fixed = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t wide = ui_create_node(UI_NODE_FLEX_BOX);
+
+    const float columns[] = {100.0f, 1.0f};
+    const std::uint8_t column_types[] = {UI_GRID_UNIT_PIXEL, UI_GRID_UNIT_STAR};
+    const float rows[] = {20.0f};
+    const std::uint8_t row_types[] = {UI_GRID_UNIT_PIXEL};
+
+    ui_set_root(root);
+    ui_set_width(root, 160.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 100.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_align_items(root, UI_ALIGN_ITEMS_START);
+    ui_grid_set_columns(grid, 2U, columns, column_types);
+    ui_grid_set_rows(grid, 1U, rows, row_types);
+    ui_set_width(wide, 300.0f, UI_SIZE_UNIT_PIXEL);
+    ui_node_add_child(root, grid);
+    ui_node_add_child(grid, fixed);
+    ui_node_add_child(grid, wide);
+    ui_node_set_grid_placement(fixed, 0U, 0U, 1U, 1U);
+    ui_node_set_grid_placement(wide, 0U, 1U, 1U, 1U);
+
+    ui_commit_frame();
+    const auto bounds = ReadBounds(ReadCommandBuffer());
+    REQUIRE(bounds.find(grid) != bounds.end());
+
+    // Within 160 px the 100 px column keeps its size and the star column takes what is left.
+    CHECK(bounds.at(grid).width == Approx(160.0f));
+    CHECK(bounds.at(fixed).width == Approx(100.0f));
+}
+
 TEST_CASE("v2 ui grid applies padding to track layout", "[v2][ui][grid]") {
     ui_reset();
 
@@ -495,6 +581,54 @@ TEST_CASE("v2 ui grid helper paths restore point percent and undefined styles", 
     CHECK(YGNodeStyleGetHeight(resolved_percent_child->yg_node).unit == YGUnitPercent);
     CHECK(YGNodeStyleGetWidth(resolved_undefined_child->yg_node).unit == YGUnitAuto);
     CHECK(YGNodeStyleGetHeight(resolved_undefined_child->yg_node).unit == YGUnitAuto);
+}
+
+TEST_CASE("v2 ui grid sizes auto tracks to a child's explicit width and height", "[v2][ui][grid]") {
+    ui_reset();
+
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t grid = ui_create_node(UI_NODE_GRID);
+    const std::uint64_t sized = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t neighbour = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t below = ui_create_node(UI_NODE_FLEX_BOX);
+    REQUIRE(root != UI_INVALID_HANDLE);
+    REQUIRE(grid != UI_INVALID_HANDLE);
+    REQUIRE(sized != UI_INVALID_HANDLE);
+    REQUIRE(neighbour != UI_INVALID_HANDLE);
+    REQUIRE(below != UI_INVALID_HANDLE);
+
+    const float columns[] = {0.0f, 100.0f};
+    const std::uint8_t column_types[] = {UI_GRID_UNIT_AUTO, UI_GRID_UNIT_PIXEL};
+    const float rows[] = {0.0f, 20.0f};
+    const std::uint8_t row_types[] = {UI_GRID_UNIT_AUTO, UI_GRID_UNIT_PIXEL};
+
+    ui_set_root(root);
+    ui_set_width(root, 400.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_grid_set_columns(grid, 2U, columns, column_types);
+    ui_grid_set_rows(grid, 2U, rows, row_types);
+    ui_set_width(sized, 180.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(sized, 30.0f, UI_SIZE_UNIT_PIXEL);
+    ui_node_add_child(root, grid);
+    ui_node_add_child(grid, sized);
+    ui_node_add_child(grid, neighbour);
+    ui_node_add_child(grid, below);
+    ui_node_set_grid_placement(sized, 0U, 0U, 1U, 1U);
+    ui_node_set_grid_placement(neighbour, 0U, 1U, 1U, 1U);
+    ui_node_set_grid_placement(below, 1U, 0U, 1U, 1U);
+
+    ui_commit_frame();
+    const auto bounds = ReadBounds(ReadCommandBuffer());
+    REQUIRE(bounds.find(sized) != bounds.end());
+    REQUIRE(bounds.find(neighbour) != bounds.end());
+    REQUIRE(bounds.find(below) != bounds.end());
+
+    CHECK(bounds.at(sized).width == Approx(180.0f));
+    CHECK(bounds.at(sized).height == Approx(30.0f));
+    CHECK(bounds.at(neighbour).x - bounds.at(sized).x == Approx(180.0f));
+    CHECK(bounds.at(neighbour).height == Approx(30.0f));
+    CHECK(bounds.at(below).y - bounds.at(sized).y == Approx(30.0f));
+    CHECK(bounds.at(below).width == Approx(180.0f));
 }
 
 TEST_CASE("v2 ui grid distributes spanning auto tracks before zeroing remaining star space", "[v2][ui][grid]") {

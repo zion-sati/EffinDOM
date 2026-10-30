@@ -1,0 +1,562 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="color-scheme" content="light dark">
+    <title>HTML, CSS and JavaScript should have died years ago | EffinDOM</title>
+    <meta name="description" content="HTML keeps giving up, so we keep building private UI frameworks inside it. EffinDOM is my attempt to replace that mess rather than add another layer to it.">
+    <link rel="canonical" href="https://effindom.dev/why-web-born/">
+    <meta property="og:type" content="article">
+    <meta property="og:title" content="HTML, CSS and JavaScript should have died years ago">
+    <meta property="og:description" content="HTML keeps giving up, so we keep building private UI frameworks inside it. EffinDOM is my attempt to replace that mess.">
+    <meta property="og:url" content="https://effindom.dev/why-web-born/">
+    <style>
+      :root {
+        color-scheme: light dark;
+        --page: #f3f0e8;
+        --paper: #fbf9f3;
+        --ink: #17201f;
+        --muted: #596461;
+        --line: #c9d0ca;
+        --accent: #006b58;
+        --accent-strong: #004d40;
+        --accent-soft: #d8ece4;
+        --code: #e9ece7;
+        --warning: #9c3d10;
+        --max: 1160px;
+        --copy: 760px;
+      }
+
+      @media (prefers-color-scheme: dark) {
+        :root {
+          --page: #0b1110;
+          --paper: #111a18;
+          --ink: #edf4f0;
+          --muted: #a8b7b1;
+          --line: #31423d;
+          --accent: #63d4b7;
+          --accent-strong: #91e4ce;
+          --accent-soft: #173a32;
+          --code: #18231f;
+          --warning: #ff9a68;
+        }
+      }
+
+      * { box-sizing: border-box; }
+
+      html { scroll-behavior: smooth; }
+
+      body {
+        margin: 0;
+        background:
+          radial-gradient(circle at 10% 0%, color-mix(in srgb, var(--accent) 13%, transparent), transparent 34rem),
+          var(--page);
+        color: var(--ink);
+        font-family: "Avenir Next", Avenir, "Segoe UI", sans-serif;
+        line-height: 1.68;
+      }
+
+      a { color: var(--accent-strong); text-underline-offset: 0.18em; }
+      a:hover { text-decoration-thickness: 0.14em; }
+
+      .shell { width: min(calc(100% - 40px), var(--max)); margin: 0 auto; }
+
+      header {
+        border-bottom: 1px solid var(--line);
+        background: color-mix(in srgb, var(--paper) 88%, transparent);
+        backdrop-filter: blur(16px);
+      }
+
+      .topbar {
+        min-height: 64px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 24px;
+      }
+
+      .brand {
+        color: var(--ink);
+        font-weight: 750;
+        letter-spacing: -0.03em;
+        text-decoration: none;
+      }
+
+      .topbar nav { display: flex; gap: 20px; font-size: 0.9rem; }
+      .topbar nav a { color: var(--muted); text-decoration: none; }
+
+      .hero {
+        padding: clamp(76px, 11vw, 150px) 0 clamp(70px, 10vw, 126px);
+        border-bottom: 1px solid var(--line);
+      }
+
+      .kicker,
+      .section-number {
+        color: var(--accent-strong);
+        font-family: "SFMono-Regular", Consolas, monospace;
+        font-size: 0.76rem;
+        font-weight: 700;
+        letter-spacing: 0.13em;
+        text-transform: uppercase;
+      }
+
+      h1 {
+        max-width: 980px;
+        margin: 22px 0 28px;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(3.2rem, 8.2vw, 7.4rem);
+        font-weight: 500;
+        letter-spacing: -0.065em;
+        line-height: 0.94;
+      }
+
+      .standfirst {
+        max-width: 780px;
+        margin: 0;
+        color: var(--muted);
+        font-size: clamp(1.15rem, 2vw, 1.45rem);
+        line-height: 1.5;
+      }
+
+      .byline {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 10px 24px;
+        margin-top: 34px;
+        color: var(--muted);
+        font-size: 0.9rem;
+      }
+
+      article { padding: 68px 0 96px; }
+
+      .article-grid {
+        display: grid;
+        grid-template-columns: minmax(0, var(--copy)) minmax(220px, 1fr);
+        gap: clamp(48px, 8vw, 112px);
+        align-items: start;
+      }
+
+      .copy > :first-child { margin-top: 0; }
+      .copy p, .copy li { font-size: 1.08rem; }
+      .copy p { margin: 0 0 1.45em; }
+
+      h2 {
+        margin: 3.2rem 0 1.05rem;
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(2rem, 4.2vw, 3.25rem);
+        font-weight: 500;
+        letter-spacing: -0.045em;
+        line-height: 1.08;
+      }
+
+      h3 {
+        margin: 2.4rem 0 0.8rem;
+        font-size: 1.1rem;
+        letter-spacing: -0.015em;
+      }
+
+      blockquote {
+        margin: 2.4rem 0;
+        padding: 1.35rem 0 1.35rem 1.6rem;
+        border-left: 4px solid var(--accent);
+        color: var(--ink);
+        font-family: Georgia, "Times New Roman", serif;
+        font-size: clamp(1.35rem, 2.8vw, 2rem);
+        line-height: 1.32;
+      }
+
+      ul { padding-left: 1.25rem; }
+      li { margin-bottom: 0.6rem; }
+
+      code, pre {
+        font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+      }
+
+      code {
+        padding: 0.08em 0.28em;
+        border-radius: 4px;
+        background: var(--code);
+        font-size: 0.9em;
+      }
+
+      pre {
+        overflow-x: auto;
+        margin: 2rem 0;
+        padding: 22px;
+        border: 1px solid var(--line);
+        border-radius: 14px;
+        background: var(--code);
+        font-size: 0.88rem;
+        line-height: 1.55;
+      }
+
+      pre code { padding: 0; background: transparent; }
+
+      .aside {
+        position: sticky;
+        top: 28px;
+        border-top: 3px solid var(--accent);
+        padding-top: 18px;
+      }
+
+      .aside p, .aside li { color: var(--muted); font-size: 0.9rem; }
+      .aside ul { list-style: none; padding: 0; }
+      .aside li { padding: 10px 0; border-bottom: 1px solid var(--line); }
+
+      .architecture {
+        margin: 2.5rem 0;
+        padding: 24px;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        background: var(--paper);
+      }
+
+      .architecture pre { margin: 0; border: 0; background: transparent; padding: 0; }
+
+      .fact-strip {
+        display: grid;
+        grid-template-columns: repeat(3, 1fr);
+        margin: 2.5rem 0;
+        border: 1px solid var(--line);
+        border-radius: 16px;
+        overflow: hidden;
+      }
+
+      .fact {
+        min-height: 128px;
+        padding: 20px;
+        background: var(--paper);
+      }
+
+      .fact + .fact { border-left: 1px solid var(--line); }
+      .fact strong { display: block; font-size: 1.55rem; letter-spacing: -0.04em; }
+      .fact span { color: var(--muted); font-size: 0.82rem; }
+
+      .limits {
+        margin: 2.6rem 0;
+        padding: 24px;
+        border: 1px solid color-mix(in srgb, var(--warning) 45%, var(--line));
+        border-radius: 16px;
+        background: color-mix(in srgb, var(--warning) 6%, var(--paper));
+      }
+
+      .limits h3 { margin-top: 0; color: var(--warning); }
+
+      .cta {
+        margin-top: 4rem;
+        padding: clamp(28px, 5vw, 48px);
+        border-radius: 22px;
+        background: var(--accent-soft);
+      }
+
+      .cta h2 { margin-top: 0; }
+
+      .disclosure {
+        margin-top: 3rem;
+        color: var(--muted);
+        font-size: 0.86rem !important;
+      }
+
+      .actions { display: flex; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+
+      .button {
+        display: inline-flex;
+        min-height: 44px;
+        align-items: center;
+        padding: 10px 16px;
+        border: 1px solid var(--accent);
+        border-radius: 999px;
+        color: var(--accent-strong);
+        font-weight: 700;
+        text-decoration: none;
+      }
+
+      .button.primary { background: var(--accent); color: #fff; }
+
+      footer {
+        padding: 34px 0;
+        border-top: 1px solid var(--line);
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+
+      @media (max-width: 820px) {
+        .article-grid { grid-template-columns: 1fr; }
+        .aside { position: static; order: -1; }
+        .fact-strip { grid-template-columns: 1fr; }
+        .fact + .fact { border-left: 0; border-top: 1px solid var(--line); }
+      }
+
+      @media (max-width: 560px) {
+        .shell { width: min(calc(100% - 28px), var(--max)); }
+        .topbar nav a:not(:last-child) { display: none; }
+        .hero { padding-top: 62px; }
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <div class="topbar shell">
+        <a class="brand" href="/">EffinDOM</a>
+        <nav aria-label="Article navigation">
+          <a href="https://fui-rs-demo.effindom.dev/">Live demo</a>
+          <a href="https://github.com/zion-sati/fui-rs">FUI-RS</a>
+          <a href="https://github.com/zion-sati/fui-as">FUI-AS</a>
+          <a href="/">Ecosystem</a>
+        </nav>
+      </div>
+    </header>
+
+    <main>
+      <section class="hero">
+        <div class="shell">
+          <p class="kicker">Founding article · EffinDOM</p>
+          <h1>HTML, CSS and JavaScript should have died years ago.</h1>
+          <p class="standfirst">We keep using a document format, a styling language and a scripting language as if they were one coherent application platform. They are not. EffinDOM is my attempt to replace the mess rather than add another abstraction on top of it.</p>
+          <div class="byline">
+            <span>By Zion Sati</span>
+            <span>August 2026</span>
+            <span>Feature-rich early access</span>
+          </div>
+        </div>
+      </section>
+
+      <article>
+        <div class="article-grid shell">
+          <div class="copy">
+            <p>I have wanted HTML, CSS and JavaScript gone as the application platform since before WebAssembly had a name.</p>
+
+            <p>Not improved. Not hidden under another framework. Gone.</p>
+
+            <p>That sounds ridiculous because the web won. HTML is everywhere. JavaScript runs everywhere. There are millions of developers, libraries for everything and an answer on Stack Overflow for every way the stack can betray you.</p>
+
+            <p>But ubiquity does not turn three historical accidents into a coherent application model. It merely makes replacing them extremely difficult.</p>
+
+            <p>You can see the failure every time HTML quietly gives up. A workflow graph is a good example. So is a timeline, waveform editor, diagram surface, node editor, game, or sufficiently ambitious text editor. The page around it remains HTML. The interesting part becomes canvas, SVG, WebGL, or a private pile of absolutely positioned elements.</p>
+
+            <p>We declare victory because pixels appeared. Then somebody tries to use the thing.</p>
+
+            <p>Does the mouse wheel scroll the page, pan the surface, or zoom it? Does trackpad pinch mean browser page zoom or graph zoom? What happens when a drag leaves the surface? Which layer owns pointer capture? Does keyboard focus enter it? Can a screen reader understand it? Does its hover state look remotely related to the application surrounding it?</p>
+
+            <p>The browser has no idea. The custom control provider decides, and every provider invents a different answer.</p>
+
+            <blockquote>The custom surface has become a second UI system embedded inside the first one.</blockquote>
+
+            <p>This is why sophisticated HTML5 controls so often feel wrong even when they look polished. The problem is not a missing CSS property. The control has no encompassing model of the application. Mouse handling, wheel momentum, pinch-to-zoom, touch arbitration, focus, selection, keyboard shortcuts, context menus and accessibility are rebuilt inside an island.</p>
+
+            <p>It works. So does a lot of technical debt.</p>
+
+            <h2>The hack inside the hack</h2>
+
+            <p>HTML is excellent at documents. It is also a practical way to build conventional forms. We turned it into a general application platform because it was already everywhere, not because a document tree, a cascade and a scripting language somehow formed a brilliant UI architecture.</p>
+
+            <p>When the document model runs out of vocabulary, the accepted answer is to insert a custom rendering surface and rebuild what is missing in JavaScript. That creates two owners for the same interaction:</p>
+
+            <ul>
+              <li>The browser owns page scrolling, page zoom, focus traversal, text input, accessibility and platform conventions.</li>
+              <li>The embedded surface owns its own hit testing, gesture state, camera, selection, rendering and often another accessibility approximation.</li>
+            </ul>
+
+            <p>The boundary is where applications become uncanny. Wheel input is captured when the user meant to scroll. Pinch changes the wrong scale. A drag gets stuck because the release happened elsewhere. Keyboard commands work until focus crosses into the island. The graph is themed, but not really part of the theme.</p>
+
+            <p>None of this is impossible to fix. Pointer Events, <code>touch-action</code>, ARIA, hidden editors, DOM overlays and a heroic quantity of JavaScript can reproduce almost anything.</p>
+
+            <p>But once a custom widget has implemented all of that, it has built a small UI framework. The next widget builds another one.</p>
+
+            <h2>A canvas is not a UI framework</h2>
+
+            <p>Replacing the entire page with one enormous canvas does not solve anything. It merely makes the island larger.</p>
+
+            <p>A canvas gives us pixels. It does not give us retained control identity, layout, focus, text editing, IME, selection, clipboard behavior, password-manager integration, browser find, semantics, accessibility, touch conventions, or platform-aware shortcuts.</p>
+
+            <p>This is where most canvas UI arguments go off the rails. A canvas is a framebuffer, not an application platform.</p>
+
+            <p>EffinDOM exists to provide the missing application model. Canvas is one presentation surface used by the browser host. It is not the architecture.</p>
+
+            <p>The runtime owns one retained tree for layout, controls, rendering, input, text, selection, scrolling and semantics. It then projects the parts that the host platform must own. In the browser that includes a semantic DOM, mirrored editor state, IME integration and browser-facing behavior. On native desktop it includes the operating system accessibility and input adapters.</p>
+
+            <div class="architecture" aria-label="FUI language SDKs and EffinDOM architecture">
+              <pre><code>       Your retained application
+                    │
+          ┌─────────┴─────────┐
+          ▼                   ▼
+       FUI-RS              FUI-AS
+    Rust application    AssemblyScript web
+         SDK                  SDK
+          └─────────┬─────────┘
+                    ▼
+                EffinDOM
+       layout · text · input · semantics
+               ╱                  ╲
+              ▼                    ▼
+       Browser/WASM          Native desktop
+        canvas + host       Metal · D3D12 · Vulkan</code></pre>
+            </div>
+
+            <p>The goal is not to ban platform-specific code. That would turn portability into a prison, and I have no interest in replacing one prison with another. The normal application path should be materially the same. Genuinely platform-specific capabilities should remain available behind clean boundaries.</p>
+
+            <h2>Why start with the browser?</h2>
+
+            <p>Most custom-rendered UI frameworks begin natively and later acquire a WebAssembly target. That is perfectly understandable. Native is easier.</p>
+
+            <p>EffinDOM went in the opposite direction.</p>
+
+            <p>I started in the browser precisely because it is harder. A non-DOM UI that merely draws correctly is not a credible web application. It has to participate in browser behaviour:</p>
+
+            <ul>
+              <li>Keyboard and touch text selection.</li>
+              <li>IME composition and CJK input.</li>
+              <li>Clipboard operations and platform shortcuts.</li>
+              <li>Password-manager and form integration.</li>
+              <li>Accessibility and semantic inspection.</li>
+              <li>Browser and retained find-on-page.</li>
+              <li>Routing, asynchronous fonts and lifecycle.</li>
+              <li>Page zoom, trackpad gestures and nested scrolling.</li>
+            </ul>
+
+            <p>Those requirements shaped the runtime before there was a native host. Once they worked, moving the same retained model to macOS, Windows and Linux was still a lot of work, but the direction was clean. The runtime already knew what the application meant. Native adapters connected that meaning to another host.</p>
+
+            <blockquote>EffinDOM is not a native framework with a canvas build. It was born on the web and ported outward.</blockquote>
+
+            <h2>The hybrid route is still a hybrid</h2>
+
+            <p>Cross-platform UI looks remarkably like the car industry.</p>
+
+            <p>Putting an HTML application inside Electron or a system WebView is the conventional hybrid. It gives the application a native body while carrying the browser drivetrain underneath. It is pragmatic. It also makes every application drag a browser around so we can pretend a website became native.</p>
+
+            <p>There is a cleverer middle ground: remove the WebView and render an HTML-oriented application model natively. That is a substantial engineering achievement. It is also the plug-in hybrid. Part of the drivetrain changed, but the application still begins with a model designed for the document web and now needs translation into another host.</p>
+
+            <p>EffinDOM and FUI are the EV bet. I am not trying to work out how to render HTML somewhere else. I am asking what should replace it.</p>
+
+            <p>The analogy also captures the uncomfortable part. HTML has had three decades to put petrol stations on every corner: component libraries, browser tooling, integrations, hosting, documentation, experienced developers and an answer for almost every failure.</p>
+
+            <p>FUI has a working drivetrain. Its charging network is young. Built-in controls, web and desktop hosts, packaging, official Agent Skills, documentation and access to ordinary language ecosystems cover a surprising amount. The third-party ecosystem does not have three decades behind it. Early adopters will occasionally need to plan the route themselves.</p>
+
+            <p>That is the bet. A useful platform creates demand for more controls and tooling. Better tooling makes the next application cheaper. Eventually the ecosystem develops gravity of its own.</p>
+
+            <h2>The control that made the claim real</h2>
+
+            <p>The hardest control was not a graph, shader or some impressive GPU demo. It was the boring multiline text box everybody assumes an operating system simply gives you: <code>TextArea</code>.</p>
+
+            <p>Text editing exposes every shortcut a UI framework is tempted to take. Monospaced fonts, fixed line heights, wrapping, non-wrapping, visible-line processing, incremental edits and static content all deserve specialised fast paths. Then those paths combine. Every combination must still preserve Unicode boundaries, caret movement, forward and reverse selection, scrolling, hit testing, clipboard behaviour, accessibility and font fallback.</p>
+
+            <p>On the web, EffinDOM renders the visible editor while mirrored DOM editor state stays synchronised for IME and browser integration. Text inputs also need the right semantics for password-manager extensions. A fast path that draws the correct pixels but breaks composition or caret geometry is not an optimisation. It is a bug with good frame time.</p>
+
+            <p>Find-on-page has the same character. The normal desktop shortcut opens EffinDOM's retained find experience. Browser-native find can search projected semantic text as well. Its highlight may use DOM font rendering that looks slightly different from the canvas text underneath. That is an honest host boundary, not a reason to pretend find does not exist.</p>
+
+            <h2>Why retained FUI?</h2>
+
+            <p>I did not want another framework that repeatedly rebuilds a description of the UI so it can diff that description against the UI it already had. FUI uses retained controls. Construct the control once. Keep its identity. Change the property that changed.</p>
+
+            <p>FUI-RS exposes that model to Rust. FUI-AS exposes the same controls and fluent conventions to AssemblyScript. The syntax belongs to each language; the runtime beneath them is shared.</p>
+
+            <p>A control keeps its identity. Focus, selection, editing state, scroll position, subscriptions and overlays remain attached to the thing the application created. Event handlers mutate the retained state they actually intend to change.</p>
+
+            <pre><code>use fui::prelude::*;
+
+fn build_page() -&gt; FlexBox {
+    ui! {
+        column().fill_size().padding(24.0, 24.0, 24.0, 24.0) {
+            text("One retained UI").font_size(28.0),
+            button("Run it").on_click(|_| {
+                logger::info("App", "Still the same button");
+            }),
+        }
+    }
+}
+
+fui_app!(FlexBox, build_page);</code></pre>
+
+            <pre><code>function buildPage(): FlexBox {
+  return Column(
+    new Text("One retained UI").fontSize(28.0),
+    new Button("Run it"),
+  ).fillSize().padding(24.0, 24.0, 24.0, 24.0);
+}</code></pre>
+
+            <p>The application model does not change just because the language does.</p>
+
+            <p>The C++ runtime underneath is deliberate. Rendering, layout, shaping, input and semantics are shared infrastructure for FUI-RS, FUI-AS and future language SDKs. A narrow ABI lets that runtime integrate with Skia, Yoga, HarfBuzz, ICU, SDL and native platform APIs without reimplementing the engine for every language.</p>
+
+            <h2>What exists today</h2>
+
+            <p>This is no longer a renderer experiment. EffinDOM runs in browsers through WebAssembly and natively on macOS, Windows and Linux. FUI-RS covers both environments, including ARM64 and x64 for each desktop operating system. FUI-AS is currently a browser SDK. Native applications embed neither Chromium nor a system WebView.</p>
+
+            <p>The same public application model covers retained controls, text editing, selection, IME, accessibility, touch interaction, custom drawing, remote UI assets, workers and themes. Routed universal projects can compile each browser route as an independent WASM micro-frontend while lazily composing the same retained page crates into one native shell.</p>
+
+            <p><code>cargo-fui</code> creates, builds and packages applications. Native packages are DMG on macOS, MSIX on Windows and AppImage on Linux. Native-only development does not require Node.js or npm.</p>
+
+            <div class="fact-strip" aria-label="Current footprint measurements">
+              <div class="fact"><strong>7.6 MB</strong><span>Approximate uncached web transfer, compressed</span></div>
+              <div class="fact"><strong>&lt; 500 KB</strong><span>Warm demo home-page transfer</span></div>
+              <div class="fact"><strong>42 MB</strong><span>Approximate macOS ARM64 demo bundle</span></div>
+            </div>
+
+            <p>Those figures were measured against the release demos. Of the approximately 7.6 MB compressed cold transfer, the shared EffinDOM core is about 1.9 MB, the UI runtime about 810 KB, ICU data about 2.4 MB, and the six built-in fonts about 2 MB in total. The remaining transfer includes the browser bridge, harness and application route.</p>
+
+            <p>The language-specific part is comparatively small. The FUI-RS home route application WASM was approximately 321 KB compressed; the FUI-AS home route was approximately 122 KB compressed. Demo-page images are excluded. The macOS bundle compressed to approximately 20 MB and started effectively instantly in manual testing. These are measurements, not cross-framework benchmark claims.</p>
+
+            <p>The runtime and built-in assets are content-addressed and reused within a top-level site across routes and FUI language SDKs. Browser cache partitioning means unrelated sites cannot be promised cross-site reuse.</p>
+
+            <h2>What does not exist yet</h2>
+
+            <div class="limits">
+              <h3>Feature-rich early access is still early access.</h3>
+              <ul>
+                <li>The public API is pre-1.0 and breaking changes remain possible.</li>
+                <li>iOS and Android are targets for later work, not supported platforms today.</li>
+                <li>The third-party control and integration ecosystem is young.</li>
+                <li>Linux AT-SPI exists, but validation across the wider desktop and screen-reader ecosystem remains early.</li>
+              </ul>
+            </div>
+
+            <p>The official FUI SDKs use AGPL/commercial dual licensing. The underlying EffinDOM runtime is licensed separately so other developers can build FUI-style SDKs for languages the official project cannot maintain. Commercial licensing is intended to fund continued maintenance and a durable team behind the platform.</p>
+
+            <h2>The point</h2>
+
+            <p>The web keeps proving that applications need more than documents. Our answer has been to place increasingly sophisticated private UI systems inside HTML and repair the seams one component at a time.</p>
+
+            <p>I refuse to believe another layer of JavaScript is the best civilisation can do.</p>
+
+            <p>EffinDOM is my attempt to replace the application UI model without throwing away the browser and operating-system integration users expect. FUI-RS and FUI-AS are its first application surfaces. It is far enough along to build real applications and early enough that somebody using it can still change its direction.</p>
+
+            <p>The first community application is <a href="https://github.com/jatm80/galaga-rs/">Galaga-RS</a>, a complete space shooter with a <a href="https://jatm80.github.io/galaga-rs/">live browser build</a>. That is one independent project, not an ecosystem. The next useful evidence is what somebody else tries to build and where the model fails them.</p>
+
+            <p class="disclosure">Disclosure: I used AI to help organise and edit this article. The argument, technical details, opinions and final approval are mine.</p>
+
+            <div class="cta">
+              <p class="section-number">Try the claim, not the pitch</p>
+              <h2>Open it. Scaffold it. Break it.</h2>
+              <p>Use the live demo, create a small universal application, and report what blocks a real project. This is the stage where technical criticism can still materially change the framework.</p>
+              <div class="actions">
+                <a class="button primary" href="https://fui-rs-demo.effindom.dev/">Open the live demo</a>
+                <a class="button" href="https://github.com/zion-sati/fui-rs">Read the FUI-RS quickstart</a>
+                <a class="button" href="https://github.com/zion-sati/fui-as">Explore FUI-AS</a>
+                <a class="button" href="https://github.com/zion-sati/cargo-fui">Install cargo-fui</a>
+              </div>
+            </div>
+          </div>
+
+          <aside class="aside" aria-label="Article reference links">
+            <p class="section-number">Reference</p>
+            <ul>
+              <li><a href="https://fui-rs-demo.effindom.dev/">Live FUI-RS demo</a></li>
+              <li><a href="https://fui-as-demo.effindom.dev/">Live FUI-AS demo</a></li>
+              <li><a href="https://github.com/zion-sati/fui-rs">FUI-RS source and SDK docs</a></li>
+              <li><a href="https://github.com/zion-sati/fui-as">FUI-AS source and SDK docs</a></li>
+              <li><a href="https://github.com/zion-sati/cargo-fui">cargo-fui tooling</a></li>
+              <li><a href="https://github.com/zion-sati/fui-rs-skills">Official Agent Skills</a></li>
+              <li><a href="https://github.com/jatm80/galaga-rs/">Galaga-RS source</a></li>
+              <li><a href="https://github.com/zion-sati/EffinDOM/blob/main/docs/WHY_EFFINDOM.md">Why EffinDOM exists</a></li>
+            </ul>
+          </aside>
+        </div>
+      </article>
+    </main>
+
+    <footer>
+      <div class="shell">EffinDOM ecosystem · Runtime MIT · Official FUI SDKs AGPL/commercial</div>
+    </footer>
+  </body>
+</html>

@@ -8,6 +8,7 @@ import type {
 import { EdBackendType, EdDeviceState } from '../../core-types';
 import type {
   ArchitectureSelection,
+  PreparedBinaryAsset,
   PreparedRuntimeAssets,
   PreparedWasmAsset,
   RequestedRendererBackend,
@@ -319,8 +320,14 @@ async function instantiatePreparedWasm(
   return { instance, module, compileMode: 'cached-module' };
 }
 
+async function takeBinaryAssetBytes(asset: PreparedBinaryAsset): Promise<Uint8Array> {
+  const prefetched = asset.prefetchedBytes;
+  asset.prefetchedBytes = null;
+  return await (prefetched ?? fetchBinaryAsset(asset.url, asset.integrity));
+}
+
 export async function loadIcuData(ui: UiModule, preparedAssets: PreparedRuntimeAssets): Promise<void> {
-  const bytes = await preparedAssets.icu.bytesPromise;
+  const bytes = await takeBinaryAssetBytes(preparedAssets.icu);
   const heapBytes = writeBytesToHeap(ui, bytes);
   try {
     ui._ui_register_icu_data(heapBytes.ptr, heapBytes.len);
@@ -356,7 +363,6 @@ function prepareWasmAsset(url: string, integrity: string | null): PreparedWasmAs
   return {
     url,
     integrity,
-    bytesPromise,
     modulePromise: bytesPromise.then(async (buffer) => await WebAssembly.compile(buffer)),
   };
 }
@@ -643,6 +649,8 @@ async function prepareRuntimeCandidate(
     deviceRecoveryCount: 0,
   };
 
+  const icuUrl = resolveManifestAssetUrl(manifestUrl, icuAsset.url);
+  const icuBytes = fetchBinaryAsset(icuUrl, icuAsset.integrity ?? null);
   const preparedAssets: PreparedRuntimeAssets = {
     manifest,
     selection,
@@ -656,12 +664,12 @@ async function prepareRuntimeCandidate(
       ...prepareWasmAsset(uiBundle.wasm, uiBundle.wasm_integrity ?? null),
     },
     icu: {
-      url: resolveManifestAssetUrl(manifestUrl, icuAsset.url),
+      url: icuUrl,
       integrity: icuAsset.integrity ?? null,
-      bytesPromise: fetchBinaryAsset(resolveManifestAssetUrl(manifestUrl, icuAsset.url), icuAsset.integrity ?? null),
+      prefetchedBytes: icuBytes,
     },
   };
-  const icuPromise = trackAsset(preparedAssets.icu.bytesPromise).catch((error: unknown) => {
+  const icuPromise = trackAsset(icuBytes).catch((error: unknown) => {
     const detail = error instanceof Error ? ` ${error.message}` : '';
     throw createErrorWithCause(`Failed to load ICU data from ${preparedAssets.icu.url}.${detail}`, error);
   });

@@ -41,3 +41,7 @@ fi
 rm -rf "${PACKAGE_DIST_DIR}/fonts"
 copy_runtime_package_font_assets "${PACKAGE_DIST_DIR}/fonts"
 node "${REPO_ROOT}/v2/browser-bridge/scripts/finalize_runtime_manifest.mjs" "${PACKAGE_DIST_DIR}"
+
+# The published package carries no machine paths (and, where EFFINDOM_IDENTITY_DENYLIST names one, no denylisted
+# strings); a leak fails the pack.
+node "${REPO_ROOT}/scripts/check-artifact-paths.mjs" "${PACKAGE_DIST_DIR}"

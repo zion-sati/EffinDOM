@@ -254,12 +254,6 @@ SkSamplingOptions MakeImageSamplingOptions(std::uint32_t sampling, std::uint32_t
 
 namespace {
 
-std::uint32_t IndexForNode(
-    const std::vector<detail::DisplayNode>& nodes,
-    const detail::DisplayNode& node) {
-    return static_cast<std::uint32_t>(&node - nodes.data());
-}
-
 std::size_t EstimateGlyphBlobBytes(const detail::DisplayNode& node) {
     constexpr std::size_t kGlyphBlobOverheadBytes = 128U;
     constexpr std::size_t kGlyphBlobBytesPerGlyph = 16U;
@@ -269,40 +263,34 @@ std::size_t EstimateGlyphBlobBytes(const detail::DisplayNode& node) {
 } // namespace
 
 detail::DisplayNode* Engine::Impl::ResolveMutable(std::uint64_t handle) {
-    const detail::HandleParts parts = detail::DecodeHandle(handle);
-    if (handle == ED_INVALID_HANDLE || parts.generation == 0 || parts.index >= nodes.size()) {
-        return nullptr;
-    }
-    detail::DisplayNode& node = nodes[parts.index];
-    if (!node.alive || node.generation != parts.generation) {
-        return nullptr;
-    }
-    return &node;
+    return const_cast<detail::DisplayNode*>(static_cast<const Engine::Impl&>(*this).Resolve(handle));
 }
 
 const detail::DisplayNode* Engine::Impl::Resolve(std::uint64_t handle) const {
     const detail::HandleParts parts = detail::DecodeHandle(handle);
-    if (handle == ED_INVALID_HANDLE || parts.generation == 0 || parts.index >= nodes.size()) {
+    if (handle == ED_INVALID_HANDLE || parts.generation == 0) {
         return nullptr;
     }
-    const detail::DisplayNode& node = nodes[parts.index];
-    if (!node.alive || node.generation != parts.generation) {
+    const detail::DisplayNode* node = nodes.Find(parts.index);
+    if (node == nullptr || !node->alive || node->generation != parts.generation) {
         return nullptr;
     }
-    return &node;
+    return node;
 }
 
 bool Engine::Impl::CreateNode(std::uint64_t handle) {
     const detail::HandleParts parts = detail::DecodeHandle(handle);
-    if (handle == ED_INVALID_HANDLE || parts.generation == 0 || parts.index >= nodes.size()) {
+    detail::DisplayNode* node =
+        handle == ED_INVALID_HANDLE || parts.generation == 0 ? nullptr : nodes.Ensure(parts.index);
+    if (node == nullptr) {
         return false;
     }
-    detail::DisplayNode& node = nodes[parts.index];
-    if (node.alive && node.generation == parts.generation) {
+    if (node->alive && node->generation == parts.generation) {
         return true;
     }
-    ReleaseGlyphBlobCache(node);
-    node.ResetForCreate(parts.generation);
+    ReleaseGlyphBlobCache(*node);
+    node->ResetForCreate(parts.generation);
+    node->slot_index = parts.index;
     return true;
 }
 
@@ -318,18 +306,16 @@ bool Engine::Impl::DeleteNode(std::uint64_t handle) {
 
 void Engine::Impl::ReleaseGlyphBlobCache(detail::DisplayNode& node) {
     if (node.glyph_blob_in_lru) {
-        const std::uint32_t index = IndexForNode(nodes, node);
         if (node.glyph_blob_prev_index != detail::kInvalidGlyphBlobCacheIndex) {
-            nodes[node.glyph_blob_prev_index].glyph_blob_next_index = node.glyph_blob_next_index;
+            nodes.Find(node.glyph_blob_prev_index)->glyph_blob_next_index = node.glyph_blob_next_index;
         } else {
             glyph_blob_lru_head = node.glyph_blob_next_index;
         }
         if (node.glyph_blob_next_index != detail::kInvalidGlyphBlobCacheIndex) {
-            nodes[node.glyph_blob_next_index].glyph_blob_prev_index = node.glyph_blob_prev_index;
+            nodes.Find(node.glyph_blob_next_index)->glyph_blob_prev_index = node.glyph_blob_prev_index;
         } else {
             glyph_blob_lru_tail = node.glyph_blob_prev_index;
         }
-        (void)index;
         cached_glyph_blob_bytes =
             cached_glyph_blob_bytes >= node.glyph_blob_estimated_bytes
             ? (cached_glyph_blob_bytes - node.glyph_blob_estimated_bytes)
@@ -360,19 +346,19 @@ void Engine::Impl::TouchGlyphBlobCache(detail::DisplayNode& node) {
     if (node.cached_glyph_blob == nullptr) {
         return;
     }
-    const std::uint32_t index = IndexForNode(nodes, node);
+    const std::uint32_t index = node.slot_index;
     node.glyph_blob_last_used_generation = render_generation;
     if (node.glyph_blob_in_lru && glyph_blob_lru_head == index) {
         return;
     }
     if (node.glyph_blob_in_lru) {
         if (node.glyph_blob_prev_index != detail::kInvalidGlyphBlobCacheIndex) {
-            nodes[node.glyph_blob_prev_index].glyph_blob_next_index = node.glyph_blob_next_index;
+            nodes.Find(node.glyph_blob_prev_index)->glyph_blob_next_index = node.glyph_blob_next_index;
         } else {
             glyph_blob_lru_head = node.glyph_blob_next_index;
         }
         if (node.glyph_blob_next_index != detail::kInvalidGlyphBlobCacheIndex) {
-            nodes[node.glyph_blob_next_index].glyph_blob_prev_index = node.glyph_blob_prev_index;
+            nodes.Find(node.glyph_blob_next_index)->glyph_blob_prev_index = node.glyph_blob_prev_index;
         } else {
             glyph_blob_lru_tail = node.glyph_blob_prev_index;
         }
@@ -384,7 +370,7 @@ void Engine::Impl::TouchGlyphBlobCache(detail::DisplayNode& node) {
     node.glyph_blob_prev_index = detail::kInvalidGlyphBlobCacheIndex;
     node.glyph_blob_next_index = glyph_blob_lru_head;
     if (glyph_blob_lru_head != detail::kInvalidGlyphBlobCacheIndex) {
-        nodes[glyph_blob_lru_head].glyph_blob_prev_index = index;
+        nodes.Find(glyph_blob_lru_head)->glyph_blob_prev_index = index;
     } else {
         glyph_blob_lru_tail = index;
     }
@@ -393,7 +379,7 @@ void Engine::Impl::TouchGlyphBlobCache(detail::DisplayNode& node) {
 
 void Engine::Impl::EvictGlyphBlobCaches() {
     while (glyph_blob_lru_tail != detail::kInvalidGlyphBlobCacheIndex) {
-        detail::DisplayNode& node = nodes[glyph_blob_lru_tail];
+        detail::DisplayNode& node = *nodes.Find(glyph_blob_lru_tail);
         const bool over_budget =
             cached_glyph_blob_bytes > detail::kGlyphBlobBudgetBytes &&
             glyph_blob_lru_tail != glyph_blob_lru_head;

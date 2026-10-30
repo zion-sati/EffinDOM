@@ -1,0 +1,105 @@
+name: WASM dependency SDK
+
+# Builds the browser dependency SDK (Skia, HarfBuzz, ICU, Yoga, WOFF2 and Brotli for every WASM lane) from this
+# commit, which a wasm-deps-* tag names, and uploads it with its provenance attested. The SDK is published by adding
+# the artifact's wasm-deps/ folder to EffinDOM-Native-Deps and its WasmDeps.lock.json to this repository.
+
+on:
+  push:
+    tags: ['wasm-deps-*']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  lane:
+    strategy:
+      fail-fast: true
+      matrix:
+        lane: [wasm32, wasm32-simd, wasm64, wasm64-simd]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - name: Free disk space for the Skia checkout and build
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          cache: npm
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 5.0.6
+      - name: Install build dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y cmake meson ninja-build python3 zstd
+      - name: Install package dependencies
+        run: npm ci
+      - name: Build the ${{ matrix.lane }} lane from source
+        env:
+          EFFINDOM_WASM_DEPS_MODE: source
+          EFFINDOM_WASM_LANES: ${{ matrix.lane }}
+          EFFINDOM_WASM_LANES_ONLY: '1'
+        run: bash v2/browser-bridge/scripts/build.sh
+      - name: Stage the lane
+        run: node scripts/wasm-deps/package.mjs --lane ${{ matrix.lane }} --stage "$RUNNER_TEMP/stage"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-deps-lane-${{ matrix.lane }}
+          path: ${{ runner.temp }}/stage
+          if-no-files-found: error
+          retention-days: 7
+
+  publish:
+    needs: lane
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 24
+      - uses: mymindstorm/setup-emsdk@v14
+        with:
+          version: 5.0.6
+      - name: Install packaging dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y zstd
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: wasm-deps-lane-*
+          path: ${{ runner.temp }}/stage
+          merge-multiple: true
+      - name: Package the SDK
+        run: |
+          git init -q "$RUNNER_TEMP/sdk"
+          node scripts/wasm-deps/package.mjs --from-stage "$RUNNER_TEMP/stage" \
+            --output-repo "$RUNNER_TEMP/sdk" --lock-file "$RUNNER_TEMP/sdk/WasmDeps.lock.json"
+          rm -rf "$RUNNER_TEMP/sdk/.git"
+          {
+            echo '## WASM dependency SDK'
+            echo
+            echo '```json'
+            cat "$RUNNER_TEMP/sdk/WasmDeps.lock.json"
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: |
+            ${{ runner.temp }}/sdk/wasm-deps/v1/wasm-web/*/manifest.json
+            ${{ runner.temp }}/sdk/wasm-deps/v1/wasm-web/*/parts/*
+      - uses: actions/upload-artifact@v4
+        with:
+          name: wasm-deps-sdk
+          path: ${{ runner.temp }}/sdk
+          if-no-files-found: error
+          retention-days: 90

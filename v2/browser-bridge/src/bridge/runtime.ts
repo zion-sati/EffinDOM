@@ -176,11 +176,19 @@ export function createBridgeRuntime(
     return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
   };
 
+  // The capture the hover sync last moved the hover to. A capture moves it once, when the capture starts; afterwards
+  // the UI router's reports of each move's leave and enter stand, so a commit mid-drag does not move the hover back to
+  // the captured node (and away from the node under the pointer) after every move.
+  let hoverSyncedCaptureHandle: bigint | null = null;
   const syncAppPointerHover = (): void => {
     const { x, y } = interactionState.getLastPointerPosition();
     const previousHandle = interactionState.getLastInteractivePointerHandle();
     const capturedHandle = interactionState.getCapturedPointerHandle();
     if (capturedHandle !== null) {
+      if (capturedHandle === hoverSyncedCaptureHandle) {
+        return;
+      }
+      hoverSyncedCaptureHandle = capturedHandle;
       if (previousHandle === capturedHandle) {
         return;
       }
@@ -191,6 +199,7 @@ export function createBridgeRuntime(
       dispatchAppPointerEvent(UI_EVENT_POINTER_ENTER, capturedHandle, x, y);
       return;
     }
+    hoverSyncedCaptureHandle = null;
     const pointerInsideCanvas = interactionState.isPointerInsideCanvas() || isLastPointerStillOverCanvas();
     if (!pointerInsideCanvas) {
       if (previousHandle !== null) {
@@ -444,6 +453,7 @@ export function createBridgeRuntime(
     },
     clearPointerHover: () => {
       interactionState.setLastInteractivePointerHandle(null);
+      hoverSyncedCaptureHandle = null;
     },
     refreshPointerHover: () => {
       syncAppPointerHover();

@@ -82,6 +82,11 @@ function(effindom_add_skia_target TARGET_NAME SKIA_DIR)
         if(EFFINDOM_SIMD)
             list(APPEND _EFFINDOM_WASM_EXPAT_CFLAGS -O3 -msimd128)
         endif()
+        # This custom command bypasses add_compile_options, so it maps the machine paths itself.
+        list(APPEND _EFFINDOM_WASM_EXPAT_CFLAGS
+            "-ffile-prefix-map=${SKIA_DIR}/=./skia/"
+            "-ffile-prefix-map=${CMAKE_SOURCE_DIR}/=./"
+            "-ffile-prefix-map=${CMAKE_BINARY_DIR}/=./build/")
         set(_expat_build_dir "${CMAKE_BINARY_DIR}/${TARGET_NAME}_expat")
         set(_expat_archive "${_expat_build_dir}/libexpat.a")
         set(_expat_xmlparse_o "${_expat_build_dir}/xmlparse.o")

@@ -268,13 +268,13 @@ void Engine::RegisterFont(
         : nullptr;
     if (typeface) {
         impl_->fonts[font_id] = std::move(typeface);
-        for (detail::DisplayNode& node : impl_->nodes) {
+        impl_->nodes.ForEachAllocated([this](std::uint32_t, detail::DisplayNode& node) {
             if (!node.alive || !node.has_glyph_run) {
-                continue;
+                return;
             }
             impl_->ReleaseGlyphBlobCache(node);
             node.glyph_blob_version += 1U;
-        }
+        });
     }
 #endif
 }
@@ -287,13 +287,13 @@ void Engine::UnregisterFont(std::uint32_t font_id) {
     if (font_id == 0U || impl_->fonts.erase(font_id) == 0U) {
         return;
     }
-    for (detail::DisplayNode& node : impl_->nodes) {
+    impl_->nodes.ForEachAllocated([this](std::uint32_t, detail::DisplayNode& node) {
         if (!node.alive || !node.has_glyph_run) {
-            continue;
+            return;
         }
         impl_->ReleaseGlyphBlobCache(node);
         node.glyph_blob_version += 1U;
-    }
+    });
 #endif
 }
 

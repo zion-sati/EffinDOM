@@ -25,6 +25,10 @@ double ElapsedMilliseconds(
 void LayoutCoordinator::ApplyLayoutStyles(std::uint64_t handle, std::uint64_t parent_handle) {
     UINode* node = writer_.Resolve(handle);
     if (node == nullptr || node->yg_node == nullptr) return;
+    // A grid's cells are not Yoga children, so a change inside them cannot dirty the grid: measure it again each pass.
+    if (node->is_grid) {
+        YGNodeMarkDirty(node->yg_node);
+    }
 
     if (node->has_width) {
         switch (node->width_unit) {

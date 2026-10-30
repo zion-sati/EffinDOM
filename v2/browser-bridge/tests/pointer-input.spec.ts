@@ -718,6 +718,192 @@ test('second touch cancels app touch routing without emitting stale pointer up',
   expect(result.pointerEvents.some((entry) => entry.eventType === 2)).toBe(false);
 });
 
+test('a press in the same frame as a move is delivered after that move\'s hover changes', async ({ page }) => {
+  await gotoBridgePage(page);
+  const scene = await buildNestedInteractiveBoxScene(page);
+  const canvas = await page.locator('#fui-canvas').boundingBox();
+  if (canvas === null) {
+    throw new Error('Expected the bridge canvas.');
+  }
+  const nextFrames = async (): Promise<void> => {
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => { resolve(); });
+        });
+      });
+    });
+  };
+  await page.mouse.move(canvas.x + 20, canvas.y + 20);
+  await nextFrames();
+  await page.evaluate(() => { window.EffinDomBrowserBridge?.getRuntime()?.resetLogs(); });
+
+  // Moves are coalesced to the next frame; a press sent before that frame must not overtake the move.
+  await page.mouse.click(canvas.x + 150, canvas.y + 130);
+  await nextFrames();
+
+  const events = await page.evaluate(() => (window.__bridgeLogs?.pointerEvents ?? []).map((entry) => `${String(entry.eventType)}:${entry.handle}`));
+  const childLeave = events.indexOf(`5:${scene.childHandle}`);
+  const parentEnter = events.indexOf(`4:${scene.parentHandle}`);
+  const parentDown = events.indexOf(`1:${scene.parentHandle}`);
+  expect(childLeave).toBeGreaterThanOrEqual(0);
+  expect(parentEnter).toBeGreaterThanOrEqual(0);
+  expect(parentDown).toBeGreaterThan(childLeave);
+  expect(parentDown).toBeGreaterThan(parentEnter);
+});
+
+test('hover changes reach the app once, so a commit during a press replays no stale leave', async ({ page }) => {
+  await gotoBridgePage(page);
+  const scene = await page.evaluate(() => {
+    const runtime = window.EffinDomBrowserBridge?.getRuntime();
+    const bridge = window.EffinDomBrowserBridge;
+    if (runtime === null || runtime === undefined || bridge === undefined) {
+      throw new Error('Bridge runtime is not ready.');
+    }
+    const ui = runtime.ui;
+    const toHandle = (handle: unknown): string =>
+      bridge.handleToString(handle as string | number | bigint | { valueOf(): unknown; toString(): string });
+    runtime.resetLogs();
+    runtime.resetAppSession();
+    ui._ui_reset();
+    const root = toHandle(ui._ui_create_node(0));
+    const parent = toHandle(ui._ui_create_node(0));
+    const text = toHandle(ui._ui_create_node(1));
+    ui._ui_set_root(root);
+    ui._ui_node_add_child(root, parent);
+    ui._ui_node_add_child(parent, text);
+    ui._ui_set_width(root, 320, 0);
+    ui._ui_set_height(root, 220, 0);
+    ui._ui_set_width(parent, 300, 0);
+    ui._ui_set_height(parent, 200, 0);
+    ui._ui_set_bg_color(parent, 0x2563ebff);
+    ui._ui_set_interactive(parent, 1);
+    ui._ui_set_width(text, 160, 0);
+    ui._ui_set_height(text, 40, 0);
+    ui._ui_set_font(text, 1, 24);
+    ui._ui_set_interactive(text, 1);
+    ui._ui_set_selectable(text, 1, 0x93c5fdff);
+    const bytes = new TextEncoder().encode('Selectable');
+    const pointer = bridge.toHeapPointer(ui, ui._malloc(bytes.length));
+    ui.HEAPU8.set(bytes, pointer.offset);
+    ui._ui_set_text(text, pointer.ptr, bytes.length);
+    ui._free(pointer.ptr);
+    runtime.commitFrame();
+    runtime.flushPendingCommit();
+    runtime.resetLogs();
+    return { parentHandle: parent, textHandle: text };
+  });
+  const canvas = await page.locator('#fui-canvas').boundingBox();
+  if (canvas === null) {
+    throw new Error('Expected the bridge canvas.');
+  }
+  const nextFrames = async (): Promise<void> => {
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => { resolve(); });
+        });
+      });
+    });
+  };
+  await page.mouse.move(canvas.x + 40, canvas.y + 20);
+  await nextFrames();
+  await page.mouse.down();
+  await page.mouse.up();
+  await nextFrames();
+  // A commit while the text is hovered records it as the hovered node for the post-commit hover sync.
+  await page.evaluate(() => { window.EffinDomBrowserBridge?.getRuntime()?.syncCommandBufferToCore(); });
+  await page.evaluate(() => { window.EffinDomBrowserBridge?.getRuntime()?.resetLogs(); });
+
+  // Move off the text onto the container and press in the same frame, then commit mid-press as an app handler would.
+  await page.mouse.move(canvas.x + 250, canvas.y + 150);
+  await page.mouse.down();
+  await page.evaluate(() => { window.EffinDomBrowserBridge?.getRuntime()?.syncCommandBufferToCore(); });
+  await page.mouse.up();
+  await nextFrames();
+
+  const events = await page.evaluate(() => (window.__bridgeLogs?.pointerEvents ?? []).map((entry) => `${String(entry.eventType)}:${entry.handle}`));
+  const down = events.indexOf(`1:${scene.parentHandle}`);
+  const up = events.indexOf(`2:${scene.parentHandle}`);
+  expect(down).toBeGreaterThanOrEqual(0);
+  expect(up).toBeGreaterThan(down);
+  expect(events.slice(down + 1, up).filter((entry) => entry.startsWith('5:') || entry.startsWith('4:'))).toEqual([]);
+  expect(events.filter((entry) => entry === `5:${scene.textHandle}`)).toHaveLength(1);
+  expect(events.filter((entry) => entry === `4:${scene.parentHandle}`)).toHaveLength(1);
+});
+
+test('a commit during a captured press keeps the hover on the node under the pointer', async ({ page }) => {
+  await gotoBridgePage(page);
+  const scene = await page.evaluate(() => {
+    const runtime = window.EffinDomBrowserBridge?.getRuntime();
+    const bridge = window.EffinDomBrowserBridge;
+    if (runtime === null || runtime === undefined || bridge === undefined) {
+      throw new Error('Bridge runtime is not ready.');
+    }
+    const ui = runtime.ui;
+    const toHandle = (handle: unknown): string =>
+      bridge.handleToString(handle as string | number | bigint | { valueOf(): unknown; toString(): string });
+    runtime.resetLogs();
+    runtime.resetAppSession();
+    ui._ui_reset();
+    const root = toHandle(ui._ui_create_node(0));
+    const pressed = toHandle(ui._ui_create_node(0));
+    const other = toHandle(ui._ui_create_node(0));
+    ui._ui_set_root(root);
+    ui._ui_node_add_child(root, pressed);
+    ui._ui_node_add_child(root, other);
+    ui._ui_set_flex_direction(root, 1);
+    ui._ui_set_width(root, 320, 0);
+    ui._ui_set_height(root, 220, 0);
+    for (const box of [pressed, other]) {
+      ui._ui_set_width(box, 150, 0);
+      ui._ui_set_height(box, 200, 0);
+      ui._ui_set_bg_color(box, 0x2563ebff);
+      ui._ui_set_interactive(box, 1);
+    }
+    runtime.commitFrame();
+    runtime.flushPendingCommit();
+    runtime.resetLogs();
+    return { pressedHandle: pressed, otherHandle: other };
+  });
+  const canvas = await page.locator('#fui-canvas').boundingBox();
+  if (canvas === null) {
+    throw new Error('Expected the bridge canvas.');
+  }
+  const nextFrames = async (): Promise<void> => {
+    await page.evaluate(async () => {
+      await new Promise<void>((resolve) => {
+        requestAnimationFrame(() => {
+          requestAnimationFrame(() => { resolve(); });
+        });
+      });
+    });
+  };
+  const commit = async (): Promise<void> => {
+    await page.evaluate(() => { window.EffinDomBrowserBridge?.getRuntime()?.syncCommandBufferToCore(); });
+  };
+  await page.mouse.move(canvas.x + 60, canvas.y + 100);
+  await nextFrames();
+  // The press captures the pointer to the pressed box, as a drag source's press does.
+  await page.mouse.down();
+  await commit();
+  await page.evaluate(() => { window.EffinDomBrowserBridge?.getRuntime()?.resetLogs(); });
+
+  // Move onto the other box while the press holds the capture, then commit as a drag's handlers would.
+  await page.mouse.move(canvas.x + 240, canvas.y + 100);
+  await nextFrames();
+  await commit();
+  await nextFrames();
+  await commit();
+  const events = await page.evaluate(() => (window.__bridgeLogs?.pointerEvents ?? []).map((entry) => `${String(entry.eventType)}:${entry.handle}`));
+  await page.mouse.up();
+
+  // The move's leave and enter arrive once; no commit moves the hover back to the captured box.
+  expect(events.filter((entry) => entry === `4:${scene.otherHandle}`)).toHaveLength(1);
+  expect(events.filter((entry) => entry === `5:${scene.otherHandle}`)).toEqual([]);
+  expect(events.filter((entry) => entry === `4:${scene.pressedHandle}`)).toEqual([]);
+});
+
 test('pointer callbacks include browser pointer metadata', async ({ page }) => {
   await gotoBridgePage(page);
   await buildInteractiveBoxScene(page);
