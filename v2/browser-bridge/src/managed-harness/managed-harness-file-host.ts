@@ -160,7 +160,7 @@ export function createManagedHarnessFileHost(dependencies: ManagedHarnessFileHos
     if (status === FILE_STATUS_SUCCESS) {
       payloadLength = bytes?.length ?? 0;
       if (payloadLength > session.textBufferSize) {
-        throw new Error('File read result exceeds the shared AssemblyScript text buffer.');
+        throw new Error('File read result exceeds the shared text buffer.');
       }
       if (payloadLength > 0 && bytes !== null) {
         new Uint8Array(session.memory.buffer, session.textBufferPtr, payloadLength).set(bytes);

@@ -43,7 +43,7 @@ export function writeFileListPayload(session: HarnessAppSession, files: readonly
     totalBytes += measureLengthPrefixedText(encodedId) + 8 + 8 + measureLengthPrefixedText(encodedName) + measureLengthPrefixedText(encodedMimeType);
   }
   if (totalBytes > session.textBufferSize) {
-    throw new Error('File picker payload exceeds the shared AssemblyScript text buffer.');
+    throw new Error('File picker payload exceeds the shared text buffer.');
   }
   const dataView = new DataView(session.memory.buffer, session.textBufferPtr, totalBytes);
   let byteOffset = 0;
@@ -71,7 +71,7 @@ export function writeWriterPayload(
   const encodedSecond = second === null ? null : encodeLengthPrefixedText(second);
   const totalBytes = 4 + measureLengthPrefixedText(encodedFirst) + (encodedSecond === null ? 0 : measureLengthPrefixedText(encodedSecond));
   if (totalBytes > session.textBufferSize) {
-    throw new Error('File bridge metadata exceeds the shared AssemblyScript text buffer.');
+    throw new Error('File bridge metadata exceeds the shared text buffer.');
   }
   const dataView = new DataView(session.memory.buffer, session.textBufferPtr, totalBytes);
   let byteOffset = 0;
@@ -100,7 +100,7 @@ export function writeExternalDropPayload(session: HarnessAppSession, items: read
     totalBytes += 4 + 8 + 4 + encodedId.length + 4 + encodedName.length + 4 + encodedMimeType.length;
   }
   if (totalBytes > session.textBufferSize) {
-    throw new Error('External drop payload exceeds the shared AssemblyScript text buffer.');
+    throw new Error('External drop payload exceeds the shared text buffer.');
   }
   const dataView = new DataView(session.memory.buffer, session.textBufferPtr, totalBytes);
   let byteOffset = 0;

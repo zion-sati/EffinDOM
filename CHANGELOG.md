@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.0 - 2026-11-03
+
+- The browser harness's loading overlay shows the runtime asset and built-in font progress on pages without the templates' overlay script, and an application can name what the overlay says it is loading (loadingDetail, on harness options and routed-harness routes).
+- The browser harness's error messages no longer assume an AssemblyScript application: an ABI mismatch, a missing wheel export and an overflowing shared text or key buffer are described for any SDK, so FUI-CS and FUI-RS users are not told to rebuild with FUI-AS.
+
 ## 0.3.0 - 2026-10-30
 
 - Grids size to their tracks: a grid in a shrink-to-fit parent includes its fixed tracks, and an Auto track over a child with an explicit width or height measures that size instead of 0.

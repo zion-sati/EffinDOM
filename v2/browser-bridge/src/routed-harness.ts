@@ -20,6 +20,8 @@ type NavigationMode = 'push' | 'replace' | 'pop';
 
 export type RoutedHarnessRoute = RoutedHarnessRouteSpec & {
   readonly matchPath?: string;
+  /** The loading overlay's text while the route's application loads; `Loading <wasmPath>` when absent. */
+  readonly loadingDetail?: string;
 };
 
 export interface RoutedHarnessManagerState {
@@ -171,6 +173,7 @@ export function startRoutedHarness<
       ...(config.hostEvents === undefined ? {} : { hostEvents: config.hostEvents }),
       ...(config.hostServices === undefined ? {} : { hostServices: config.hostServices }),
       ...(config.workerHostServices === undefined ? {} : { workerHostServices: config.workerHostServices }),
+      ...(route.loadingDetail === undefined ? {} : { loadingDetail: route.loadingDetail }),
     };
     const showLoadingOverlay = config.showLoadingOverlay?.(isWarmRouteSwap, route);
     appOptions.showLoadingOverlay = showLoadingOverlay ?? true;

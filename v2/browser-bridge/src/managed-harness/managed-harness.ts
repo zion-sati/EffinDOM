@@ -208,7 +208,9 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
   let activeAppLoadingOperation: LoadingOperation | null = null;
 
   window.addEventListener('effindom-loading-progress', (event) => {
-    const operation = activeAppLoadingOperation;
+    // Progress before an application loads, such as the runtime assets and fonts the harness starts with, belongs to
+    // the startup operation.
+    const operation = activeAppLoadingOperation ?? startupLoadingOperation;
     if (operation === null || loadingController === null || !(event instanceof CustomEvent)) {
       return;
     }
@@ -515,7 +517,7 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
       }
       const encoded = encoder.encode(route);
       if (encoded.length > session.textBufferSize) {
-        throw new Error('Route text exceeds the shared AssemblyScript text buffer.');
+        throw new Error('Route text exceeds the shared text buffer.');
       }
       if (encoded.length > 0) {
         const memory = new Uint8Array(session.memory.buffer, session.textBufferPtr, encoded.length);
@@ -687,7 +689,7 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
           const encoded = encoder.encode(arg);
           if (encoded.length > 0) {
             if (session.textBufferPtr === 0 || byteOffset + encoded.length > session.textBufferSize) {
-              throw new Error(`${context} exceeds the shared AssemblyScript text buffer.`);
+              throw new Error(`${context} exceeds the shared text buffer.`);
             }
             const memory = new Uint8Array(session.memory.buffer, session.textBufferPtr + byteOffset, encoded.length);
             memory.set(encoded);
@@ -703,7 +705,7 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
           if (payload.bytes.length > 0) {
             const alignedOffset = alignOffset(byteOffset, payload.alignment);
             if (session.textBufferPtr === 0 || alignedOffset + payload.bytes.length > session.textBufferSize) {
-              throw new Error(`${context} exceeds the shared AssemblyScript text buffer.`);
+              throw new Error(`${context} exceeds the shared text buffer.`);
             }
             const memory = new Uint8Array(session.memory.buffer, session.textBufferPtr + alignedOffset, payload.bytes.length);
             memory.set(payload.bytes);
@@ -1114,7 +1116,7 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
         if (!missingWheelExportLogged) {
           missingWheelExportLogged = true;
           console.error(
-            '[fui_host] AssemblyScript app does not export __fui_on_wheel_event; rebuild the app with the current @effindomv2/fui-as exports.',
+            '[fui_host] The application does not export __fui_on_wheel_event; rebuild it with the SDK release that matches this runtime.',
           );
         }
         return previousHandled;
@@ -1585,7 +1587,7 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
         }
         const encoded = encoder.encode(key);
         if (encoded.length > 256) {
-          throw new Error('Debug key event exceeds the shared AssemblyScript key buffer.');
+          throw new Error('Debug key event exceeds the shared key buffer.');
         }
         const memory = new Uint8Array(session.memory.buffer, session.keyBufferPtr, encoded.length);
         memory.set(encoded);
@@ -1708,7 +1710,10 @@ export function startManagedHarness(options: ManagedHarnessOptions): void {
     async function loadApp<Exports extends HarnessExports>(
       loadOptions: HarnessAppOptions<Exports>,
     ): Promise<HarnessContext<Exports>> {
-      const loadingOperation = beginAppLoading(loadOptions.showLoadingOverlay !== false, `Loading ${loadOptions.wasmPath}`);
+      const loadingOperation = beginAppLoading(
+        loadOptions.showLoadingOverlay !== false,
+        loadOptions.loadingDetail ?? `Loading ${loadOptions.wasmPath}`,
+      );
       if (loadOptions.recreateRuntimeBeforeLoad === true) {
         await recreateRuntime();
       } else {

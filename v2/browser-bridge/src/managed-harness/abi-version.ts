@@ -19,9 +19,9 @@ export function assertCompatibleAbi(runtime: BridgeRuntime): void {
   }
 
   throw new Error(
-    `EffinDom ABI mismatch: fui-as expects core ABI ${String(EXPECTED_EFFINDOM_CORE_ABI_VERSION)} ` +
-    `and ui ABI ${String(EXPECTED_EFFINDOM_UI_ABI_VERSION)}, but loaded core ABI ` +
-    `${String(actualCoreVersion)} and ui ABI ${String(actualUiVersion)}. ` +
-    'Rebuild/publish @effindomv2/runtime and @effindomv2/fui-as together.',
+    `EffinDOM ABI mismatch: the harness expects core ABI ${String(EXPECTED_EFFINDOM_CORE_ABI_VERSION)} ` +
+    `and UI ABI ${String(EXPECTED_EFFINDOM_UI_ABI_VERSION)}, but loaded core ABI ` +
+    `${String(actualCoreVersion)} and UI ABI ${String(actualUiVersion)}. ` +
+    'Serve the harness and the core and UI WebAssembly from the same EffinDOM runtime release.',
   );
 }

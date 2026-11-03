@@ -226,6 +226,8 @@ export interface HarnessOptions<Exports extends HarnessExports> {
   onDispose?(this: void, exports: Exports): void;
   onError?(this: void, error: unknown): void;
   showLoadingOverlay?: boolean;
+  /** The loading overlay's text while the application loads; `Loading <wasmPath>` when absent. */
+  loadingDetail?: string;
   loading?: false | LoadingIndicatorOptions;
   hostEvents?: HostEventsDefinition;
   hostServices?: HostServicesDefinition;

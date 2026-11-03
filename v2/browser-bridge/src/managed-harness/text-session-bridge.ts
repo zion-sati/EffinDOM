@@ -252,7 +252,7 @@ export class TextSessionBridge {
   writeTextCallbackPayload(session: TextSessionLike, text: string, context: string): number {
     const encoded = encoder.encode(text);
     if (encoded.length > session.textBufferSize) {
-      throw new Error(`${context} exceeds the shared AssemblyScript text buffer.`);
+      throw new Error(`${context} exceeds the shared text buffer.`);
     }
     if (encoded.length > 0) {
       const memory = new Uint8Array(this.getCurrentMemory().buffer, session.textBufferPtr, encoded.length);

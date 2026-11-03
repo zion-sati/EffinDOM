@@ -50,7 +50,7 @@ function writeTextPartsPayload(session: HarnessAppSession, values: readonly stri
     totalBytes += measureLengthPrefixedText(encoded);
   }
   if (totalBytes > session.textBufferSize) {
-    throw new Error(`${context} exceeds the shared AssemblyScript text buffer.`);
+    throw new Error(`${context} exceeds the shared text buffer.`);
   }
   const dataView = new DataView(session.memory.buffer, session.textBufferPtr, totalBytes);
   let byteOffset = 0;
