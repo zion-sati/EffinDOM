@@ -1,6 +1,7 @@
 #include "UiScrollCoordinator.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 namespace effindom::v2::ui {
@@ -8,6 +9,8 @@ namespace effindom::v2::ui {
 namespace {
 
 constexpr double kNominalFrameMs = 1000.0 / 60.0;
+// A pause this long between wheel events ends a wheel run, so the next one may scroll an ancestor.
+constexpr double kWheelLatchIdleMs = 150.0;
 constexpr float kTerminalMomentumVelocityPxPerSecond = 120.0f;
 constexpr float kTerminalMomentumFriction = 0.88f;
 constexpr float kMomentumStopDisplacementPx = 0.32f;
@@ -309,8 +312,40 @@ bool ScrollCoordinator::CanConsumeFromTarget(std::uint64_t start_handle, float d
     return false;
 }
 
+double ScrollCoordinator::SteadyNowMs() {
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+void ScrollCoordinator::SetClockForTesting(Clock now_ms) {
+    now_ms_ = std::move(now_ms);
+}
+
+bool ScrollCoordinator::WheelLatchActive(double now_ms) const {
+    const UINode* node = nodes_.Resolve(wheel_latched_handle_);
+    return node != nullptr && node->is_scroll_view && node->scroll_wheel_latching &&
+        now_ms - wheel_last_event_ms_ < kWheelLatchIdleMs;
+}
+
+// A wheel run keeps the scroll view it started on, at its edges too, as browsers latch wheel scrolling: only after a
+// pause does a wheel event look for the scroll view that can move again, which may be an ancestor.
+std::uint64_t ScrollCoordinator::WheelTarget(std::uint64_t start_handle, float delta_x, float delta_y) {
+    const double now_ms = now_ms_();
+    const bool latched = WheelLatchActive(now_ms);
+    wheel_last_event_ms_ = now_ms;
+    if (latched) return wheel_latched_handle_;
+    const std::uint64_t target = RetargetForDelta(start_handle, delta_x, delta_y, true);
+    const UINode* node = nodes_.Resolve(target);
+    wheel_latched_handle_ = UI_INVALID_HANDLE;
+    if (node != nullptr && node->is_scroll_view && node->scroll_wheel_latching) wheel_latched_handle_ = target;
+    return target;
+}
+
+bool ScrollCoordinator::WheelCanConsume(std::uint64_t start_handle, float delta_x, float delta_y) const {
+    return WheelLatchActive(now_ms_()) || CanConsumeFromTarget(start_handle, delta_x, delta_y);
+}
+
 void ScrollCoordinator::HandleWheel(std::uint64_t start_handle, float delta_x, float delta_y) {
-    const std::uint64_t handle = RetargetForDelta(start_handle, delta_x, delta_y, true);
+    const std::uint64_t handle = WheelTarget(start_handle, delta_x, delta_y);
     UINode* node = writer_.Resolve(handle);
     if (node == nullptr) return;
     node->scroll_velocity_x = 0.0f;
@@ -340,7 +375,9 @@ void ScrollCoordinator::HandlePreciseWheel(
     float delta_y,
     bool begins_gesture,
     bool ends_gesture) {
-    if (begins_gesture || precise_wheel_handle_ == UI_INVALID_HANDLE) {
+    // A trackpad gesture keeps its scroll view until it ends, unless that scroll view does not latch.
+    const UINode* gesture_node = nodes_.Resolve(precise_wheel_handle_);
+    if (begins_gesture || gesture_node == nullptr || !gesture_node->scroll_wheel_latching) {
         precise_wheel_handle_ = RetargetForDelta(start_handle, delta_x, delta_y, false);
     }
     UINode* node = writer_.Resolve(precise_wheel_handle_);
@@ -371,6 +408,7 @@ void ScrollCoordinator::ResetInteraction() {
     momentum_x_handle_ = UI_INVALID_HANDLE;
     momentum_y_handle_ = UI_INVALID_HANDLE;
     precise_wheel_handle_ = UI_INVALID_HANDLE;
+    wheel_latched_handle_ = UI_INVALID_HANDLE;
     has_touch_timestamp_ = false;
     last_touch_timestamp_ms_ = 0.0;
     ClearAutoScroll();

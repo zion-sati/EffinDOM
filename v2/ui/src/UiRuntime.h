@@ -337,6 +337,7 @@ public:
     bool SetScrollProxyTarget(std::uint64_t handle, std::uint64_t scroll_handle);
     bool SetScrollEnabled(std::uint64_t handle, bool enabled_x, bool enabled_y);
     bool SetScrollFriction(std::uint64_t handle, float friction);
+    bool SetScrollWheelLatching(std::uint64_t handle, bool latching);
     bool SetSmoothScrolling(std::uint64_t handle, bool smooth_scrolling);
     bool SetFocusable(std::uint64_t handle, bool focusable, std::int32_t tab_index);
     bool RequestFocus(std::uint64_t handle);

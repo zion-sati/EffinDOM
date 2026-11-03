@@ -1138,3 +1138,122 @@ TEST_CASE("v2 ui mouse drag cross-selection keeps its anchor for shift horizonta
     CHECK(GetRuntime().Selection().state().end_index == 4U);
     REQUIRE_FALSE(g_cross_selection_changes.empty());
 }
+
+namespace {
+
+struct NestedWheelScrolls {
+    std::uint64_t outer;
+    std::uint64_t inner;
+};
+
+// An 80 px inner scroll view (220 px of content) inside an 80 px outer one (320 px), with the pointer over the inner.
+NestedWheelScrolls CreateNestedWheelScrolls() {
+    const std::uint64_t root = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t outer = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t outer_content = ui_create_node(UI_NODE_FLEX_BOX);
+    const std::uint64_t inner = ui_create_node(UI_NODE_SCROLLVIEW);
+    const std::uint64_t inner_content = ui_create_node(UI_NODE_FLEX_BOX);
+    ui_set_root(root);
+    ui_set_width(root, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(root, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(outer_content, 200.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(outer_content, 320.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_width(inner_content, 80.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_height(inner_content, 220.0f, UI_SIZE_UNIT_PIXEL);
+    ui_set_smooth_scrolling(outer, false);
+    ui_set_smooth_scrolling(inner, false);
+    ui_node_add_child(root, outer);
+    ui_node_add_child(outer, outer_content);
+    ui_node_add_child(outer_content, inner);
+    ui_node_add_child(inner, inner_content);
+    ui_commit_frame();
+    // Ten pixels from the inner scroll view's end.
+    ui_set_scroll_offset(inner, 0.0f, 130.0f);
+    ui_commit_frame();
+    auto& runtime = effindom::v2::ui::GetRuntime();
+    runtime.Input().state().last_hovered_handle = inner;
+    runtime.Input().state().last_pointer_logical_x = 40.0f;
+    runtime.Input().state().last_pointer_logical_y = 40.0f;
+    return NestedWheelScrolls{outer, inner};
+}
+
+}  // namespace
+
+TEST_CASE("v2 ui a wheel run stays on its scroll view at the edge until the wheel pauses", "[v2][ui][input][wheel-latching]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    double now_ms = 1000.0;
+    const NestedWheelScrolls scrolls = CreateNestedWheelScrolls();
+    auto& runtime = GetRuntime();
+    (*runtime.scroll_coordinator_).SetClockForTesting([&now_ms]() { return now_ms; });
+
+    ui_on_wheel_event(0.0f, 20.0f);
+    CHECK(runtime.Resolve(scrolls.inner)->scroll_offset_y == Approx(140.0f));
+    CHECK(runtime.Resolve(scrolls.outer)->scroll_offset_y == Approx(0.0f));
+
+    // Still the same run: the inner scroll view is at its end, and the outer one does not move.
+    now_ms += 100.0;
+    CHECK(ui_wheel_scroll_can_consume(0.0f, 20.0f));
+    ui_on_wheel_event(0.0f, 20.0f);
+    now_ms += 140.0;
+    ui_on_wheel_event(0.0f, 20.0f);
+    CHECK(runtime.Resolve(scrolls.inner)->scroll_offset_y == Approx(140.0f));
+    CHECK(runtime.Resolve(scrolls.outer)->scroll_offset_y == Approx(0.0f));
+
+    // After a pause a new run starts, on the scroll view that can still move.
+    now_ms += 150.0;
+    ui_on_wheel_event(0.0f, 20.0f);
+    CHECK(runtime.Resolve(scrolls.inner)->scroll_offset_y == Approx(140.0f));
+    CHECK(runtime.Resolve(scrolls.outer)->scroll_offset_y == Approx(20.0f));
+
+    // That run is latched to the outer scroll view, so scrolling back up moves it rather than the inner one.
+    now_ms += 50.0;
+    ui_on_wheel_event(0.0f, -10.0f);
+    CHECK(runtime.Resolve(scrolls.outer)->scroll_offset_y == Approx(10.0f));
+    CHECK(runtime.Resolve(scrolls.inner)->scroll_offset_y == Approx(140.0f));
+}
+
+TEST_CASE("v2 ui a scroll view without wheel latching hands a wheel run on at its edge", "[v2][ui][input][wheel-latching]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    double now_ms = 1000.0;
+    const NestedWheelScrolls scrolls = CreateNestedWheelScrolls();
+    auto& runtime = GetRuntime();
+    (*runtime.scroll_coordinator_).SetClockForTesting([&now_ms]() { return now_ms; });
+    ui_set_scroll_wheel_latching(scrolls.inner, false);
+    CHECK_FALSE(runtime.Resolve(scrolls.inner)->scroll_wheel_latching);
+
+    ui_on_wheel_event(0.0f, 20.0f);
+    now_ms += 50.0;
+    ui_on_wheel_event(0.0f, 20.0f);
+    CHECK(runtime.Resolve(scrolls.inner)->scroll_offset_y == Approx(140.0f));
+    CHECK(runtime.Resolve(scrolls.outer)->scroll_offset_y == Approx(20.0f));
+}
+
+TEST_CASE("v2 ui a trackpad gesture keeps its scroll view only when it latches", "[v2][ui][input][wheel-latching]") {
+    using effindom::v2::ui::GetRuntime;
+
+    ui_reset();
+    const NestedWheelScrolls scrolls = CreateNestedWheelScrolls();
+    auto& runtime = GetRuntime();
+
+    runtime.HandlePreciseWheelEvent(0.0f, 20.0f, true, false);
+    runtime.HandlePreciseWheelEvent(0.0f, 20.0f, false, false);
+    CHECK(runtime.Resolve(scrolls.inner)->scroll_offset_y == Approx(140.0f));
+    CHECK(runtime.Resolve(scrolls.outer)->scroll_offset_y == Approx(0.0f));
+    runtime.HandlePreciseWheelEvent(0.0f, 0.0f, false, true);
+
+    ui_set_scroll_offset(scrolls.inner, 0.0f, 130.0f);
+    ui_commit_frame();
+    ui_set_scroll_wheel_latching(scrolls.inner, false);
+    runtime.HandlePreciseWheelEvent(0.0f, 20.0f, true, false);
+    runtime.HandlePreciseWheelEvent(0.0f, 20.0f, false, false);
+    CHECK(runtime.Resolve(scrolls.inner)->scroll_offset_y == Approx(140.0f));
+    CHECK(runtime.Resolve(scrolls.outer)->scroll_offset_y == Approx(20.0f));
+}

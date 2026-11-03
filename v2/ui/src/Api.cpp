@@ -421,6 +421,10 @@ void ui_set_scroll_friction(ui_handle_t handle, float friction) {
     (void)effindom::v2::ui::GetRuntime().SetScrollFriction(handle, friction);
 }
 
+void ui_set_scroll_wheel_latching(ui_handle_t handle, bool latching) {
+    (void)effindom::v2::ui::GetRuntime().SetScrollWheelLatching(handle, latching);
+}
+
 void ui_set_smooth_scrolling(ui_handle_t handle, bool smooth_scrolling) {
     (void)effindom::v2::ui::GetRuntime().SetSmoothScrolling(handle, smooth_scrolling);
 }

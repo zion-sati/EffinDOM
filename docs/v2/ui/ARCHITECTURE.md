@@ -202,6 +202,12 @@ void ui_request_focus(ui_handle_t handle);
 // content bounds during commit, clips descendants to the viewport, and emits `as_on_scroll()`
 // whenever the effective offset changes.
 void ui_set_scroll_offset(ui_handle_t handle, float offset_x, float offset_y);
+// Wheel latching (on by default): a mouse-wheel run keeps the scroll view it started on, at its edges too, until
+// the wheel pauses for 150 ms, as browsers latch wheel scrolling; only then may a wheel event scroll an ancestor.
+// While a run is latched, `ui_wheel_scroll_can_consume` reports it consumed, so the page does not scroll either.
+// A trackpad gesture keeps its scroll view until it ends. With latching off, the rest of a run moves on to the
+// nearest ancestor that can scroll.
+void ui_set_scroll_wheel_latching(ui_handle_t handle, bool latching);
 void ui_set_selectable(ui_handle_t handle, bool selectable, ui_color_t selection_color);
 // Marks any container as a cross-node text-selection region. During pointer drags and
 // Shift-based keyboard extension, Tier 2 flattens selectable descendant text nodes in

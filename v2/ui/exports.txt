@@ -88,6 +88,7 @@ _ui_set_scroll_proxy_target
 _ui_set_scroll_enabled
 _ui_set_scroll_friction
 _ui_set_smooth_scrolling
+_ui_set_scroll_wheel_latching
 _ui_set_focusable
 _ui_request_focus
 _ui_set_scroll_offset

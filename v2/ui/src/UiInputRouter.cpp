@@ -339,7 +339,7 @@ bool InputRouter::ActiveTouchScrollAllowsPullToRefresh() const {
 }
 
 bool InputRouter::WheelScrollCanConsume(float delta_x, float delta_y) const {
-    return scrolling_.CanConsumeFromTarget(
+    return scrolling_.WheelCanConsume(
         ResolveScrollTarget(UI_INVALID_HANDLE, state_.last_pointer_logical_x, state_.last_pointer_logical_y),
         delta_x,
         delta_y);

@@ -243,6 +243,9 @@ struct UINode {
     float smooth_scroll_target_x = 0.0f;
     float smooth_scroll_target_y = 0.0f;
     bool smooth_scrolling = true;
+    // A wheel run that starts on this scroll view stays on it at its edges, until the wheel pauses, rather than moving
+    // on to an ancestor mid-run, as browsers latch wheel scrolling.
+    bool scroll_wheel_latching = true;
     bool smooth_scroll_active = false;
     bool smooth_scroll_just_started = false;
     bool scroll_enabled_x = true;

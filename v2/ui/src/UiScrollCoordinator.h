@@ -11,6 +11,8 @@ class ScrollCoordinator {
 public:
     using NonWrappingContentWidthResolver = std::function<float(const UINode&, float)>;
     using FrictionResolver = std::function<float(const UINode&)>;
+    // Milliseconds on a monotonic clock, which wheel latching measures pauses with.
+    using Clock = std::function<double()>;
 
     ScrollCoordinator(
         NodeReader nodes,
@@ -56,6 +58,9 @@ public:
     bool CanScrollOnAxis(const UINode& node, bool horizontal) const;
     bool CanConsume(const UINode& node, bool horizontal, float delta, bool use_smooth_target = false) const;
     bool CanConsumeFromTarget(std::uint64_t start_handle, float delta_x, float delta_y) const;
+    // Whether a wheel event is consumed: by the scroll view a wheel run is latched to, or one that can scroll.
+    bool WheelCanConsume(std::uint64_t start_handle, float delta_x, float delta_y) const;
+    void SetClockForTesting(Clock now_ms);
     std::uint64_t RetargetForDelta(std::uint64_t start_handle, float delta_x, float delta_y, bool use_smooth_target = false) const;
     std::uint64_t FindScrollableAncestor(std::uint64_t start_handle) const;
     std::uint64_t FindCommonScrollableAncestor(std::uint64_t first_handle, std::uint64_t second_handle) const;
@@ -71,6 +76,9 @@ public:
     void Advance(double delta_ms) const;
 
 private:
+    static double SteadyNowMs();
+    std::uint64_t WheelTarget(std::uint64_t start_handle, float delta_x, float delta_y);
+    bool WheelLatchActive(double now_ms) const;
     float ViewportWidth(const UINode& node) const;
     float ViewportHeight(const UINode& node) const;
     void NotifyChanged(std::uint64_t handle, UINode& node) const;
@@ -93,6 +101,9 @@ private:
     std::uint64_t momentum_x_handle_ = UI_INVALID_HANDLE;
     std::uint64_t momentum_y_handle_ = UI_INVALID_HANDLE;
     std::uint64_t precise_wheel_handle_ = UI_INVALID_HANDLE;
+    Clock now_ms_ = &ScrollCoordinator::SteadyNowMs;
+    std::uint64_t wheel_latched_handle_ = UI_INVALID_HANDLE;
+    double wheel_last_event_ms_ = 0.0;
     bool has_touch_timestamp_ = false;
     double last_touch_timestamp_ms_ = 0.0;
 };

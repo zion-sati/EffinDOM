@@ -465,6 +465,7 @@ export interface UiModule {
   _ui_set_scroll_enabled(handle: WasmHandleLike, enabledX: number, enabledY: number): void;
   _ui_set_scroll_friction(handle: WasmHandleLike, friction: number): void;
   _ui_set_smooth_scrolling(handle: WasmHandleLike, smoothScrolling: number): void;
+  _ui_set_scroll_wheel_latching(handle: WasmHandleLike, latching: number): void;
   _ui_set_scroll_content_size(handle: WasmHandleLike, contentWidth: number, contentHeight: number): void;
   _ui_set_editable(handle: WasmHandleLike, editable: number): void;
   _ui_set_caret_color(handle: WasmHandleLike, color: number): void;

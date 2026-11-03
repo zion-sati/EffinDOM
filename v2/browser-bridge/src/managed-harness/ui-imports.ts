@@ -376,6 +376,9 @@ export function createUiImportModule(deps: UiImportDeps) {
     ui_set_smooth_scrolling(handle: AppHandleLike, smoothScrolling: number): void {
       deps.getRuntime().ui._ui_set_smooth_scrolling(toBigIntHandle(handle), smoothScrolling ? 1 : 0);
     },
+    ui_set_scroll_wheel_latching(handle: AppHandleLike, latching: number): void {
+      deps.getRuntime().ui._ui_set_scroll_wheel_latching(toBigIntHandle(handle), latching ? 1 : 0);
+    },
     ui_set_scroll_content_size(handle: AppHandleLike, contentWidth: number, contentHeight: number): void {
       deps.getRuntime().ui._ui_set_scroll_content_size(toBigIntHandle(handle), contentWidth, contentHeight);
     },

@@ -777,6 +777,15 @@ bool UiRuntime::SetScrollFriction(std::uint64_t handle, float friction) {
     return true;
 }
 
+bool UiRuntime::SetScrollWheelLatching(std::uint64_t handle, bool latching) {
+    UINode* node = ResolveMutable(handle);
+    if (node == nullptr || !node->is_scroll_view) {
+        return false;
+    }
+    node->scroll_wheel_latching = latching;
+    return true;
+}
+
 bool UiRuntime::SetSmoothScrolling(std::uint64_t handle, bool smooth_scrolling) {
     UINode* node = ResolveMutable(handle);
     if (node == nullptr || !node->is_scroll_view) {
